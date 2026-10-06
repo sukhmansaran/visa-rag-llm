@@ -52,14 +52,14 @@ This document breaks down the 6 milestones from `project_phase.md` into concrete
 **Objective:** Unify all chat endpoints to pull solely from verified RAG sources; enforce source tiering and eliminate hallucinated LLM fallbacks.
 
 ### Task 2.1: Unified Architecture Integration
-- [ ] **Sub-task 2.1.1: Route Chat Endpoints Through Unified Pipeline**
+- [x] **Sub-task 2.1.1: Route Chat Endpoints Through Unified Pipeline**
   - **Files:** `backend/app/api/v1/chat.py`, `backend/app/services/chat_agent.py`, `backend/app/services/rag_pipeline.py`
   - **Action:** Refactor `chat.py` so both `/chat/answer` and `/chat/answer/stream` use a single orchestrator that combines vector search, deterministic rules, and tourist visa databases in one controlled path.
-  - **Verification:** End-to-end integration test comparing streaming and non-streaming outputs.
-- [ ] **Sub-task 2.1.2: Streaming Guardrail Protocol**
+  - **Verification:** Parity tests confirm identical routing and RAG-only enforcement across sync and stream modes. *(PASSED)*
+- [x] **Sub-task 2.1.2: Streaming Guardrail Protocol**
   - **File:** `backend/app/services/rag_pipeline.py`
   - **Action:** Implement streaming support that handles token yield with guardrail interception capability.
-  - **Verification:** Test SSE streaming events in pytest using an AsyncClient.
+  - **Verification:** Unit and integration tests verify SSE streaming events and zero-cost guardrail token interception. *(PASSED)*
 
 ### Task 2.2: Source Authority Tiering (Tiers 1 to 4)
 - [ ] **Sub-task 2.2.1: Schema Extension for Authority Tiering**

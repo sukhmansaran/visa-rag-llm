@@ -10,7 +10,7 @@ from app.core.security import get_current_user, get_demo_user
 from app.models.user import User
 from app.models.chat_message import ChatMessage
 from app.api.v1.chat_schemas import ChatMessage as ChatMessageSchema, ChatResponse, SourceCitation
-from app.services.chat_agent import generate_chat_response, generate_chat_response_stream
+from app.services.rag_pipeline import rag_pipeline
 from app.services.guardrails.input_guardrail import input_guardrail
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -117,25 +117,31 @@ async def get_answer_stream(
         await db.commit()
         await db.close()  # Release DB connection before the long Ollama stream
         
-        # Stream generator
+        # Stream generator via authoritative RAG pipeline
         async def event_stream():
-            """Generate Server-Sent Events for streaming response."""
+            """Generate Server-Sent Events for streaming response via unified RAG pipeline."""
             full_response = ""
             
             try:
                 # Send session_id first
                 yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
                 
-                # Stream the response
-                async for chunk in generate_chat_response_stream(
+                # Stream the response through authoritative RAG pipeline
+                async for event in rag_pipeline.process_query_stream(
                     query=message.query,
-                    country=message.country,
-                    university=message.university,
+                    context_metadata={"country": message.country, "university": message.university},
                     chat_history=chat_history,
-                    db=None,  # Don't pass DB — avoid holding connection during stream
+                    db=None,
                 ):
-                    full_response += chunk
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                    event_type = event.get("type", "chunk")
+                    if event_type == "chunk":
+                        content = event.get("content", "")
+                        full_response += content
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': content})}\n\n"
+                    elif event_type == "guardrail_blocked":
+                        yield f"data: {json.dumps(event)}\n\n"
+                    elif event_type == "done":
+                        pass
                 
                 # Open a fresh DB session to save the assistant message
                 from app.core.database import AsyncSessionLocal
@@ -265,15 +271,15 @@ async def get_answer(
                 },
             )
         
-        from app.services.rag_pipeline import rag_pipeline
-        
         # Process query through the authoritative RAG pipeline
         rag_result = await rag_pipeline.process_query(
             query=message.query,
             context_metadata={
                 "country": message.country,
                 "university": message.university
-            }
+            },
+            chat_history=chat_history,
+            db=db,
         )
         answer = rag_result["answer"]
         rag_metrics = rag_result["metrics"]
