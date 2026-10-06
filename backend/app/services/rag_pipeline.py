@@ -113,8 +113,11 @@ class RAGPipeline:
 
         # 6. Grounded Generation (RAG-Only — Zero ungrounded fallback)
         has_evidence = bool(chunks) or bool(tourist_context)
+        conf_eval = self.calculate_algorithmic_confidence(chunks, has_tourist_db=bool(tourist_context))
+        metrics["confidence"] = conf_eval["score"]
+        metrics["confidence_level"] = conf_eval["level"]
 
-        if has_evidence:
+        if has_evidence and conf_eval["level"] != "INSUFFICIENT":
             context_blocks = []
             if chunks:
                 context_blocks.append(retrieval_service.prepare_context(chunks, max_context_length=1500))
@@ -141,13 +144,83 @@ class RAGPipeline:
             # Cache grounded result
             intent_cache.set(country, visa_type, intent, answer)
         else:
-            # RAG-ONLY POLICY: Reject answer when no verified sources exist
+            # RAG-ONLY POLICY: Reject answer when no verified sources or confidence is INSUFFICIENT
             answer = UNVERIFIED_EVIDENCE_REFUSAL
-            metrics["source"] = "no_evidence_refusal"
+            metrics["source"] = "no_evidence_refusal" if not has_evidence else "insufficient_confidence_refusal"
             metrics["llm_called"] = False
 
         metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
         return {"answer": answer, "metrics": metrics, "guardrail_blocked": False}
+
+    @staticmethod
+    def calculate_algorithmic_confidence(
+        chunks: List[Dict[str, Any]],
+        has_tourist_db: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Calculate algorithmic confidence score:
+        confidence = similarity_score * 0.4 + authority_weight * 0.4 + freshness_weight * 0.2
+        Classify as HIGH (>= 0.75), MEDIUM (>= 0.50), LOW (>= 0.35), or INSUFFICIENT (< 0.35).
+        """
+        if not chunks and not has_tourist_db:
+            return {
+                "score": 0.0,
+                "level": "INSUFFICIENT",
+                "similarity": 0.0,
+                "authority": 0.0,
+                "freshness": 0.0,
+            }
+
+        # 1. Similarity score
+        if chunks:
+            similarity = max(c.get("score", 0.70) for c in chunks)
+        else:
+            similarity = 0.85 if has_tourist_db else 0.0
+
+        # 2. Authority weight
+        if chunks:
+            auth_weights = []
+            for c in chunks:
+                if "authority_weight" in c and c["authority_weight"] is not None:
+                    auth_weights.append(float(c["authority_weight"]))
+                elif "authority_tier" in c and c["authority_tier"] is not None:
+                    tier = int(c["authority_tier"])
+                    auth_weights.append(retrieval_service.TIER_WEIGHTS.get(tier, 0.4))
+                else:
+                    tier = retrieval_service.infer_authority_tier(c)
+                    auth_weights.append(retrieval_service.TIER_WEIGHTS.get(tier, 0.4))
+            authority = sum(auth_weights) / len(auth_weights)
+            if has_tourist_db:
+                authority = max(authority, 0.95)
+        else:
+            authority = 0.95  # Official PostgreSQL DB
+
+        # 3. Freshness weight
+        if chunks:
+            freshness_weights = [c.get("freshness_weight", 0.7) for c in chunks]
+            freshness = sum(freshness_weights) / len(freshness_weights)
+        else:
+            freshness = 1.0  # Current live database
+
+        # Formula: similarity * 0.4 + authority * 0.4 + freshness * 0.2
+        score = round(similarity * 0.4 + authority * 0.4 + freshness * 0.2, 4)
+
+        if score >= 0.75:
+            level = "HIGH"
+        elif score >= 0.50:
+            level = "MEDIUM"
+        elif score >= 0.35:
+            level = "LOW"
+        else:
+            level = "INSUFFICIENT"
+
+        return {
+            "score": score,
+            "level": level,
+            "similarity": round(similarity, 4),
+            "authority": round(authority, 4),
+            "freshness": round(freshness, 4),
+        }
 
     async def process_query_stream(
         self,
@@ -230,8 +303,11 @@ class RAGPipeline:
 
         # 6. Grounded Generation (RAG-Only)
         has_evidence = bool(chunks) or bool(tourist_context)
+        conf_eval = self.calculate_algorithmic_confidence(chunks, has_tourist_db=bool(tourist_context))
+        metrics["confidence"] = conf_eval["score"]
+        metrics["confidence_level"] = conf_eval["level"]
 
-        if has_evidence:
+        if has_evidence and conf_eval["level"] != "INSUFFICIENT":
             context_blocks = []
             if chunks:
                 context_blocks.append(retrieval_service.prepare_context(chunks, max_context_length=1500))
@@ -270,8 +346,8 @@ class RAGPipeline:
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             yield {"type": "done", "full_response": full_response, "metrics": metrics}
         else:
-            # RAG-ONLY POLICY: No verified chunks found
-            metrics["source"] = "no_evidence_refusal"
+            # RAG-ONLY POLICY: No verified chunks found or insufficient confidence
+            metrics["source"] = "no_evidence_refusal" if not has_evidence else "insufficient_confidence_refusal"
             metrics["llm_called"] = False
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             yield {"type": "chunk", "content": UNVERIFIED_EVIDENCE_REFUSAL}

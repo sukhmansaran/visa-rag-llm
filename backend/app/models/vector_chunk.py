@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional, Dict, Any, TYPE_CHECKING
 from sqlmodel import SQLModel, Field, Relationship, JSON, Column
 
@@ -22,6 +23,12 @@ class VectorChunk(SQLModel, table=True):
     # Vector database ID (Chroma/Pinecone)
     vector_id: str = Field(unique=True, index=True, max_length=255)
     
+    # Authority Tier: 1 = IRCC/Gov, 2 = DLI Colleges, 3 = Recognized Orgs, 4 = Third-Party
+    authority_tier: int = Field(default=1, index=True)
+
+    # Date when the policy or regulation officially becomes effective
+    effective_date: Optional[datetime] = Field(default=None)
+
     # Metadata stored in vector DB: {url, title, page_no, scraped_at, country, source_type}
     chunk_metadata: Dict[str, Any] = Field(sa_column=Column(JSON))  # Renamed from metadata
     

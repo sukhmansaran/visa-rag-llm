@@ -55,6 +55,34 @@ class RetrievalService:
         
         return reranked
     
+    # Authority Tier weights: Tier 1 (Official Gov/IRCC) -> Tier 4 (Third-Party Blogs)
+    TIER_WEIGHTS = {
+        1: 1.0,   # Official Government / IRCC
+        2: 0.8,   # DLI Universities & Colleges
+        3: 0.6,   # Recognized Organizations / Provincial Programs
+        4: 0.3,   # Third-Party Blogs, Forums, Unverified
+    }
+
+    def infer_authority_tier(self, chunk: Dict[str, Any]) -> int:
+        """Infer authority tier from chunk metadata, source type, or URL domain."""
+        if "authority_tier" in chunk and chunk["authority_tier"] is not None:
+            return int(chunk["authority_tier"])
+        
+        metadata = chunk.get("metadata", {})
+        if "authority_tier" in metadata and metadata["authority_tier"] is not None:
+            return int(metadata["authority_tier"])
+        
+        url = (metadata.get("url") or chunk.get("url") or "").lower()
+        source_type = (metadata.get("source_type") or chunk.get("source_type") or "").lower()
+
+        if any(d in url for d in ["canada.ca", "cic.gc.ca", "ircc", "gc.ca"]) or source_type in ["official", "embassy"]:
+            return 1
+        if any(d in url for d in [".edu", ".ca/dli", "utoronto", "ubc", "mcgill"]) or source_type == "university":
+            return 2
+        if any(d in url for d in [".org", "ontario.ca", "welcomebc.ca", "alberta.ca"]) or source_type == "organization":
+            return 3
+        return 4
+
     def _rerank(
         self,
         results: List[Dict[str, Any]],
@@ -62,49 +90,64 @@ class RetrievalService:
         country: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Rerank results based on relevance signals.
-        
-        Simple reranking based on:
-        - Vector similarity score
-        - Source priority (embassy > university > news)
-        - Recency (newer = better)
-        - Country match
+        Rerank results based on Authority Tiering (1-4), freshness, and relevance.
+        Prioritizes Tier 1 official sources and filters out conflicting Tier 4 blog text.
         """
         scored_results = []
-        
+        has_strong_tier_1 = False
+
         for result in results:
-            score = result.get('score', 0.0)
+            base_similarity = result.get('score', 0.0)
             metadata = result.get('metadata', {})
             
-            # Boost embassy/official sources
-            if metadata.get('source_type') == 'embassy':
-                score *= 1.3
-            elif metadata.get('source_type') == 'official':
-                score *= 1.2
-            
-            # Boost recent content (last 6 months)
-            scraped_at = metadata.get('scraped_at')
+            # 1. Authority Tier calculation
+            tier = self.infer_authority_tier(result)
+            result['authority_tier'] = tier
+            authority_weight = self.TIER_WEIGHTS.get(tier, 0.3)
+            result['authority_weight'] = authority_weight
+
+            # Track if strong Tier 1 evidence exists
+            if tier == 1 and base_similarity >= 0.60:
+                has_strong_tier_1 = True
+
+            # 2. Freshness calculation
+            freshness_weight = 0.5  # default
+            scraped_at = metadata.get('scraped_at') or metadata.get('effective_date') or result.get('effective_date')
             if scraped_at:
                 try:
-                    scraped_date = datetime.fromisoformat(scraped_at.replace('Z', '+00:00'))
-                    days_old = (datetime.now(scraped_date.tzinfo) - scraped_date).days
-                    if days_old < 180:  # Less than 6 months
-                        score *= 1.1
-                except:
-                    pass
-            
-            # Boost country match
+                    if isinstance(scraped_at, str):
+                        scraped_date = datetime.fromisoformat(scraped_at.replace('Z', '+00:00'))
+                    else:
+                        scraped_date = scraped_at
+                    
+                    tz = scraped_date.tzinfo
+                    days_old = (datetime.now(tz) - scraped_date).days if tz else (datetime.utcnow() - scraped_date).days
+                    if days_old <= 90:
+                        freshness_weight = 1.0
+                    elif days_old <= 180:
+                        freshness_weight = 0.85
+                    elif days_old <= 365:
+                        freshness_weight = 0.65
+                except Exception:
+                    freshness_weight = 0.5
+            result['freshness_weight'] = freshness_weight
+
+            # 3. Country Match Boost
+            country_boost = 1.0
             if country and metadata.get('country') == country:
-                score *= 1.15
-            
-            result['rerank_score'] = score
+                country_boost = 1.15
+
+            # Multi-factor score prioritizing authority tier and recency
+            final_rerank_score = (base_similarity * 0.45 + authority_weight * 0.40 + freshness_weight * 0.15) * country_boost
+            result['rerank_score'] = round(final_rerank_score, 4)
             scored_results.append(result)
-        
-        # Sort by reranked score (higher = better)
-        # Note: Chroma returns distances (lower = better), Pinecone returns similarity (higher = better)
-        # For now, assume higher score = better after boosting
+
+        # 4. Conflict Filter: When strong Tier 1 official source exists, drop Tier 4 third-party blogs
+        if has_strong_tier_1:
+            scored_results = [r for r in scored_results if r.get('authority_tier', 4) < 4]
+
+        # Sort descending by rerank score
         scored_results.sort(key=lambda x: x['rerank_score'], reverse=True)
-        
         return scored_results
     
     def prepare_context(

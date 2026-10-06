@@ -22,6 +22,12 @@ class Source(SQLModel, table=True):
     
     # Priority: 1 (highest) to 5 (lowest)
     priority: int = Field(default=3)
+
+    # Authority Tier: 1 = IRCC/Official Gov, 2 = DLI Colleges, 3 = Recognized Orgs, 4 = Third-Party
+    authority_tier: int = Field(default=1, index=True)
+
+    # Date when the policy or regulation officially becomes effective
+    effective_date: Optional[datetime] = Field(default=None)
     
     # Scrape frequency in hours (24 = daily, 168 = weekly)
     scrape_frequency: int = Field(default=168)

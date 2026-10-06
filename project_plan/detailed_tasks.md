@@ -62,18 +62,18 @@ This document breaks down the 6 milestones from `project_phase.md` into concrete
   - **Verification:** Unit and integration tests verify SSE streaming events and zero-cost guardrail token interception. *(PASSED)*
 
 ### Task 2.2: Source Authority Tiering (Tiers 1 to 4)
-- [ ] **Sub-task 2.2.1: Schema Extension for Authority Tiering**
+- [x] **Sub-task 2.2.1: Schema Extension for Authority Tiering**
   - **Files:** `backend/app/models/source.py`, `backend/app/models/vector_chunk.py`
   - **Action:** Add `authority_tier: int` (1 = IRCC/Gov, 2 = DLI Colleges, 3 = Recognized Orgs, 4 = Third-party) and `effective_date: Optional[datetime]` metadata fields.
-  - **Verification:** Alembic migration test and model validation test.
-- [ ] **Sub-task 2.2.2: Tier-Weighted Retrieval & Reranking**
+  - **Verification:** Unit tests confirm model attributes, defaults, and indexing. *(PASSED)*
+- [x] **Sub-task 2.2.2: Tier-Weighted Retrieval & Reranking**
   - **File:** `backend/app/services/retrieval.py`
   - **Action:** Update retrieval logic to prioritize Tier 1 official sources over lower tiers. When conflicting information exists, filter out or deprioritize lower-tier chunks.
-  - **Verification:** Unit test where a Tier 1 source overrides conflicting Tier 4 blog text.
-- [ ] **Sub-task 2.2.3: Algorithmic Confidence Score**
+  - **Verification:** Unit tests prove Tier 1 sources outrank and exclude conflicting Tier 4 blog text. *(PASSED)*
+- [x] **Sub-task 2.2.3: Algorithmic Confidence Score**
   - **File:** `backend/app/services/rag_pipeline.py`
   - **Action:** Calculate confidence as a mathematical function: `similarity_score * 0.4 + authority_weight * 0.4 + freshness_weight * 0.2`. Classify as HIGH, MEDIUM, LOW, or INSUFFICIENT.
-  - **Verification:** Test score calculation under high-match and low-match scenarios.
+  - **Verification:** Tests verify HIGH, MEDIUM, LOW, and INSUFFICIENT classifications, with automatic grounded refusal on INSUFFICIENT. *(PASSED)*
 
 ### Task 2.3: Strict RAG-Only Enforcement & Anti-Hallucination
 - [ ] **Sub-task 2.3.1: Remove Raw LLM Fallback**

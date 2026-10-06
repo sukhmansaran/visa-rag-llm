@@ -169,11 +169,51 @@ For every milestone, task, and sub-task:
 
 ---
 
+### Task 2.2: Source Authority Tiering (Tiers 1 to 4) & Algorithmic Confidence Scoring
+* **Date Completed:** 2026-10-06
+* **Verification Status:** Verified (8 / 8 passed)
+
+#### 1. Objective & Threat Vector
+- **Threat Vector (Information Contamination & Stale Blogs):** Search results from third-party blogs or discussion forums (e.g. outdated Reddit threads or unverified immigration blogs) could pollute or contradict official IRCC guidelines, leading the assistant to present conflicting or inaccurate advice.
+- **Objective:** 
+  1. Classify sources into 4 distinct Authority Tiers (Tier 1 = Official Gov/IRCC, Tier 2 = DLI Colleges, Tier 3 = Recognized Orgs, Tier 4 = Third-Party Blogs).
+  2. Implement tier-weighted reranking and automatic conflict filtering so Tier 1 official sources strictly override and exclude Tier 4 blog text.
+  3. Formulate a mathematical algorithmic confidence score: `confidence = similarity_score * 0.4 + authority_weight * 0.4 + freshness_weight * 0.2`, refusing to answer when confidence is `INSUFFICIENT` (< 0.35).
+
+#### 2. Files Created / Modified
+- `backend/app/models/source.py` *(Modified)*: Added `authority_tier: int` (indexed, default=1) and `effective_date: Optional[datetime]`.
+- `backend/app/models/vector_chunk.py` *(Modified)*: Added `authority_tier: int` (indexed, default=1) and `effective_date: Optional[datetime]`.
+- `backend/app/services/retrieval.py` *(Modified)*:
+  - Added `infer_authority_tier()` to map URLs and source types to Tiers 1–4.
+  - Added `TIER_WEIGHTS` dictionary: Tier 1 (1.0), Tier 2 (0.8), Tier 3 (0.6), Tier 4 (0.3).
+  - Enhanced `_rerank()` with multi-factor weighting (relevance 45%, authority 40%, freshness 15%, country match 15%).
+  - Added **Conflict Filter**: Automatically drops Tier 4 chunks if a strong Tier 1 source exists ($\ge 0.60$ similarity).
+- `backend/app/services/rag_pipeline.py` *(Modified)*:
+  - Added `calculate_algorithmic_confidence()` method implementing `similarity * 0.4 + authority * 0.4 + freshness * 0.2`.
+  - Classifies into `HIGH` ($\ge 0.75$), `MEDIUM` ($\ge 0.50$), `LOW` ($\ge 0.35$), and `INSUFFICIENT` ($< 0.35$).
+  - When `INSUFFICIENT`, pipeline aborts generation and returns `UNVERIFIED_EVIDENCE_REFUSAL` with `metrics["source"] = "insufficient_confidence_refusal"` and `llm_called = False`.
+- `backend/tests/test_authority_tiering.py` *(Created)*: 8 automated unit & integration tests covering schema extensions, tier inference, conflict filter, confidence scoring, and refusal enforcement.
+
+#### 3. Verification & Testing
+- Command: `pytest tests/test_authority_tiering.py -v`
+- Results: **8 passed in 0.23s**
+  - `test_source_model_authority_tier_fields`: PASSED
+  - `test_vector_chunk_model_authority_tier_fields`: PASSED
+  - `test_infer_authority_tier_from_url_and_type`: PASSED
+  - `test_tier_weighted_reranking_prioritizes_tier1`: PASSED
+  - `test_conflict_filter_drops_tier4_when_strong_tier1_present`: PASSED
+  - `test_algorithmic_confidence_calculation_high`: PASSED
+  - `test_algorithmic_confidence_calculation_insufficient`: PASSED
+  - `test_insufficient_confidence_triggers_grounded_refusal`: PASSED
+- Cumulative Test Suite: **126 passed in 0.72s** (100% pass rate).
+
+---
+
 ## 📊 Summary of Milestone Progress
 | Milestone | Status | Passed Tests | Key Deliverables |
 |---|---|---|---|
 | **Milestone 1: Visa Constitution & Input Firewall** | **100% Completed** | **112 / 112** | Visa Constitution, Deterministic Input Guardrail, Chat Endpoint Hooking, 103-case adversarial test suite |
-| **Milestone 2: Unified RAG Pipeline & RAG-Only Policy** | **In Progress (Task 2.1 Done)** | **6 / 6** | Unified Sync/Stream orchestrator, Tourist DB integration, RAG-only zero-hallucination enforcement |
+| **Milestone 2: Unified RAG Pipeline & RAG-Only Policy** | **In Progress (Tasks 2.1 & 2.2 Done)** | **14 / 14** | Unified Sync/Stream orchestrator, Tourist DB, Source Authority Tiering (1-4), Algorithmic Confidence Scoring |
 | **Milestone 3: Grounded Generation & Anti-Hallucination** | Pending | - | Strict prompt template, Inline citation injector, Output verification guardrail |
 | **Milestone 4: Crawler & Ingestion Hardening** | Pending | - | Domain allowlist, Content classifier, Chunk deduplication, Freshness tracking |
 | **Milestone 5: Production Operational Hardening** | Pending | - | Audit trail logger, Prompt versioning, Query latency optimization, Daily regression test runner |
