@@ -24,6 +24,7 @@ Do NOT infer, speculate, or introduce outside knowledge.
 
 Instructions:
 - Provide concise, factual information in bullet points.
+- Associate each factual statement with inline citations like [Source 1], [Source 2] corresponding to the provided sources.
 - If the provided context does not contain enough information to fully answer the query, clearly state: 'Additional details are not found in the verified official sources.'
 - Cite sources where available.
 - Maintain strict fidelity to official IRCC / government guidelines."""
@@ -65,6 +66,7 @@ class RAGPipeline:
             metrics["source"] = "guardrail_refusal"
             return {
                 "answer": guardrail_res.refusal_message or "Request blocked by safety guardrail.",
+                "sources": [],
                 "metrics": metrics,
                 "violation": guardrail_res.violation.value if guardrail_res.violation else None,
                 "guardrail_blocked": True,
@@ -81,7 +83,7 @@ class RAGPipeline:
         if cached_response:
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             metrics["source"] = "cache"
-            return {"answer": cached_response, "metrics": metrics, "guardrail_blocked": False}
+            return {"answer": cached_response, "sources": [], "metrics": metrics, "guardrail_blocked": False}
 
         # 3. Rule Engine Check
         rule_response = rule_engine.try_rule_answer(intent, country, visa_type)
@@ -89,7 +91,7 @@ class RAGPipeline:
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             metrics["source"] = "rule_engine"
             intent_cache.set(country, visa_type, intent, rule_response)
-            return {"answer": rule_response, "metrics": metrics, "guardrail_blocked": False}
+            return {"answer": rule_response, "sources": [], "metrics": metrics, "guardrail_blocked": False}
 
         # 4. Structured Database & Tourist Context Check
         tourist_context = ""
@@ -117,7 +119,10 @@ class RAGPipeline:
         metrics["confidence"] = conf_eval["score"]
         metrics["confidence_level"] = conf_eval["level"]
 
+        sources: List[Dict[str, Any]] = []
+
         if has_evidence and conf_eval["level"] != "INSUFFICIENT":
+            sources = self.build_citations(chunks, tourist_context)
             context_blocks = []
             if chunks:
                 context_blocks.append(retrieval_service.prepare_context(chunks, max_context_length=1500))
@@ -150,7 +155,48 @@ class RAGPipeline:
             metrics["llm_called"] = False
 
         metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
-        return {"answer": answer, "metrics": metrics, "guardrail_blocked": False}
+        return {"answer": answer, "sources": sources, "metrics": metrics, "guardrail_blocked": False}
+
+    @staticmethod
+    def build_citations(
+        chunks: List[Dict[str, Any]],
+        tourist_context: str = "",
+    ) -> List[Dict[str, Any]]:
+        """
+        Build structured source citations matching SourceCitation schema:
+        url, snippet, scraped_at, title.
+        """
+        citations: List[Dict[str, Any]] = []
+        seen_urls = set()
+
+        for chunk in chunks:
+            metadata = chunk.get("metadata", {})
+            url = metadata.get("url") or chunk.get("url") or "https://www.canada.ca"
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+
+            raw_text = chunk.get("text", "")
+            snippet = raw_text[:200].strip() if raw_text else ""
+            scraped_at = str(metadata.get("scraped_at") or chunk.get("scraped_at") or "")
+            title = metadata.get("title") or chunk.get("title") or "Official IRCC Document"
+
+            citations.append({
+                "url": url,
+                "snippet": snippet,
+                "scraped_at": scraped_at,
+                "title": title,
+            })
+
+        if tourist_context and not citations:
+            citations.append({
+                "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada.html",
+                "snippet": tourist_context[:200].strip(),
+                "scraped_at": "",
+                "title": "Official Canada Tourist Registry",
+            })
+
+        return citations
 
     @staticmethod
     def calculate_algorithmic_confidence(
@@ -308,6 +354,7 @@ class RAGPipeline:
         metrics["confidence_level"] = conf_eval["level"]
 
         if has_evidence and conf_eval["level"] != "INSUFFICIENT":
+            sources = self.build_citations(chunks, tourist_context)
             context_blocks = []
             if chunks:
                 context_blocks.append(retrieval_service.prepare_context(chunks, max_context_length=1500))
@@ -344,14 +391,14 @@ class RAGPipeline:
                 yield {"type": "chunk", "content": err_msg}
 
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
-            yield {"type": "done", "full_response": full_response, "metrics": metrics}
+            yield {"type": "done", "full_response": full_response, "sources": sources, "metrics": metrics}
         else:
             # RAG-ONLY POLICY: No verified chunks found or insufficient confidence
             metrics["source"] = "no_evidence_refusal" if not has_evidence else "insufficient_confidence_refusal"
             metrics["llm_called"] = False
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             yield {"type": "chunk", "content": UNVERIFIED_EVIDENCE_REFUSAL}
-            yield {"type": "done", "full_response": UNVERIFIED_EVIDENCE_REFUSAL, "metrics": metrics}
+            yield {"type": "done", "full_response": UNVERIFIED_EVIDENCE_REFUSAL, "sources": [], "metrics": metrics}
 
 
 # Global instance

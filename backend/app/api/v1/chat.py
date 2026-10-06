@@ -121,6 +121,8 @@ async def get_answer_stream(
         async def event_stream():
             """Generate Server-Sent Events for streaming response via unified RAG pipeline."""
             full_response = ""
+            sources = []
+            metrics = {}
             
             try:
                 # Send session_id first
@@ -141,7 +143,8 @@ async def get_answer_stream(
                     elif event_type == "guardrail_blocked":
                         yield f"data: {json.dumps(event)}\n\n"
                     elif event_type == "done":
-                        pass
+                        sources = event.get("sources", [])
+                        metrics = event.get("metrics", {})
                 
                 # Open a fresh DB session to save the assistant message
                 from app.core.database import AsyncSessionLocal
@@ -150,16 +153,16 @@ async def get_answer_stream(
                         user_id=current_user.id,
                         role="assistant",
                         content=full_response,
-                        sources={},
-                        confidence=0.8,
-                        message_metadata={},
+                        sources={"citations": sources} if sources else {},
+                        confidence=float(metrics.get("confidence", 0.0)),
+                        message_metadata=metrics,
                         session_id=session_id,
                     )
                     save_db.add(assistant_msg)
                     await save_db.commit()
                 
-                # Send completion event
-                yield f"data: {json.dumps({'type': 'done', 'full_response': full_response})}\n\n"
+                # Send completion event with citations and metrics
+                yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'sources': sources, 'metrics': metrics})}\n\n"
                 
             except Exception as e:
                 print(f"Error in streaming: {e}")
@@ -298,13 +301,16 @@ async def get_answer(
         db.add(user_msg)
         
         # Save assistant message
+        sources = rag_result.get("sources", [])
+        confidence = float(rag_metrics.get("confidence", 0.0))
+
         assistant_msg = ChatMessage(
             user_id=current_user.id,
             role="assistant",
             content=answer,
-            sources={},
-            confidence=0.8,
-            message_metadata={},
+            sources={"citations": sources} if sources else {},
+            confidence=confidence,
+            message_metadata=rag_metrics,
             session_id=session_id,
         )
         db.add(assistant_msg)
@@ -313,8 +319,8 @@ async def get_answer(
         
         return ChatResponse(
             advice_text=answer,
-            sources=[],
-            confidence=0.8,
+            sources=[SourceCitation(**s) for s in sources] if sources else [],
+            confidence=confidence,
             escalate=False,
             session_id=session_id,
             metadata=rag_metrics,

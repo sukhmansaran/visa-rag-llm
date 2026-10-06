@@ -21,12 +21,12 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # Database
-    DATABASE_URL: str
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:1@localhost:5432/visa_chatbot"
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
     
     # Redis
-    REDIS_URL: str
+    REDIS_URL: str = "redis://localhost:6379/0"
     
     # Ollama (local LLM and embeddings)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
@@ -41,8 +41,8 @@ class Settings(BaseSettings):
     PINECONE_INDEX_NAME: str = "visa-chatbot"
     
     # Celery
-    CELERY_BROKER_URL: str
-    CELERY_RESULT_BACKEND: str
+    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
     
     # Stripe
     STRIPE_SECRET_KEY: str = ""
@@ -92,7 +92,10 @@ class Settings(BaseSettings):
         return v
     
     class Config:
-        env_file = ".env"
+        import os
+        from pathlib import Path
+        _backend_env = Path(__file__).resolve().parent.parent.parent / ".env"
+        env_file = (str(_backend_env), ".env")
         case_sensitive = True
 
 
