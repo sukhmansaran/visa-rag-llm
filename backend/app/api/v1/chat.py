@@ -11,6 +11,7 @@ from app.models.user import User
 from app.models.chat_message import ChatMessage
 from app.api.v1.chat_schemas import ChatMessage as ChatMessageSchema, ChatResponse, SourceCitation
 from app.services.chat_agent import generate_chat_response, generate_chat_response_stream
+from app.services.guardrails.input_guardrail import input_guardrail
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -48,6 +49,58 @@ async def get_answer_stream(
             {"role": msg.role, "content": msg.content}
             for msg in history_messages
         ]
+
+        # 1. Deterministic Input Guardrail Check
+        guardrail_result = input_guardrail.evaluate(message.query, chat_history=chat_history)
+        if not guardrail_result.allowed:
+            refusal_text = guardrail_result.refusal_message or "Request blocked by safety guardrail."
+            
+            # Save user message
+            user_msg = ChatMessage(
+                user_id=current_user.id,
+                role="user",
+                content=message.query,
+                session_id=session_id,
+                message_metadata={
+                    "country": message.country,
+                    "university": message.university,
+                }
+            )
+            db.add(user_msg)
+            
+            # Save refusal message
+            assistant_msg = ChatMessage(
+                user_id=current_user.id,
+                role="assistant",
+                content=refusal_text,
+                sources={},
+                confidence=0.0,
+                message_metadata={
+                    "guardrail_blocked": True,
+                    "violation": guardrail_result.violation.value if guardrail_result.violation else None,
+                    "reason": guardrail_result.reason,
+                },
+                session_id=session_id,
+            )
+            db.add(assistant_msg)
+            await db.commit()
+            await db.close()
+
+            async def blocked_stream():
+                yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+                yield f"data: {json.dumps({'type': 'guardrail_blocked', 'violation': guardrail_result.violation.value if guardrail_result.violation else None, 'reason': guardrail_result.reason})}\n\n"
+                yield f"data: {json.dumps({'type': 'chunk', 'content': refusal_text})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'full_response': refusal_text})}\n\n"
+
+            return StreamingResponse(
+                blocked_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                }
+            )
         
         # Save user message
         user_msg = ChatMessage(
@@ -161,6 +214,56 @@ async def get_answer(
             {"role": msg.role, "content": msg.content}
             for msg in history_messages
         ]
+
+        # 1. Deterministic Input Guardrail Check
+        guardrail_result = input_guardrail.evaluate(message.query, chat_history=chat_history)
+        if not guardrail_result.allowed:
+            refusal_text = guardrail_result.refusal_message or "Request blocked by safety guardrail."
+            
+            # Save user message
+            user_msg = ChatMessage(
+                user_id=current_user.id,
+                role="user",
+                content=message.query,
+                session_id=session_id,
+                message_metadata={
+                    "country": message.country,
+                    "university": message.university,
+                }
+            )
+            db.add(user_msg)
+            
+            # Save refusal message
+            assistant_msg = ChatMessage(
+                user_id=current_user.id,
+                role="assistant",
+                content=refusal_text,
+                sources={},
+                confidence=0.0,
+                message_metadata={
+                    "guardrail_blocked": True,
+                    "violation": guardrail_result.violation.value if guardrail_result.violation else None,
+                    "reason": guardrail_result.reason,
+                },
+                session_id=session_id,
+            )
+            db.add(assistant_msg)
+            await db.commit()
+            
+            return ChatResponse(
+                advice_text=refusal_text,
+                sources=[],
+                confidence=0.0,
+                escalate=False,
+                session_id=session_id,
+                metadata={
+                    "guardrail_blocked": True,
+                    "violation": guardrail_result.violation.value if guardrail_result.violation else None,
+                    "reason": guardrail_result.reason,
+                    "latency_ms": 0,
+                    "source": "input_guardrail",
+                },
+            )
         
         from app.services.rag_pipeline import rag_pipeline
         

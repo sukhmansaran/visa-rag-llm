@@ -12,6 +12,7 @@ from app.services.rule_engine import rule_engine
 from app.services.cache_service import intent_cache
 from app.services.retrieval import retrieval_service
 from app.services.llm import llm_service
+from app.services.guardrails.input_guardrail import input_guardrail
 
 class RAGPipeline:
     """Orchestrates the authoritative RAG flow."""
@@ -28,6 +29,18 @@ class RAGPipeline:
             "source": "none"
         }
         
+        # 0. Deterministic Input Guardrail Firewall Check
+        guardrail_res = input_guardrail.evaluate(query)
+        if not guardrail_res.allowed:
+            metrics["latency_ms"] = int((time.time() - start_time) * 1000)
+            metrics["source"] = "guardrail_refusal"
+            return {
+                "answer": guardrail_res.refusal_message or "Request blocked by safety guardrail.",
+                "metrics": metrics,
+                "violation": guardrail_res.violation.value if guardrail_res.violation else None,
+                "guardrail_blocked": True,
+            }
+
         # 1. Intent Normalization
         intent_data = await intent_parser.parse_intent(query)
         country = intent_data.get("country", context_metadata.get("country", "unknown") if context_metadata else "unknown")
