@@ -1,0 +1,51 @@
+# Pendu Execution Guide (Canada-Only Focus)
+
+This project is a Canada-focused visa intelligence engine. It consists of a FastAPI backend and a Next.js frontend, pre-configured to talk to each other via a proxy.
+
+NOTE: The system is currently scoped to Canada only. All other country data (USA, UK, Australia, Thailand, etc.) has been commented out but NOT removed — it can be re-enabled later by uncommenting the relevant sections.
+
+## 1. Backend (FastAPI)
+The backend manages the RAG pipeline, deterministic rules, and profile assessment — all focused on Canadian immigration (IRCC).
+
+### Option A: Local Run (Recommended for Dev)
+1. Open a new terminal.
+2. cd backend
+3. Create venv: python -m venv venv
+4. Activate: venv\Scripts\activate
+5. Install: pip install -r requirements.txt
+6. Setup DB:
+   * alembic upgrade head
+   * python seed_tourist_data.py (Seeds Canada-only tourist/visa data)
+   * python scripts/seed_sources.py (Optional — seeds Canada-only RAG sources)
+   * python scripts/seed_profiles.py (Optional — seeds sample user profiles)
+7. Run: python -m uvicorn app.main:app --reload --port 8000
+   * The backend MUST run on port 8000 for the frontend proxy to work.
+
+### Option B: Docker
+1. cd backend
+2. docker compose up -d
+
+## 2. Frontend (React/Next.js)
+The frontend provides the intelligence interface and metrics dashboard. All UI pages default to Canada.
+
+1. Open a new terminal.
+2. cd frontend
+3. Install: pnpm install
+4. Run: pnpm dev
+5. Open: http://localhost:3000
+
+## Verified Connection
+- Proxy: The frontend is configured in next.config.mjs to proxy all /api/v1 requests to http://localhost:8000/api/v1.
+- API Baseline: You can verify the connection by visiting http://localhost:3000/api/v1/health while the backend is running.
+
+## Canada-Only Scope
+The following areas are Canada-focused:
+- Seed data: Only Canada visa info, destinations (Toronto, Vancouver, Montreal, Niagara Falls), and travel costs
+- Rule engine: Only Canada student visa rules (financial requirements, document checklist)
+- Intent parser: Only detects Canada and Canadian universities (UofT, McGill, UBC, Waterloo, etc.)
+- SOP generator: Only Canada SOP template active (other country templates commented out)
+- Crawler sources: Only Canada embassy/official sources and EduCanada portal active
+- News monitor: Only Canada immigration news sources
+- Frontend: Onboarding defaults to Canada, destinations show Canadian cities/universities only
+
+To re-enable other countries, search for "Canada-only focus" comments across the codebase and uncomment the relevant sections.

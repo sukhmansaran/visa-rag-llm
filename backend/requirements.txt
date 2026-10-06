@@ -1,0 +1,67 @@
+# FastAPI and web server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Database
+sqlmodel==0.0.14
+alembic==1.12.1
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+
+# Authentication and security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.0
+pydantic-settings==2.1.0
+email-validator==2.1.0
+
+# Redis and caching
+redis==5.0.1
+celery==5.3.4
+
+# OpenAI — removed (using Ollama only)
+# openai
+# tiktoken removed — not needed
+
+# Vector databases
+numpy==1.26.4
+chromadb==0.5.23        # 0.5.x has pre-built Windows wheels, no C++ build tools needed
+# pinecone-client==3.0.0  # Uncomment for production
+
+# Web scraping
+playwright==1.40.0
+pypdf==3.17.1
+beautifulsoup4==4.12.2
+html2text==2020.1.16
+
+# HTTP client
+httpx>=0.27.0
+
+# Crawler pipeline
+trafilatura>=1.6.0
+robotexclusionrulesparser>=1.7.1
+
+# Async file operations
+aiofiles==23.2.1
+
+# Retry logic
+tenacity==8.2.3
+
+# Monitoring and logging
+sentry-sdk[fastapi]==1.38.0
+
+# Payment processing
+stripe==7.8.0
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+hypothesis>=6.90.0
+fakeredis[lua]>=2.20.0
+
+# Development
+black==23.11.0
+flake8==6.1.0
+mypy==1.7.1
