@@ -83,3 +83,7 @@ backend/uploads/
 # Temporary / cleanup files
 GITHUB_UPLOAD_WARNINGS.md
 old_commit_history.txt
+
+# Project planning & internal docs
+project_plan/
+
