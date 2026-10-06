@@ -50,8 +50,8 @@ class InputGuardrail:
 
     # --- 2. CODE REQUEST PATTERNS ---
     CODE_DIRECTIVE_PATTERNS = [
-        re.compile(r"\b(write|create|generate|provide|give\s+me|show\s+me)\s+(a\s+|some\s+)?(python|javascript|typescript|java|c\+\+|c#|golang|rust|php|ruby|bash|shell|sql|html|css|nodejs|node\.js)\s+(code|script|function|program|snippet|app|class)?\b", re.IGNORECASE),
-        re.compile(r"\b(write|create|generate|provide)\s+(a\s+)?(script|function|algorithm|class|regex|dockerfile|makefile)\b", re.IGNORECASE),
+        re.compile(r"\b(write|create|generate|provide|give|show)(\s+me)?\s+(a\s+|some\s+)?(python|javascript|typescript|java|c\+\+|c#|golang|rust|php|ruby|bash|shell|sql|html|css|nodejs|node\.js)\s+(code|script|function|program|snippet|app|class)?\b", re.IGNORECASE),
+        re.compile(r"\b(write|create|generate|provide|give|show)(\s+me)?\s+(a\s+)?(script|function|algorithm|class|regex|dockerfile|makefile)\b", re.IGNORECASE),
         re.compile(r"\b(debug|fix|optimize|refactor)\s+(this|my|the)?\s*(code|script|function|bug|sql\s+query|query)\b", re.IGNORECASE),
         re.compile(r"\bhow\s+to\s+(code|build|program|develop|create)\s+(an?\s+)?(api|web\s+scraper|scraper|bot|crawler|app)\b", re.IGNORECASE),
         re.compile(r"\bhow\s+to\s+code\b", re.IGNORECASE),
@@ -70,6 +70,8 @@ class InputGuardrail:
         "ircc", "cic", "pr", "permanent residence", "permanent resident", "citizenship",
         "passport", "biometrics", "medical exam", "police clearance", "police certificate",
         "proof of funds", "funds", "bank statement", "gic", "tuition", "cad",
+        "financial", "finances", "financial requirement", "financial requirements", "living expenses",
+        "requirement", "requirements", "eligibility", "eligible", "qualify", "criteria",
         "dli", "designated learning institution", "loa", "letter of acceptance",
         "pal", "tal", "attestation letter", "caq", "quebec", "ontario", "bc", "alberta",
         "ielts", "celpip", "toefl", "pte", "clb", "language score", "language test",
@@ -81,6 +83,7 @@ class InputGuardrail:
         "hotel", "trip", "vacation", "toronto", "vancouver", "montreal", "ottawa",
         "calgary", "edmonton", "waterloo", "mcgill", "ubc",
         "canada", "canadian", "immigration", "immigrate", "immigrant", "student visa",
+        "off-campus", "on-campus", "work off-campus", "working hours", "master's", "masters",
     }
 
     # Precompile word-boundary patterns for whitelist keywords to prevent substring misclassifications
@@ -200,25 +203,32 @@ class InputGuardrail:
     def _is_valid_contextual_follow_up(self, query: str, chat_history: Optional[List[Dict[str, Any]]]) -> bool:
         """
         Checks if a brief query is a valid follow-up to an existing visa conversation.
-        Example: User asked about study permit, then asks "How much does it cost?" or "What about my spouse?"
+        Example: User asked about study permit, then asks "How much does it cost?", "What about my spouse?",
+        or "What are the financial requirements for that?"
         """
         query_lower = query.lower()
         follow_up_cues = [
             "how much", "how long", "what about", "where do i", "can i", "is it required",
             "tell me more", "what next", "cost", "fee", "when", "why", "who", "documents",
             "proof", "family", "spouse", "children", "dependents", "timeline",
+            "for that", "for this", "about that", "about this", "with that", "after that",
+            "requirements", "requirement", "financial", "what are the", "what is the",
+            "what do i need", "how do i apply", "is that possible", "can we do that",
+            "explain that", "more details", "what else",
         ]
         has_follow_up_cue = any(cue in query_lower for cue in follow_up_cues)
 
-        if not has_follow_up_cue:
-            return False
+        # Referential pronoun phrases (e.g. "for that", "for this", "about that", "after that")
+        has_referential_pronoun = bool(re.search(r"\b(for that|for this|about that|about this|with that|after that|in that case|does that|is that)\b", query_lower))
 
         # If there's recent chat history, confirm recent turns were within visa domain
         if chat_history and len(chat_history) > 0:
-            recent_contents = " ".join([m.get("content", "") for m in chat_history[-3:]])
-            return any(p.search(recent_contents) for p in self.VISA_WHITELIST_REGEXES)
+            recent_contents = " ".join([m.get("content", "") for m in chat_history[-4:]])
+            recent_is_visa = any(p.search(recent_contents) for p in self.VISA_WHITELIST_REGEXES)
+            if recent_is_visa and (has_follow_up_cue or has_referential_pronoun):
+                return True
 
-        return False
+        return has_follow_up_cue and bool(chat_history)
 
 
 # Global singleton instance

@@ -67,11 +67,14 @@ class IntentParser:
         
         # Detect visa type
         visa_type = "unknown"
-        if any(w in query_lower for w in ['student', 'study', 'university', 'college', 'masters', 'bachelor', 'phd', 'admission']):
+        if any(w in query_lower for w in ['express entry', 'permanent residen', 'pr card', 'fsw', 'cec', 'pnp', 'provincial nominee']):
+            visa_type = "Express Entry"
+            detected_country = "Canada"  # Express Entry & PNP are uniquely Canadian immigration programs
+        elif any(w in query_lower for w in ['student', 'study', 'university', 'college', 'masters', 'bachelor', 'phd', 'admission']):
             visa_type = "Student"
         elif any(w in query_lower for w in ['tourist', 'travel', 'visit', 'vacation', 'holiday', 'trip']):
             visa_type = "Tourist"
-        elif any(w in query_lower for w in ['work', 'job', 'employment', 'h1b']):
+        elif any(w in query_lower for w in ['work', 'job', 'employment', 'h1b', 'lmia', 'work permit', 'software engineer', 'developer']):
             visa_type = "Work"
         
         # Detect university context for country inference

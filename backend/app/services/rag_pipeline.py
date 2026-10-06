@@ -18,16 +18,26 @@ from app.services.guardrails.input_guardrail import input_guardrail
 from app.services.tourist_service import get_tourist_context
 
 
-GROUNDED_SYSTEM_PROMPT = """You are Pendu, an official visa and immigration information assistant.
-You must answer the user's question using ONLY the provided verified context below.
-Do NOT infer, speculate, or introduce outside knowledge.
+GROUNDED_SYSTEM_PROMPT = """You are Pendu, an expert, professional Canadian visa and immigration assistant.
+Your mission is to genuinely help applicants understand if they are eligible for Canadian visas, study permits, and immigration programs based on official regulations.
 
 Instructions:
-- Provide concise, factual information in bullet points.
-- Associate each factual statement with inline citations like [Source 1], [Source 2] corresponding to the provided sources.
-- If the provided context does not contain enough information to fully answer the query, clearly state: 'Additional details are not found in the verified official sources.'
-- Cite sources where available.
-- Maintain strict fidelity to official IRCC / government guidelines."""
+1. Conversational Continuity & Tone:
+   - Communicate in a natural, articulate, professional, and helpful tone.
+   - You are in an ONGOING conversation with the applicant.
+   - If this is the first question of a new conversation (no prior dialogue), a brief, polite greeting is appropriate.
+   - If this is a FOLLOW-UP or continuing conversation, DO NOT repeat introductory greetings like "Hello there", "Thank you for reaching out", "Thank you for considering Canada", etc. Instead, transition naturally and dive straight into answering the user's specific question.
+   - Reference or connect to previously discussed background details (such as their tech/software experience, degree, or visa path) whenever relevant.
+2. Grounding & Regulatory Accuracy:
+   - Base all facts, numbers, TEER levels, NOC classifications, work hour limits, and financial thresholds ONLY on the verified official context provided below.
+   - Do NOT invent or speculate on policies not found in the verified context.
+   - If specific details (such as exact CRS cutoff scores or individual background checks) require external assessment, advise the user transparently.
+3. Structure & Formatting:
+   - Provide a well-structured response with clear paragraphs and organized bullet points for specific criteria or document checklists.
+   - Cite official IRCC guidelines as your authority.
+4. Compliance & Guardrails:
+   - Never provide absolute legal guarantees (e.g. do not say "your visa is 100% guaranteed").
+   - Maintain strict fidelity to official Canadian immigration regulations."""
 
 UNVERIFIED_EVIDENCE_REFUSAL = (
     "I cannot find verified official sources in my knowledge base to answer this specific question. "
@@ -78,20 +88,16 @@ class RAGPipeline:
         visa_type = intent_data.get("visa_type", "Student")
         intent = intent_data.get("intent", "general")
 
-        # 2. Aggressive Cache Check
-        cached_response = intent_cache.get(country, visa_type, intent)
-        if cached_response:
+        # 2. Extract Authoritative Rule Engine Facts
+        rule_facts = rule_engine.try_rule_answer(intent, country, visa_type, query=query)
+
+        # 3. Cache Check (query-specific; bypass for multi-turn sessions)
+        cached_response = intent_cache.get(country, visa_type, intent, query=query)
+        if cached_response and not chat_history:
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             metrics["source"] = "cache"
             return {"answer": cached_response, "sources": [], "metrics": metrics, "guardrail_blocked": False}
 
-        # 3. Rule Engine Check
-        rule_response = rule_engine.try_rule_answer(intent, country, visa_type)
-        if rule_response:
-            metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
-            metrics["source"] = "rule_engine"
-            intent_cache.set(country, visa_type, intent, rule_response)
-            return {"answer": rule_response, "sources": [], "metrics": metrics, "guardrail_blocked": False}
 
         # 4. Structured Database & Tourist Context Check
         tourist_context = ""
@@ -114,8 +120,8 @@ class RAGPipeline:
         metrics["retrieval_chunks"] = len(chunks)
 
         # 6. Grounded Generation (RAG-Only — Zero ungrounded fallback)
-        has_evidence = bool(chunks) or bool(tourist_context)
-        conf_eval = self.calculate_algorithmic_confidence(chunks, has_tourist_db=bool(tourist_context))
+        has_evidence = bool(chunks) or bool(tourist_context) or bool(rule_facts)
+        conf_eval = self.calculate_algorithmic_confidence(chunks, has_tourist_db=bool(tourist_context or rule_facts))
         metrics["confidence"] = conf_eval["score"]
         metrics["confidence_level"] = conf_eval["level"]
 
@@ -123,22 +129,33 @@ class RAGPipeline:
 
         if has_evidence and conf_eval["level"] != "INSUFFICIENT":
             sources = self.build_citations(chunks, tourist_context)
+            if rule_facts and not sources:
+                sources = [{
+                    "url": "https://www.canada.ca/en/immigration-refugees-citizenship.html",
+                    "title": "Official IRCC Regulatory Framework",
+                    "snippet": rule_facts[:200],
+                    "scraped_at": "",
+                }]
+
             context_blocks = []
+            if rule_facts:
+                context_blocks.append(f"Official IRCC Regulatory Framework (Verified Policy Facts):\n{rule_facts}")
             if chunks:
                 context_blocks.append(retrieval_service.prepare_context(chunks, max_context_length=1500))
             if tourist_context:
                 context_blocks.append(f"Official Tourist Database Records:\n{tourist_context}")
 
             combined_context = "\n\n".join(context_blocks)
-            user_prompt = f"Question: {query}"
+            user_prompt = f"User Question: {query}"
 
             metrics["llm_called"] = True
             answer = await llm_service.generate_answer(
                 system_prompt=GROUNDED_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 context=combined_context,
-                temperature=0.0,  # Deterministic grounding
-                max_tokens=600,
+                chat_history=chat_history,
+                temperature=0.2,  # Natural fluent phrasing with strict factual fidelity
+                max_tokens=700,
             )
 
             metrics["tokens_in"] = (len(GROUNDED_SYSTEM_PROMPT) + len(user_prompt) + len(combined_context)) // 4
@@ -147,7 +164,7 @@ class RAGPipeline:
             metrics["source"] = "llm_rag"
 
             # Cache grounded result
-            intent_cache.set(country, visa_type, intent, answer)
+            intent_cache.set(country, visa_type, intent, answer, query=query)
         else:
             # RAG-ONLY POLICY: Reject answer when no verified sources or confidence is INSUFFICIENT
             answer = UNVERIFIED_EVIDENCE_REFUSAL
@@ -239,7 +256,7 @@ class RAGPipeline:
             if has_tourist_db:
                 authority = max(authority, 0.95)
         else:
-            authority = 0.95  # Official PostgreSQL DB
+            authority = 0.95  # Official PostgreSQL DB / Tier-1 IRCC rules
 
         # 3. Freshness weight
         if chunks:
@@ -308,24 +325,18 @@ class RAGPipeline:
         visa_type = intent_data.get("visa_type", "Student")
         intent = intent_data.get("intent", "general")
 
-        # 2. Aggressive Cache Check
-        cached_response = intent_cache.get(country, visa_type, intent)
-        if cached_response:
+        # 2. Extract Authoritative Rule Engine Facts
+        rule_facts = rule_engine.try_rule_answer(intent, country, visa_type, query=query)
+
+        # 3. Cache Check (query-specific; bypass for multi-turn sessions)
+        cached_response = intent_cache.get(country, visa_type, intent, query=query)
+        if cached_response and not chat_history:
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             metrics["source"] = "cache"
             yield {"type": "chunk", "content": cached_response}
-            yield {"type": "done", "full_response": cached_response, "metrics": metrics}
+            yield {"type": "done", "full_response": cached_response, "sources": [], "metrics": metrics}
             return
 
-        # 3. Rule Engine Check
-        rule_response = rule_engine.try_rule_answer(intent, country, visa_type)
-        if rule_response:
-            metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
-            metrics["source"] = "rule_engine"
-            intent_cache.set(country, visa_type, intent, rule_response)
-            yield {"type": "chunk", "content": rule_response}
-            yield {"type": "done", "full_response": rule_response, "metrics": metrics}
-            return
 
         # 4. Structured Database & Tourist Context Check
         tourist_context = ""
@@ -348,21 +359,31 @@ class RAGPipeline:
         metrics["retrieval_chunks"] = len(chunks)
 
         # 6. Grounded Generation (RAG-Only)
-        has_evidence = bool(chunks) or bool(tourist_context)
-        conf_eval = self.calculate_algorithmic_confidence(chunks, has_tourist_db=bool(tourist_context))
+        has_evidence = bool(chunks) or bool(tourist_context) or bool(rule_facts)
+        conf_eval = self.calculate_algorithmic_confidence(chunks, has_tourist_db=bool(tourist_context or rule_facts))
         metrics["confidence"] = conf_eval["score"]
         metrics["confidence_level"] = conf_eval["level"]
 
         if has_evidence and conf_eval["level"] != "INSUFFICIENT":
             sources = self.build_citations(chunks, tourist_context)
+            if rule_facts and not sources:
+                sources = [{
+                    "url": "https://www.canada.ca/en/immigration-refugees-citizenship.html",
+                    "title": "Official IRCC Regulatory Framework",
+                    "snippet": rule_facts[:200],
+                    "scraped_at": "",
+                }]
+
             context_blocks = []
+            if rule_facts:
+                context_blocks.append(f"Official IRCC Regulatory Framework (Verified Policy Facts):\n{rule_facts}")
             if chunks:
                 context_blocks.append(retrieval_service.prepare_context(chunks, max_context_length=1500))
             if tourist_context:
                 context_blocks.append(f"Official Tourist Database Records:\n{tourist_context}")
 
             combined_context = "\n\n".join(context_blocks)
-            user_prompt = f"Question: {query}"
+            user_prompt = f"User Question: {query}"
 
             metrics["llm_called"] = True
             full_response = ""
@@ -372,8 +393,9 @@ class RAGPipeline:
                     system_prompt=GROUNDED_SYSTEM_PROMPT,
                     user_prompt=user_prompt,
                     context=combined_context,
-                    temperature=0.0,
-                    max_tokens=600,
+                    chat_history=chat_history,
+                    temperature=0.2,  # Natural fluent phrasing with strict factual fidelity
+                    max_tokens=700,
                 ):
                     full_response += chunk
                     yield {"type": "chunk", "content": chunk}
@@ -383,7 +405,7 @@ class RAGPipeline:
                 metrics["cost_usd"] = (metrics["tokens_in"] + metrics["tokens_out"]) * 0.0000001
                 metrics["source"] = "llm_rag"
 
-                intent_cache.set(country, visa_type, intent, full_response)
+                intent_cache.set(country, visa_type, intent, full_response, query=query)
             except Exception as e:
                 print(f"[RAG_PIPELINE] LLM stream error: {e}")
                 err_msg = "An error occurred while generating the answer from official sources."
@@ -399,6 +421,7 @@ class RAGPipeline:
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             yield {"type": "chunk", "content": UNVERIFIED_EVIDENCE_REFUSAL}
             yield {"type": "done", "full_response": UNVERIFIED_EVIDENCE_REFUSAL, "sources": [], "metrics": metrics}
+
 
 
 # Global instance

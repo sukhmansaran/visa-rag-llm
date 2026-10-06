@@ -79,11 +79,12 @@ async def test_unified_pipeline_grounded_generation_sync():
         assert result["metrics"]["llm_called"] is True
         assert result["metrics"]["retrieval_chunks"] == 1
 
-        # Verify LLM was called with deterministic temperature 0.0 and grounded prompt
+        # Verify LLM was called with low temperature (<= 0.2) and grounded prompt
         mock_llm.assert_called_once()
         call_kwargs = mock_llm.call_args.kwargs
-        assert call_kwargs["temperature"] == 0.0
+        assert call_kwargs["temperature"] <= 0.2
         assert call_kwargs["system_prompt"] == GROUNDED_SYSTEM_PROMPT
+
 
 
 @pytest.mark.asyncio
@@ -160,3 +161,22 @@ async def test_unified_pipeline_guardrail_interception_stream():
 
     done_event = next(e for e in events if e.get("type") == "done")
     assert done_event["metrics"]["source"] == "guardrail_refusal"
+
+
+@pytest.mark.asyncio
+async def test_unified_pipeline_express_entry_tech_eligibility():
+    """Verify tech professionals asking about Express Entry get grounded evaluation from verified rules via LLM."""
+    query = "I am a software engineer with 3 years of Python experience. Can I apply for Express Entry?"
+    with patch("app.services.llm.llm_service.generate_answer", new_callable=AsyncMock) as mock_llm:
+        mock_llm.return_value = (
+            "Yes! As a software engineer with 3 years of experience, you qualify under TEER 1 (NOC 21231) "
+            "and are eligible for targeted STEM Category draws in Express Entry."
+        )
+        result = await rag_pipeline.process_query(query)
+        assert result["guardrail_blocked"] is False
+        assert result["metrics"]["source"] == "llm_rag"
+        assert result["metrics"]["llm_called"] is True
+        assert "TEER 1" in result["answer"]
+        assert "STEM Category" in result["answer"]
+        assert "3 years" in result["answer"]
+

@@ -44,11 +44,14 @@ async def get_answer_stream(
         )
         history_messages = history_result.scalars().all()
         
-        # Convert to list format
-        chat_history = [
+        # Convert to list format from DB
+        db_history = [
             {"role": msg.role, "content": msg.content}
             for msg in history_messages
         ]
+        
+        # Use client-provided chat_history if available, otherwise use DB history
+        chat_history = message.chat_history if (message.chat_history and len(message.chat_history) > 0) else db_history
 
         # 1. Deterministic Input Guardrail Check
         guardrail_result = input_guardrail.evaluate(message.query, chat_history=chat_history)

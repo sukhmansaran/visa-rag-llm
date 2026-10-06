@@ -1,6 +1,7 @@
 import pytest
-from httparams import AsyncMock, patch
+from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient
+
 from app.main import app
 from app.models.profile import Profile
 from app.models.user import User

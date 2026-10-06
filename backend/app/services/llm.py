@@ -4,7 +4,7 @@ OllamaService is the single LLM provider for chat, SOP generation, and summariza
 Supports both regular and streaming responses.
 """
 
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional, List, Dict, Any
 import httpx
 import json
 
@@ -26,17 +26,19 @@ class OllamaService:
         system_prompt: str,
         user_prompt: str,
         context: str = "",
+        chat_history: Optional[List[Dict[str, Any]]] = None,
         temperature: float = 0.7,
         max_tokens: int = 2000,
         _retry_count: int = 0,  # kept for interface compatibility
     ) -> str:
         """
-        Generate a complete answer via Ollama's /api/chat endpoint.
+        Generate a complete answer via Ollama's /api/chat endpoint with multi-turn history.
 
         Args:
             system_prompt: System instruction
             user_prompt: User query
             context: Optional RAG context to prepend
+            chat_history: Prior conversation turns [{'role': 'user'|'assistant', 'content': '...'}]
             temperature: Sampling temperature (0.0–1.0)
             max_tokens: Max tokens to generate
 
@@ -45,10 +47,20 @@ class OllamaService:
         """
         messages = [{"role": "system", "content": system_prompt}]
 
+        # Inject conversation history for multi-turn awareness (last 4 turns)
+        if chat_history:
+            for turn in chat_history[-4:]:
+                role = turn.get("role")
+                content = (turn.get("content") or "").strip()
+                if role in ["user", "assistant"] and content:
+                    if role == "assistant" and len(content) > 500:
+                        content = content[:500] + "..."
+                    messages.append({"role": role, "content": content})
+
         if context:
             messages.append({
                 "role": "user",
-                "content": f"Context:\n{context}\n\n{user_prompt}",
+                "content": f"Verified Regulatory Context (Authoritative IRCC Rules):\n{context}\n\n{user_prompt}",
             })
         else:
             messages.append({"role": "user", "content": user_prompt})
@@ -63,7 +75,7 @@ class OllamaService:
             },
         }
 
-        print(f"[OLLAMA] Sending request — model: {self.model}, max_tokens: {max_tokens}")
+        print(f"[OLLAMA] Sending request — model: {self.model}, history_turns: {len(chat_history or [])}, max_tokens: {max_tokens}")
 
         async with httpx.AsyncClient(timeout=180.0) as client:
             try:
@@ -102,24 +114,32 @@ class OllamaService:
         system_prompt: str,
         user_prompt: str,
         context: str = "",
+        chat_history: Optional[List[Dict[str, Any]]] = None,
         temperature: float = 0.7,
         max_tokens: int = 2000,
     ) -> AsyncGenerator[str, None]:
         """
-        Stream an answer via Ollama's /api/chat endpoint.
-
-        Ollama returns newline-delimited JSON; each line carries a
-        message.content field with the next token chunk.
+        Stream an answer via Ollama's /api/chat endpoint with multi-turn history.
 
         Yields:
             Text chunks as they are generated
         """
         messages = [{"role": "system", "content": system_prompt}]
 
+        # Inject conversation history for multi-turn awareness (last 4 turns)
+        if chat_history:
+            for turn in chat_history[-4:]:
+                role = turn.get("role")
+                content = (turn.get("content") or "").strip()
+                if role in ["user", "assistant"] and content:
+                    if role == "assistant" and len(content) > 500:
+                        content = content[:500] + "..."
+                    messages.append({"role": role, "content": content})
+
         if context:
             messages.append({
                 "role": "user",
-                "content": f"Context:\n{context}\n\n{user_prompt}",
+                "content": f"Verified Regulatory Context (Authoritative IRCC Rules):\n{context}\n\n{user_prompt}",
             })
         else:
             messages.append({"role": "user", "content": user_prompt})
@@ -134,7 +154,7 @@ class OllamaService:
             },
         }
 
-        print(f"[OLLAMA STREAM] Starting stream — model: {self.model}")
+        print(f"[OLLAMA STREAM] Starting stream — model: {self.model}, history_turns: {len(chat_history or [])}")
 
         async with httpx.AsyncClient(timeout=180.0) as client:
             try:
@@ -201,5 +221,7 @@ class OllamaService:
 # Global singleton
 llm_service = OllamaService()
 
-# Backward-compat alias — any code that imported gemini_service gets OllamaService
+# Backward-compat alias — any code that imported gemini_service or LLMService gets OllamaService
 gemini_service = llm_service
+LLMService = OllamaService
+

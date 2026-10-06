@@ -8,6 +8,7 @@ class ChatMessage(BaseModel):
     country: str | None = None
     university: str | None = None
     sessionId: str | None = None
+    chat_history: List[Dict[str, str]] | None = None
 
 
 class SourceCitation(BaseModel):

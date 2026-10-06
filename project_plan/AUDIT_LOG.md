@@ -258,11 +258,46 @@ For every milestone, task, and sub-task:
 
 ---
 
+### [2026-10-06] Task 2.4: Multi-Turn Conversational Memory, Rule Primacy Prompt Grounding & Frontend Integration
+**Status:** Completed & Live-Verified  
+**Sub-tasks:**
+- [x] Sub-task 2.4.1: Transition from Static Template Returns to True LLM-Grounded Prose
+- [x] Sub-task 2.4.2: Multi-Turn Conversation Thread Injection into Ollama (`/api/chat`)
+- [x] Sub-task 2.4.3: Referential Follow-Up Guardrail Defense & Pronoun Context Engine
+- [x] Sub-task 2.4.4: Next.js Frontend Citations, Trace Telemetry & Input Ergonomics
+
+#### 1. Rationale & Problem Solved
+- Eliminated static hardcoded template returns from `rule_engine.py` by converting them into Tier-1 Authoritative Regulatory Facts injected directly into the LLM context.
+- Solved context amnesia by feeding prior `chat_history` turns into Ollama (`llama3.2:3b`), allowing the LLM to understand referential follow-ups (e.g., *"What are the financial requirements for that?"* connects to the prior study permit).
+- Removed repetitive introductory greetings on continuing turns by updating `GROUNDED_SYSTEM_PROMPT` to enforce conversational continuity.
+- Prevented false-positive guardrail rejections on follow-up questions by adding `"financial"`, `"requirements"`, `"eligibility"`, and referential pronoun cues (`"for that"`, `"for this"`, `"about that"`) to `input_guardrail.py`.
+- Fixed UI bugs: elevated input bar to `z-50 pointer-events-auto`, added <kbd>Enter</kbd> key submission, auto-send on quick suggestion pills, and added clickable IRCC source cards and telemetry trace (`Evidence: 1 Verified Doc`, `Source: llm_rag`, `Confidence: HIGH 92%`).
+
+#### 2. Architecture & Code Changes
+- `backend/app/services/rule_engine.py` *(Modified)*: Converted from static markdown responses to authoritative IRCC regulatory policy facts (NOC 21231/21232 TEER 1, FSW 1-year criteria, STEM categories, 20 hrs/week off-campus work, 3-year PGWP, CAD $20,635 living funds).
+- `backend/app/services/llm.py` *(Modified)*: Injected prior `chat_history` into Ollama `/api/chat` payload; compacted older assistant turns to ~500 chars to minimize CPU token latency.
+- `backend/app/services/rag_pipeline.py` *(Modified)*:
+  - Updated `GROUNDED_SYSTEM_PROMPT` to mandate seamless multi-turn continuity without redundant greetings.
+  - Forwarded `chat_history` into `generate_answer` and `generate_answer_stream`.
+  - Added query-aware SHA-256 fingerprinting to `intent_cache.py`.
+- `backend/app/services/guardrails/input_guardrail.py` *(Modified)*: Whitelisted `"financial"`, `"requirements"`, `"living expenses"`, and added referential pronoun phrase matcher to `_is_valid_contextual_follow_up`.
+- `backend/app/api/v1/chat_schemas.py` & `chat.py` *(Modified)*: Added `chat_history` to `ChatMessage` schema and prioritized client active conversation turns.
+- `frontend/src/app/chat/page.tsx` *(Modified)*: Forwarded conversation turns in request body, fixed stacking context with `z-50`, rendered clickable IRCC sources and telemetry inspection.
+
+#### 3. Verification & Testing
+- Live End-to-End Chat Thread Verified:
+  1. Turn 1: *"I am a software engineer with 3 years of Python experience. Can I apply for Express Entry?"* -> Grounded assessment (TEER 1, NOC 21231, STEM draws).
+  2. Turn 2: *"Can an international student on a study permit work off-campus in Canada and for how many hours?"* -> Natural transition, 20 hrs/week term / full-time break regulations.
+  3. Turn 3: *"Write me a python script to download IRCC forms"* -> `< 15ms` Guardrail Firewall interception with zero LLM tokens.
+  4. Turn 4: *"What are the financial requirements for that?"* -> Correct referential resolution to Study Permit ($20,635 CAD living expenses + tuition + SDS GIC), `Source: llm_rag`, `Confidence: HIGH (92%)`, `Evidence: 1 Verified Doc`.
+
+---
+
 ## 📊 Summary of Milestone Progress
 | Milestone | Status | Passed Tests | Key Deliverables |
 |---|---|---|---|
 | **Milestone 1: Visa Constitution & Input Firewall** | **100% Completed** | **112 / 112** | Visa Constitution, Deterministic Input Guardrail, Chat Endpoint Hooking, 103-case adversarial test suite |
-| **Milestone 2: Unified RAG Pipeline & RAG-Only Policy** | **100% Completed** | **20 / 20** | Unified Sync/Stream orchestrator, Tourist DB, Authority Tiering (1-4), Confidence Scoring, Context Sanitization & Citations |
+| **Milestone 2: Unified RAG Pipeline & Multi-Turn Grounding** | **100% Completed** | **20 / 20** + Live E2E | Unified Sync/Stream orchestrator, Multi-turn conversational memory, Tier-1 IRCC rule primacy, Context sanitization, Verified citations, Referential follow-up engine |
 | **Milestone 3: Output Guardrail & Leakage Shield** | Next Up | - | Output validator service, Sentence-buffered streaming validator, Legal disclaimer engine |
 | **Milestone 4: Deterministic Rules & User Profile Privacy** | Pending | - | Hardened IRCC rule evaluator, PII redaction & logging filter, File upload MIME/magic byte validator |
 | **Milestone 5: Crawler & Ingestion Hardening** | Pending | - | Domain allowlist, Content classifier, Chunk deduplication, Freshness tracking |
@@ -270,3 +305,4 @@ For every milestone, task, and sub-task:
 
 ---
 *Last Updated: 2026-10-06 | Maintained by Antigravity AI Engineering Assistant*
+

@@ -56,4 +56,7 @@ class TestClassifyKeywordThreshold:
     def test_keywords_in_title_count(self, classifier):
         result = classifier.classify(
             url="https://example.com/page",
-            title="Visa Immigration Scholar
+            title="Visa Immigration Scholarship",
+            body_text="",
+        )
+        assert result.is_relevant is True

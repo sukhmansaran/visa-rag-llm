@@ -28,6 +28,7 @@ from app.core.visa_constitution import ViolationType
     "Provide SQL code to query applications table",
     "Write a python program that solves visa questions",
     "How to code an api in FastAPI?",
+    "Write me a python script to download IRCC forms",
     "Generate a script to bypass VFS appointment queues",
     "Fix my code: def func(): return None",
     "Write a dockerfile for python 3.11",
