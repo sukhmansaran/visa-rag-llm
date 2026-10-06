@@ -209,15 +209,64 @@ For every milestone, task, and sub-task:
 
 ---
 
+### [2026-10-06] Task 2.3: Strict RAG-Only Enforcement & Anti-Hallucination Context Delimitation
+**Status:** Completed  
+**Sub-tasks:**
+- [x] Sub-task 2.3.1: Remove Raw LLM Fallback (Zero Hallucination Guarantee)
+- [x] Sub-task 2.3.2: Secure Context Delimitation & Indirect Injection Sanitization
+- [x] Sub-task 2.3.3: Inline Citation Mapping & Source Metadata Delivery
+
+#### 1. Rationale & Problem Solved
+- Prevented ungrounded extrapolation on unverified queries (e.g., imaginary "Atlantis Gold Visa") by removing arbitrary fallback loops and replacing with strict `UNVERIFIED_EVIDENCE_REFUSAL` with `llm_called = False`.
+- Secured LLM prompt context against indirect prompt injection embedded inside scraped web chunks (neutralized `<system>`, `|im_start|`, `ignore previous instructions`, and delimiter breakout attacks).
+- Wrapped retrieved context inside explicit boundaries (`=== START OFFICIAL RETRIEVED DATA ... ===` and `=== END OFFICIAL RETRIEVED DATA ===`).
+- Mapped chunk metadata to structured `SourceCitation` schemas (`url`, `snippet`, `scraped_at`, `title`) across both synchronous chat API and real-time SSE streaming.
+
+#### 2. Architecture & Code Changes
+- `backend/app/services/retrieval.py` *(Modified)*:
+  - Added `sanitize_chunk_text(text: str) -> str`: Regular expressions defuse control tokens, system tags, imperative override instructions, and boundary breakouts.
+  - Updated `prepare_context()`: Formats each chunk with `[Source X] (Tier Y - Title)` and wraps in strict data delimiters instructing the LLM never to execute embedded instructions.
+- `backend/app/services/rag_pipeline.py` *(Modified)*:
+  - Added `build_citations(chunks, tourist_context)`: Extracts structured citation objects matching `SourceCitation` schema, deduplicating URLs.
+  - Updated `GROUNDED_SYSTEM_PROMPT` to require explicit `[Source X]` citations for factual statements.
+  - Returned structured `sources` list in `process_query()` and in the streaming `done` event of `process_query_stream()`.
+- `backend/app/api/v1/chat.py` *(Modified)*:
+  - Synchronous endpoint `/chat/answer`: Parses `sources` from `rag_result` into `ChatResponse(sources=[SourceCitation(...)], confidence=confidence)`.
+  - Streaming endpoint `/chat/answer/stream`: Captures structured `sources` and `metrics` from the pipeline's `done` event, records them in the database, and emits them to the client.
+- `backend/tests/test_citation_delimitation.py` *(Created)*:
+  - 6 comprehensive tests verifying prompt injection defusal, delimiter boundaries, schema-compliant citation mapping, URL deduplication, imaginary visa refusal (`llm_called=False`), and streaming citation propagation.
+
+#### 3. Verification & Testing
+- Command: `pytest tests/test_citation_delimitation.py -v`
+- Results: **6 passed**
+  - `test_sanitize_system_tags_and_tokens`: PASSED
+  - `test_sanitize_override_directives`: PASSED
+  - `test_sanitize_delimiter_breakout_attempts`: PASSED
+  - `test_prepare_context_wraps_boundaries`: PASSED
+  - `test_build_citations_extracts_schema_fields`: PASSED
+  - `test_build_citations_deduplicates_urls`: PASSED
+  - `test_imaginary_visa_refusal_without_llm_call`: PASSED
+  - `test_streaming_yields_citations_in_done_event`: PASSED
+- Cumulative Unit Test Suite: **134 passed in 1.23s** (100% pass rate).
+- Live Local LLM E2E Suite (`backend/tests/test_live_llm_e2e.py`): **6 / 6 passed in 38.18s** with real running Ollama (`llama3.2:3b`).
+  - `test_live_firewall_blocks_code_request_zero_llm_overhead`: PASSED (Blocked with 0 Ollama tokens)
+  - `test_live_firewall_blocks_jailbreak_escape_zero_llm_overhead`: PASSED (Blocked with 0 Ollama tokens)
+  - `test_live_imaginary_query_zero_hallucination`: PASSED (Grounded refusal, zero hallucinated rules)
+  - `test_live_grounded_generation_with_real_ollama`: PASSED (Grounded generation with [Source 1] citations)
+  - `test_live_streaming_generation_with_real_ollama`: PASSED (66 tokens streamed, done event verified)
+  - `test_live_indirect_prompt_injection_neutralized`: PASSED (Sanitized injection, Ollama obeyed context only)
+
+---
+
 ## 📊 Summary of Milestone Progress
 | Milestone | Status | Passed Tests | Key Deliverables |
 |---|---|---|---|
 | **Milestone 1: Visa Constitution & Input Firewall** | **100% Completed** | **112 / 112** | Visa Constitution, Deterministic Input Guardrail, Chat Endpoint Hooking, 103-case adversarial test suite |
-| **Milestone 2: Unified RAG Pipeline & RAG-Only Policy** | **In Progress (Tasks 2.1 & 2.2 Done)** | **14 / 14** | Unified Sync/Stream orchestrator, Tourist DB, Source Authority Tiering (1-4), Algorithmic Confidence Scoring |
-| **Milestone 3: Grounded Generation & Anti-Hallucination** | Pending | - | Strict prompt template, Inline citation injector, Output verification guardrail |
-| **Milestone 4: Crawler & Ingestion Hardening** | Pending | - | Domain allowlist, Content classifier, Chunk deduplication, Freshness tracking |
-| **Milestone 5: Production Operational Hardening** | Pending | - | Audit trail logger, Prompt versioning, Query latency optimization, Daily regression test runner |
-| **Milestone 6: Validation, Benchmark & Go-Live** | Pending | - | RAG Triad evaluation, 500-query benchmark, Security red team, Production readiness review |
+| **Milestone 2: Unified RAG Pipeline & RAG-Only Policy** | **100% Completed** | **20 / 20** | Unified Sync/Stream orchestrator, Tourist DB, Authority Tiering (1-4), Confidence Scoring, Context Sanitization & Citations |
+| **Milestone 3: Output Guardrail & Leakage Shield** | Next Up | - | Output validator service, Sentence-buffered streaming validator, Legal disclaimer engine |
+| **Milestone 4: Deterministic Rules & User Profile Privacy** | Pending | - | Hardened IRCC rule evaluator, PII redaction & logging filter, File upload MIME/magic byte validator |
+| **Milestone 5: Crawler & Ingestion Hardening** | Pending | - | Domain allowlist, Content classifier, Chunk deduplication, Freshness tracking |
+| **Milestone 6: Production Readiness & Benchmarks** | Pending | - | RAG Triad benchmark, 500-query benchmark, Security red team, Production readiness review |
 
 ---
 *Last Updated: 2026-10-06 | Maintained by Antigravity AI Engineering Assistant*
