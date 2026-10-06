@@ -1,63 +1,145 @@
-# Pendu
+# Visa RAG LLM (Pendu) 🍁
 
-Pendu is a Canada-focused student visa assistant. The repository contains a FastAPI backend for chat, visa guidance, document generation, and crawling, alongside a Next.js web interface. Some frontend screens are still demo or locally computed experiences; see [PROJECT_STATUS.md](PROJECT_STATUS.md) for the current implementation inventory.
+> An AI-powered immigration intelligence platform and visa guidance assistant focused on Canadian immigration (IRCC), student visas, and tourist travel.
 
-## Stack
+Built with a high-performance **FastAPI** backend, **Next.js 14** modern web interface, hybrid **RAG pipeline** (Ollama / Llama 3.2 + Nomic Embeddings / ChromaDB), automated **crawler infrastructure**, and deterministic visa assessment rules.
 
-- Backend: Python 3.11+, FastAPI, PostgreSQL, Redis, and Alembic
-- Frontend: Node.js 18.17+, Next.js 14, and pnpm 9.15.9 (via Corepack)
-- Local services: Docker Compose
+---
 
-## Quick Start
+## 🌟 Key Features
 
-### 1. Configure the backend
+- **🤖 Intelligent Visa Chatbot:** Context-aware Q&A using RAG with IRCC policies and up-to-date immigration guidelines.
+- **🛡️ Visa Risk Assessment:** Profile analysis detecting risks, ties to home country, financial readiness, and program fit.
+- **📝 Automated SOP Generator:** Drafts tailored Statements of Purpose that directly address profile weaknesses.
+- **🕷️ Autonomous Crawler Pipeline:** Crawls official immigration portals and news sources with robots.txt compliance, deduplication, and rate-limiting.
+- **🔄 Change Detection & Notifications:** Monitors official policy updates and alerts users to regulatory changes.
+- **📊 Modern Dashboard & Metrics:** Clean Next.js 14 UI featuring metrics, application tracking, destination guides, and onboarding.
+
+---
+
+## 🛠️ Tech Stack
+
+### Backend
+- **Framework:** FastAPI (Python 3.11+)
+- **Database & ORM:** PostgreSQL + SQLModel + Alembic migrations
+- **Cache & Task Queue:** Redis + Celery
+- **Vector Database:** ChromaDB (with Pinecone support)
+- **AI / LLM Stack:** Ollama (`llama3.2:3b`) + embeddings (`nomic-embed-text`) / Google Gemini support
+
+### Frontend
+- **Framework:** Next.js 14 (App Router) + React 18 + TypeScript
+- **Styling:** Tailwind CSS + Lucide Icons
+- **Package Manager:** pnpm
+
+---
+
+## 📂 Project Structure
+
+```
+├── backend/
+│   ├── app/
+│   │   ├── api/v1/         # Modular REST endpoints (chat, auth, visa-risk, crawler, etc.)
+│   │   ├── core/           # Config, database sessions, auth & security
+│   │   ├── models/         # SQLModel database schemas
+│   │   ├── services/       # RAG pipeline, crawler, SOP generator, LLM orchestrator
+│   │   └── workers/        # Celery asynchronous tasks & scheduled monitors
+│   ├── alembic/            # Database migration revisions
+│   ├── scripts/            # Seed data & system verification utilities
+│   ├── tests/              # Pytest test suite
+│   ├── Dockerfile          # Backend containerization
+│   └── docker-compose.yml  # PostgreSQL, Redis & Backend service definitions
+├── frontend/
+│   ├── src/
+│   │   ├── app/            # Next.js App Router (dashboard, chat, visa-risk, sop)
+│   │   └── components/     # UI components & layouts
+│   ├── package.json        # Frontend dependencies
+│   └── tailwind.config.ts  # Tailwind theme configuration
+├── docs/                   # Architecture & RAG cost optimization documentation
+├── LICENSE                 # GNU Affero General Public License v3.0
+└── PROJECT_STATUS.md       # Comprehensive architecture inventory & roadmap
+```
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+- Docker & Docker Compose
+- Node.js 18.17+ & pnpm (for frontend)
+- Python 3.11+ (for local backend development)
+- [Ollama](https://ollama.ai/) running locally with models:
+  ```bash
+  ollama pull llama3.2:3b
+  ollama pull nomic-embed-text
+  ```
+
+---
+
+### Option A: Running with Docker Compose (Recommended)
+
+1. **Configure environment:**
+   ```powershell
+   cd backend
+   Copy-Item .env.example .env
+   ```
+   *(Update any custom settings in `backend/.env`)*
+
+2. **Start backend services:**
+   ```powershell
+   docker compose up -d --build
+   docker compose exec backend alembic upgrade head
+   ```
+   API runs at: `http://localhost:8000` (Interactive docs at `/docs`)
+
+3. **Start the frontend:**
+   ```powershell
+   cd ../frontend
+   pnpm install
+   pnpm dev
+   ```
+   Web interface runs at: `http://localhost:3000`
+
+---
+
+### Option B: Local Python Development
+
+1. **Backend setup:**
+   ```powershell
+   cd backend
+   python -m venv venv
+   .\venv\Scripts\activate
+   pip install -r requirements.txt
+   Copy-Item .env.example .env
+   alembic upgrade head
+   python -m uvicorn app.main:app --reload --port 8000
+   ```
+
+2. **Seed sample data (optional):**
+   ```powershell
+   python seed_tourist_data.py
+   python scripts/seed_sources.py
+   ```
+
+3. **Frontend setup:**
+   ```powershell
+   cd ../frontend
+   pnpm install
+   pnpm dev
+   ```
+
+---
+
+## 🧪 Running Tests
+
+Run the backend test suite:
 
 ```powershell
 cd backend
-Copy-Item .env.example .env
+pytest
 ```
 
-Edit `backend/.env` and set a unique `SECRET_KEY` and any provider credentials you intend to use. Never commit `.env` or put real credentials in source files.
+---
 
-### 2. Start backend services
+## 📄 License
 
-From the `backend` directory:
-
-```powershell
-docker compose up -d --build
-docker compose exec backend alembic upgrade head
-```
-
-The API is available at <http://localhost:8000>, with interactive docs at <http://localhost:8000/docs>.
-
-### 3. Start the web app
-
-In another terminal, from the repository root:
-
-```powershell
-cd frontend
-corepack pnpm install --frozen-lockfile
-corepack pnpm dev
-```
-
-Open <http://localhost:3000>. The Next.js development server proxies `/api/v1` requests to the backend on port 8000.
-
-## Tests
-
-Run the backend tests from `backend` after installing `requirements.txt`:
-
-```powershell
-python -m pytest
-```
-
-## Configuration
-
-The backend reads configuration from `backend/.env`; `backend/.env.example` lists the available settings. Docker Compose supplies the container database and Redis URLs. For local development, install and configure equivalent PostgreSQL and Redis services.
-
-## GitHub Upload Warnings
-
-Review [GITHUB_UPLOAD_WARNINGS.md](GITHUB_UPLOAD_WARNINGS.md) before publishing this repository. Its existing Git history contains credential-shaped values and generated frontend files that are not removed by the current `.gitignore` rules.
-
-## Security
-
-Treat API keys, passwords, signing keys, and user data as private. If a credential was committed at any point, revoke or rotate it; deleting it from the current files does not remove it from Git history. Review the full history before publishing this repository publicly.
+This project is licensed under the terms of the [GNU Affero General Public License v3.0](LICENSE).
