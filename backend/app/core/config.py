@@ -65,7 +65,13 @@ class Settings(BaseSettings):
     SENTRY_DSN: str = ""
     
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8081"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:8081",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ]
     
     # Scraping
     MAX_CONCURRENT_SCRAPES: int = 5
