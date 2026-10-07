@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Send, BookOpen, ChevronDown, ChevronUp, Database, Zap, Clock, ExternalLink, ShieldCheck, FileText } from "lucide-react";
 import Link from "next/link";
+import { MarkdownMessage } from "@/components/MarkdownMessage";
+
 
 interface Message {
     role: "user" | "assistant";
@@ -252,12 +254,14 @@ export default function ChatPage() {
                                 </div>
                             )}
 
-                            <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                                {msg.content}
-                                {msg.streaming && (
-                                    <span className="inline-block w-1.5 h-4 ml-0.5 bg-current animate-pulse rounded-sm" />
-                                )}
-                            </div>
+                            {msg.role === "assistant" ? (
+                                <MarkdownMessage content={msg.content} isStreaming={msg.streaming} />
+                            ) : (
+                                <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                                    {msg.content}
+                                </div>
+                            )}
+
 
                             {/* Verified Source Citations */}
                             {msg.role === "assistant" && !msg.streaming && msg.sources && msg.sources.length > 0 && (

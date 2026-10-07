@@ -6,8 +6,10 @@ Enforces the RAG-Only policy: Zero ungrounded hallucinations, zero raw LLM fallb
 
 import time
 import json
+import re
 from typing import Dict, Any, Optional, List, AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
+
 
 from app.services.intent_parser import intent_parser
 from app.services.rule_engine import rule_engine
@@ -15,6 +17,7 @@ from app.services.cache_service import intent_cache
 from app.services.retrieval import retrieval_service
 from app.services.llm import llm_service
 from app.services.guardrails.input_guardrail import input_guardrail
+from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.tourist_service import get_tourist_context
 
 
@@ -34,10 +37,21 @@ Instructions:
    - If specific details (such as exact CRS cutoff scores or individual background checks) require external assessment, advise the user transparently.
 3. Structure & Formatting:
    - Provide a well-structured response with clear paragraphs and organized bullet points for specific criteria or document checklists.
+   - Always put each bullet point on its own separate new line (never combine multiple bullet points into a single continuous sentence or line).
+   - Use clean Markdown list items (e.g. "- **Title**: Description" or "1. **Title**: Description").
    - Cite official IRCC guidelines as your authority.
 4. Compliance & Guardrails:
    - Never provide absolute legal guarantees (e.g. do not say "your visa is 100% guaranteed").
    - Maintain strict fidelity to official Canadian immigration regulations."""
+
+def normalize_markdown_output(text: str) -> str:
+    """Ensure bullet points and headers generated on a single line are cleanly spaced with newlines."""
+    if not text:
+        return text
+    text = re.sub(r'([^\n])\s+([*+-]|\d+\.)\s+(\*\*)', r'\1\n\n\2 \3', text)
+    text = re.sub(r'([.:;?!])\s+([*+-])\s+([A-Z])', r'\1\n\n\2 \3', text)
+    return text
+
 
 UNVERIFIED_EVIDENCE_REFUSAL = (
     "I cannot find verified official sources in my knowledge base to answer this specific question. "
@@ -157,14 +171,25 @@ class RAGPipeline:
                 temperature=0.2,  # Natural fluent phrasing with strict factual fidelity
                 max_tokens=700,
             )
+            answer = normalize_markdown_output(answer)
+
+            # Output Guardrail & Leakage Shield Validation
+            val_res = output_guardrail.validate_output(answer)
+            if not val_res.is_valid:
+                answer = val_res.sanitized_output
+                metrics["output_guardrail_remediated"] = True
+                metrics["output_violations"] = [v.value for v in val_res.violations]
+            else:
+                metrics["output_guardrail_remediated"] = False
 
             metrics["tokens_in"] = (len(GROUNDED_SYSTEM_PROMPT) + len(user_prompt) + len(combined_context)) // 4
             metrics["tokens_out"] = len(answer) // 4
             metrics["cost_usd"] = (metrics["tokens_in"] + metrics["tokens_out"]) * 0.0000001
             metrics["source"] = "llm_rag"
 
-            # Cache grounded result
-            intent_cache.set(country, visa_type, intent, answer, query=query)
+            # Cache grounded result only if validation passed without leakage
+            if val_res.is_valid:
+                intent_cache.set(country, visa_type, intent, answer, query=query)
         else:
             # RAG-ONLY POLICY: Reject answer when no verified sources or confidence is INSUFFICIENT
             answer = UNVERIFIED_EVIDENCE_REFUSAL
@@ -405,7 +430,8 @@ class RAGPipeline:
                 metrics["cost_usd"] = (metrics["tokens_in"] + metrics["tokens_out"]) * 0.0000001
                 metrics["source"] = "llm_rag"
 
-                intent_cache.set(country, visa_type, intent, full_response, query=query)
+                normalized_full = normalize_markdown_output(full_response)
+                intent_cache.set(country, visa_type, intent, normalized_full, query=query)
             except Exception as e:
                 print(f"[RAG_PIPELINE] LLM stream error: {e}")
                 err_msg = "An error occurred while generating the answer from official sources."
@@ -413,7 +439,9 @@ class RAGPipeline:
                 yield {"type": "chunk", "content": err_msg}
 
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
-            yield {"type": "done", "full_response": full_response, "sources": sources, "metrics": metrics}
+            normalized_final = normalize_markdown_output(full_response)
+            yield {"type": "done", "full_response": normalized_final, "sources": sources, "metrics": metrics}
+
         else:
             # RAG-ONLY POLICY: No verified chunks found or insufficient confidence
             metrics["source"] = "no_evidence_refusal" if not has_evidence else "insufficient_confidence_refusal"

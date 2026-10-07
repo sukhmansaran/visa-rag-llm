@@ -15,6 +15,8 @@ from unittest.mock import patch, AsyncMock
 from app.services.rag_pipeline import RAGPipeline, UNVERIFIED_EVIDENCE_REFUSAL
 from app.services.llm import llm_service
 from app.services.retrieval import retrieval_service
+from app.services.cache_service import intent_cache
+from app.services.guardrails.output_guardrail import SAFE_OUTPUT_FALLBACK, LEGAL_GUARANTEE_FALLBACK
 
 
 # Helper to check if local Ollama is active
@@ -202,3 +204,125 @@ class TestLiveMilestone2RAGWithRealOllama:
             assert "free citizenship to everyone" not in answer
             assert "20,635" in answer or "funds" in answer or "proof" in answer
             print(f"\n[LIVE SANITIZED OLLAMA RESPONSE]:\n{result['answer']}")
+
+
+@pytest.mark.asyncio
+class TestLiveMilestone3OutputGuardrailWithOllama:
+    """Live tests verifying Milestone 3 Output Guardrail interacting with the RAG Pipeline and real Ollama."""
+
+    async def test_live_ollama_normal_response_passes_output_guardrail(self):
+        """A normal grounded response from real llama3.2:3b passes validation without remediation."""
+        intent_cache.clear()
+        pipeline = RAGPipeline()
+        query = "What are the allowed off-campus work hours for international students in Canada?"
+
+        verified_chunks = [
+            {
+                "text": (
+                    "International students in Canada with a valid study permit may work off-campus up to 20 hours "
+                    "per week during regular academic sessions. They can work full-time during scheduled breaks."
+                ),
+                "authority_tier": 1,
+                "score": 0.90,
+                "metadata": {
+                    "url": "https://www.canada.ca/off-campus-work",
+                    "title": "IRCC Off-Campus Rules",
+                    "scraped_at": "2026-03-01",
+                    "authority_tier": 1,
+                },
+            }
+        ]
+
+        with patch("app.services.retrieval.retrieval_service.retrieve", new_callable=AsyncMock) as mock_retrieve:
+            mock_retrieve.return_value = verified_chunks
+
+            result = await pipeline.process_query(query)
+
+            # Assert Ollama was called and Output Guardrail allowed the text without remediation
+            assert result["metrics"]["llm_called"] is True
+            assert result["metrics"]["output_guardrail_remediated"] is False
+            assert "output_violations" not in result["metrics"]
+            assert len(result["answer"]) > 20
+            print(f"\n[LIVE VALIDATED OLLAMA OUTPUT]:\n{result['answer']}")
+
+    async def test_live_pipeline_post_generation_shield_catches_code_leak(self):
+        """Simulate an LLM response producing code blocks; verify Output Guardrail remediates it."""
+        pipeline = RAGPipeline()
+        query = "What documents do I need for a study permit?"
+
+        verified_chunks = [
+            {
+                "text": "Study permit documents include a Letter of Acceptance, passport, and proof of financial support.",
+                "authority_tier": 1,
+                "score": 0.88,
+                "metadata": {
+                    "url": "https://www.canada.ca/study-documents",
+                    "title": "Study Permit Documents",
+                    "scraped_at": "2026-03-01",
+                    "authority_tier": 1,
+                },
+            }
+        ]
+
+        # Force LLM generator mock returning a code block to simulate code exfiltration
+        adversarial_llm_output = (
+            "Here is the list of documents:\n"
+            "```python\n"
+            "docs = ['passport', 'letter_of_acceptance', 'bank_statement']\n"
+            "```"
+        )
+
+        with patch("app.services.retrieval.retrieval_service.retrieve", new_callable=AsyncMock) as mock_retrieve, \
+             patch.object(llm_service, "generate_answer", new_callable=AsyncMock) as mock_llm:
+
+            mock_retrieve.return_value = verified_chunks
+            mock_llm.return_value = adversarial_llm_output
+
+            result = await pipeline.process_query(query)
+
+            # Assert Output Guardrail caught the code and substituted safe fallback
+            assert result["metrics"]["llm_called"] is True
+            assert result["metrics"]["output_guardrail_remediated"] is True
+            assert "CODE_BLOCK" in result["metrics"]["output_violations"]
+            assert result["answer"] == SAFE_OUTPUT_FALLBACK
+            print(f"\n[LIVE REMEDIATED CODE LEAK RESPONSE]:\n{result['answer']}")
+
+    async def test_live_pipeline_post_generation_shield_catches_legal_guarantee(self):
+        """Simulate an LLM response with unauthorized guarantee; verify Output Guardrail remediates it."""
+        pipeline = RAGPipeline()
+        query = "Will I definitely get my study permit if I show $30,000 CAD?"
+
+        verified_chunks = [
+            {
+                "text": "The minimum requirement for proof of funds is $20,635 CAD plus first year tuition.",
+                "authority_tier": 1,
+                "score": 0.85,
+                "metadata": {
+                    "url": "https://www.canada.ca/financial-support",
+                    "title": "Financial Support Guidelines",
+                    "scraped_at": "2026-03-01",
+                    "authority_tier": 1,
+                },
+            }
+        ]
+
+        # Force LLM response with absolute legal guarantee
+        hallucinated_guarantee = (
+            "Yes! If you show $30,000 CAD, your study permit is 100% guaranteed to be approved!"
+        )
+
+        with patch("app.services.retrieval.retrieval_service.retrieve", new_callable=AsyncMock) as mock_retrieve, \
+             patch.object(llm_service, "generate_answer", new_callable=AsyncMock) as mock_llm:
+
+            mock_retrieve.return_value = verified_chunks
+            mock_llm.return_value = hallucinated_guarantee
+
+            result = await pipeline.process_query(query)
+
+            # Assert Output Guardrail caught the legal guarantee and substituted legal disclaimer fallback
+            assert result["metrics"]["llm_called"] is True
+            assert result["metrics"]["output_guardrail_remediated"] is True
+            assert "LEGAL_GUARANTEE" in result["metrics"]["output_violations"]
+            assert result["answer"] == LEGAL_GUARANTEE_FALLBACK
+            print(f"\n[LIVE REMEDIATED LEGAL GUARANTEE RESPONSE]:\n{result['answer']}")
+
