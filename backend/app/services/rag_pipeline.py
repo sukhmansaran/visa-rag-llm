@@ -412,26 +412,45 @@ class RAGPipeline:
 
             metrics["llm_called"] = True
             full_response = ""
+            stream_blocked = False
+            stream_violations = []
 
             try:
-                async for chunk in llm_service.generate_answer_stream(
+                raw_token_stream = llm_service.generate_answer_stream(
                     system_prompt=GROUNDED_SYSTEM_PROMPT,
                     user_prompt=user_prompt,
                     context=combined_context,
                     chat_history=chat_history,
                     temperature=0.2,  # Natural fluent phrasing with strict factual fidelity
                     max_tokens=700,
-                ):
-                    full_response += chunk
-                    yield {"type": "chunk", "content": chunk}
+                )
+
+                async for event in output_guardrail.validate_stream(raw_token_stream):
+                    event_type = event.get("type")
+                    if event_type == "guardrail_blocked":
+                        stream_blocked = True
+                        stream_violations = event.get("violations", [])
+                        yield event
+                    elif event_type == "chunk":
+                        content = event.get("content", "")
+                        if event.get("replaced"):
+                            full_response = content.strip()
+                        else:
+                            full_response += content
+                        yield event
 
                 metrics["tokens_in"] = (len(GROUNDED_SYSTEM_PROMPT) + len(user_prompt) + len(combined_context)) // 4
                 metrics["tokens_out"] = len(full_response) // 4
                 metrics["cost_usd"] = (metrics["tokens_in"] + metrics["tokens_out"]) * 0.0000001
                 metrics["source"] = "llm_rag"
 
-                normalized_full = normalize_markdown_output(full_response)
-                intent_cache.set(country, visa_type, intent, normalized_full, query=query)
+                if stream_blocked:
+                    metrics["output_guardrail_remediated"] = True
+                    metrics["output_violations"] = stream_violations
+                else:
+                    metrics["output_guardrail_remediated"] = False
+                    normalized_full = normalize_markdown_output(full_response)
+                    intent_cache.set(country, visa_type, intent, normalized_full, query=query)
             except Exception as e:
                 print(f"[RAG_PIPELINE] LLM stream error: {e}")
                 err_msg = "An error occurred while generating the answer from official sources."

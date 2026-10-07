@@ -8,8 +8,10 @@ from app.services.guardrails.output_guardrail import (
     OutputGuardrail,
     OutputValidationResult,
     OutputViolationType,
+    StreamingOutputValidator,
     output_guardrail,
     validate_output,
+    validate_stream,
 )
 
 __all__ = [
@@ -18,7 +20,10 @@ __all__ = [
     "OutputGuardrail",
     "OutputValidationResult",
     "OutputViolationType",
+    "StreamingOutputValidator",
     "output_guardrail",
     "validate_output",
+    "validate_stream",
 ]
+
 

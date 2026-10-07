@@ -11,7 +11,7 @@ Deterministic scanning and redaction for:
 import re
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, AsyncGenerator
 from app.core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -274,6 +274,180 @@ class OutputGuardrail:
         )
 
 
+    async def validate_stream(
+        self,
+        token_stream: AsyncGenerator[str, None],
+        custom_fallback: Optional[str] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Validate an async stream of tokens using sentence-buffered inspection."""
+        validator = StreamingOutputValidator(self)
+        async for event in validator.validate_stream(token_stream, custom_fallback=custom_fallback):
+            yield event
+
+
+class StreamingOutputValidator:
+    """
+    Sentence-Buffered Streaming Output Validator (Milestone 3 - Task 3.2).
+    Inspects token stream in real time to catch code blocks, secrets,
+    system prompt exfiltration, and legal guarantees before full propagation.
+    """
+
+    def __init__(self, guardrail: Optional[OutputGuardrail] = None):
+        self.guardrail = guardrail or output_guardrail
+        # Matches clause / sentence boundaries
+        self.sentence_delimiter = re.compile(r"([.!?]\s+|\n\n|\n[-*]\s+|\n\d+\.\s+)")
+        # Immediate fast-fail triggers that must abort before waiting for sentence ends
+        self.early_triggers = [
+            (OutputViolationType.CODE_BLOCK, re.compile(r"```|<\s*script\b|\bconsole\.log\(", re.IGNORECASE), "Code block / script tag detected"),
+            (OutputViolationType.SECRET_LEAK, re.compile(r"\b(?:sk-[a-zA-Z0-9_-]{10,}|AKIA[0-9A-Z]{10,}|ghp_[a-zA-Z0-9]{15,}|(?:POSTGRES_PASSWORD|DATABASE_URL|SECRET_KEY)\s*=)", re.IGNORECASE), "Credential / API key prefix detected"),
+            (OutputViolationType.PROMPT_LEAK, re.compile(r"===\s*START\s+OFFICIAL\s+RETRIEVED|GROUNDED_SYSTEM_PROMPT|You are Pendu,\s+an expert", re.IGNORECASE), "System prompt / internal delimiter detected"),
+            (OutputViolationType.PATH_LEAK, re.compile(r"\bTraceback\s+\(most\s+recent|[A-Za-z]:\\(?:Users|projects|backend)|/(?:backend|app)/(?:services|models)", re.IGNORECASE), "Server path / traceback detected"),
+        ]
+
+    def _check_early_triggers(self, text: str) -> Optional[tuple[OutputViolationType, str]]:
+        """Inspect cumulative stream text for early fatal tokens."""
+        for v_type, pattern, msg in self.early_triggers:
+            if pattern.search(text):
+                return v_type, msg
+
+        # Also check legal guarantee if unconditional
+        guarantee = self.guardrail._check_legal_guarantee(text)
+        if guarantee:
+            return OutputViolationType.LEGAL_GUARANTEE, f"Unauthorized legal guarantee: {guarantee}"
+
+        return None
+
+    async def validate_stream(
+        self,
+        token_stream: AsyncGenerator[str, None],
+        custom_fallback: Optional[str] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Buffer and validate streamed token chunks.
+        Yields standard SSE events:
+          {"type": "chunk", "content": ...}
+          {"type": "guardrail_blocked", "violation": ..., "violations": [...], "reason": ...} (if intercepted)
+        """
+        buffer = ""
+        full_text = ""
+        already_emitted = False
+
+        async for chunk in token_stream:
+            buffer += chunk
+            full_text += chunk
+
+            # 1. Early trigger inspection across cumulative text
+            early_violation = self._check_early_triggers(full_text)
+            if early_violation:
+                v_type, reason = early_violation
+                fallback = custom_fallback or (
+                    LEGAL_GUARANTEE_FALLBACK
+                    if v_type == OutputViolationType.LEGAL_GUARANTEE
+                    else SAFE_OUTPUT_FALLBACK
+                )
+                logger.warning(
+                    f"[STREAM_GUARDRAIL_ALERT] Early trigger tripped on {v_type.value}: {reason}"
+                )
+                yield {
+                    "type": "guardrail_blocked",
+                    "violation": v_type.value,
+                    "violations": [v_type.value],
+                    "reason": reason,
+                }
+                yield {
+                    "type": "chunk",
+                    "content": ("\n\n" if already_emitted else "") + fallback,
+                    "replaced": True,
+                }
+                return
+
+            # 2. Process complete clauses on sentence / paragraph boundaries
+            while True:
+                match = self.sentence_delimiter.search(buffer)
+                if not match:
+                    break
+
+                split_pos = match.end()
+                clause = buffer[:split_pos]
+                buffer = buffer[split_pos:]
+
+                # Validate completed clause with the full output guardrail
+                val_res = self.guardrail.validate_output(clause)
+                if not val_res.is_valid:
+                    v_type = val_res.violations[0]
+                    fallback = custom_fallback or (
+                        LEGAL_GUARANTEE_FALLBACK
+                        if v_type == OutputViolationType.LEGAL_GUARANTEE
+                        else SAFE_OUTPUT_FALLBACK
+                    )
+                    logger.warning(
+                        f"[STREAM_GUARDRAIL_ALERT] Clause violation {v_type.value}: {clause[:80]}"
+                    )
+                    yield {
+                        "type": "guardrail_blocked",
+                        "violation": v_type.value,
+                        "violations": [v.value for v in val_res.violations],
+                        "reason": f"Clause violation: {v_type.value}",
+                    }
+                    yield {
+                        "type": "chunk",
+                        "content": ("\n\n" if already_emitted else "") + fallback,
+                        "replaced": True,
+                    }
+                    return
+
+                # Clause is clean; dispatch to client
+                yield {"type": "chunk", "content": clause}
+                already_emitted = True
+
+            # 3. Buffer overflow guard (if sentence has no punctuation for > 200 chars)
+            if len(buffer) > 200:
+                val_res = self.guardrail.validate_output(buffer)
+                if not val_res.is_valid:
+                    v_type = val_res.violations[0]
+                    fallback = custom_fallback or SAFE_OUTPUT_FALLBACK
+                    yield {
+                        "type": "guardrail_blocked",
+                        "violation": v_type.value,
+                        "violations": [v.value for v in val_res.violations],
+                        "reason": f"Buffer overflow violation: {v_type.value}",
+                    }
+                    yield {
+                        "type": "chunk",
+                        "content": ("\n\n" if already_emitted else "") + fallback,
+                        "replaced": True,
+                    }
+                    return
+
+                # Safe to emit prefix, keep tail for boundary matching
+                emit_len = len(buffer) - 50
+                to_emit = buffer[:emit_len]
+                buffer = buffer[emit_len:]
+                yield {"type": "chunk", "content": to_emit}
+                already_emitted = True
+
+        # End of stream: flush remaining buffer
+        if buffer:
+            val_res = self.guardrail.validate_output(buffer)
+            if not val_res.is_valid:
+                v_type = val_res.violations[0]
+                fallback = custom_fallback or SAFE_OUTPUT_FALLBACK
+                yield {
+                    "type": "guardrail_blocked",
+                    "violation": v_type.value,
+                    "violations": [v.value for v in val_res.violations],
+                    "reason": f"Final buffer violation: {v_type.value}",
+                }
+                yield {
+                    "type": "chunk",
+                    "content": ("\n\n" if already_emitted else "") + fallback,
+                    "replaced": True,
+                }
+                return
+
+            yield {"type": "chunk", "content": buffer}
+
+
 # Global singleton instance
 output_guardrail = OutputGuardrail()
 
@@ -281,3 +455,12 @@ output_guardrail = OutputGuardrail()
 def validate_output(text: str, custom_fallback: Optional[str] = None) -> OutputValidationResult:
     """Convenience helper to validate generated output using the default singleton."""
     return output_guardrail.validate_output(text, custom_fallback=custom_fallback)
+
+
+async def validate_stream(
+    token_stream: AsyncGenerator[str, None],
+    custom_fallback: Optional[str] = None,
+) -> AsyncGenerator[Dict[str, Any], None]:
+    """Convenience helper to validate a token stream using the default singleton."""
+    async for event in output_guardrail.validate_stream(token_stream, custom_fallback=custom_fallback):
+        yield event
