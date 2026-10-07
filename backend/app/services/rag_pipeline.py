@@ -18,6 +18,7 @@ from app.services.retrieval import retrieval_service
 from app.services.llm import llm_service
 from app.services.guardrails.input_guardrail import input_guardrail
 from app.services.guardrails.output_guardrail import output_guardrail
+from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
 
 
@@ -181,6 +182,16 @@ class RAGPipeline:
                 metrics["output_violations"] = [v.value for v in val_res.violations]
             else:
                 metrics["output_guardrail_remediated"] = False
+
+            # Legal & High-Risk Disclaimer Evaluation (Milestone 3 - Task 3.3)
+            disclaimer_eval = legal_disclaimer_engine.evaluate(query, answer)
+            if disclaimer_eval.is_high_risk:
+                answer = disclaimer_eval.annotated_text
+                metrics["high_risk_topic_detected"] = True
+                metrics["risk_categories"] = disclaimer_eval.risk_categories
+            else:
+                metrics["high_risk_topic_detected"] = False
+                metrics["risk_categories"] = []
 
             metrics["tokens_in"] = (len(GROUNDED_SYSTEM_PROMPT) + len(user_prompt) + len(combined_context)) // 4
             metrics["tokens_out"] = len(answer) // 4
@@ -449,6 +460,18 @@ class RAGPipeline:
                     metrics["output_violations"] = stream_violations
                 else:
                     metrics["output_guardrail_remediated"] = False
+
+                    # Legal & High-Risk Disclaimer Evaluation (Milestone 3 - Task 3.3)
+                    disclaimer_eval = legal_disclaimer_engine.evaluate(query, full_response)
+                    if disclaimer_eval.is_high_risk and disclaimer_eval.disclaimer_text:
+                        full_response = disclaimer_eval.annotated_text
+                        metrics["high_risk_topic_detected"] = True
+                        metrics["risk_categories"] = disclaimer_eval.risk_categories
+                        yield {"type": "chunk", "content": disclaimer_eval.disclaimer_text}
+                    else:
+                        metrics["high_risk_topic_detected"] = False
+                        metrics["risk_categories"] = []
+
                     normalized_full = normalize_markdown_output(full_response)
                     intent_cache.set(country, visa_type, intent, normalized_full, query=query)
             except Exception as e:

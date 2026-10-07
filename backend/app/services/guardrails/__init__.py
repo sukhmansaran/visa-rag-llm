@@ -14,6 +14,13 @@ from app.services.guardrails.output_guardrail import (
     validate_stream,
 )
 
+from app.services.guardrails.legal_disclaimer import (
+    LegalDisclaimerEngine,
+    legal_disclaimer_engine,
+    RiskCategory,
+    DisclaimerEvaluationResult,
+)
+
 __all__ = [
     "InputGuardrail",
     "GuardrailResult",
@@ -24,6 +31,10 @@ __all__ = [
     "output_guardrail",
     "validate_output",
     "validate_stream",
+    "LegalDisclaimerEngine",
+    "legal_disclaimer_engine",
+    "RiskCategory",
+    "DisclaimerEvaluationResult",
 ]
 
 
