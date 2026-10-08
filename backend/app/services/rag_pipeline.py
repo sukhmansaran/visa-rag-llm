@@ -34,7 +34,9 @@ Instructions:
    - Reference or connect to previously discussed background details (such as their tech/software experience, degree, or visa path) whenever relevant.
 2. Grounding & Regulatory Accuracy:
    - Base all facts, numbers, TEER levels, NOC classifications, work hour limits, and financial thresholds ONLY on the verified official context provided below.
+   - Any statutory calculations (such as Proof of Funds dollar amounts, CLB benchmark levels, or PAL mandates) provided in the official context are IMMUTABLE. Preserve all figures and calculations accurately; your role is to explain them in clear, helpful, conversational prose.
    - Do NOT invent or speculate on policies not found in the verified context.
+
    - If specific details (such as exact CRS cutoff scores or individual background checks) require external assessment, advise the user transparently.
 3. Structure & Formatting:
    - Provide a well-structured response with clear paragraphs and organized bullet points for specific criteria or document checklists.
@@ -154,7 +156,8 @@ class RAGPipeline:
 
             context_blocks = []
             if rule_facts:
-                context_blocks.append(f"Official IRCC Regulatory Framework (Verified Policy Facts):\n{rule_facts}")
+                context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
+
             if chunks:
                 context_blocks.append(retrieval_service.prepare_context(chunks, max_context_length=1500))
             if tourist_context:
@@ -412,7 +415,8 @@ class RAGPipeline:
 
             context_blocks = []
             if rule_facts:
-                context_blocks.append(f"Official IRCC Regulatory Framework (Verified Policy Facts):\n{rule_facts}")
+                context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
+
             if chunks:
                 context_blocks.append(retrieval_service.prepare_context(chunks, max_context_length=1500))
             if tourist_context:
