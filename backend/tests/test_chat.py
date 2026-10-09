@@ -1,5 +1,20 @@
 import pytest
 from httpx import AsyncClient
+from unittest.mock import patch, AsyncMock
+
+
+@pytest.fixture(autouse=True)
+def mock_rag():
+    with patch("app.api.v1.chat.rag_pipeline.process_query", new_callable=AsyncMock) as mock_p:
+        mock_p.return_value = {
+            "answer": "To apply for a Canada student visa, you need proof of acceptance.",
+            "sources": [{"title": "Canada Visa", "url": "https://ircc.ca"}],
+            "confidence": 0.95,
+            "escalate": False,
+            "metrics": {"total_ms": 15},
+        }
+        yield mock_p
+
 
 
 @pytest.mark.asyncio

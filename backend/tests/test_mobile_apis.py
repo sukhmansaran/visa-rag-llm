@@ -73,14 +73,17 @@ async def test_generate_sop(client: AsyncClient):
     )
     
     # Generate SOP
-    response = await client.post(
-        "/api/v1/documents/sop/generate",
-        json={
-            "university": "University of Toronto",
-            "program": "MSc Computer Science",
-        },
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    from unittest.mock import patch, AsyncMock
+    with patch("app.api.v1.documents.generate_sop", new_callable=AsyncMock) as mock_gen:
+        mock_gen.return_value = "Mocked Statement of Purpose for testing"
+        response = await client.post(
+            "/api/v1/documents/sop/generate",
+            json={
+                "university": "University of Toronto",
+                "program": "MSc Computer Science",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
     
     assert response.status_code == 201
     data = response.json()

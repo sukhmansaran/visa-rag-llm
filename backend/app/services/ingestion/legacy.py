@@ -1,23 +1,19 @@
 """
-Orchestration service for the full ingestion pipeline.
-Scrape → Chunk → Embed → Store
+Legacy Ingestion Service (preserved for backward compatibility with tasks/workers).
 """
 
 from typing import Dict, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.services.scraper import scrape_with_retry
-from app.services.chunker import chunk_document
-from app.services.embeddings import embed_texts_batch
-from app.services.vector_store import vector_store
+import app.services.ingestion as ingestion_pkg
 from app.models.source import Source
 from app.models.document import Document
 from app.models.vector_chunk import VectorChunk
 
 
 class IngestionService:
-    """Orchestrates the full ingestion pipeline."""
+    """Orchestrates the legacy ingestion pipeline."""
     
     async def ingest_source(
         self,
@@ -26,15 +22,7 @@ class IngestionService:
     ) -> Dict:
         """
         Ingest a source: scrape → chunk → embed → store.
-        
-        Args:
-            source_id: ID of the source to ingest
-            db: Database session
-            
-        Returns:
-            Dict with ingestion stats
         """
-        # Get source from DB
         result = await db.execute(select(Source).where(Source.id == source_id))
         source = result.scalar_one_or_none()
         
@@ -45,7 +33,7 @@ class IngestionService:
             raise ValueError(f"Source {source_id} is inactive")
         
         # Step 1: Scrape
-        scraped_data = await scrape_with_retry(source.url)
+        scraped_data = await ingestion_pkg.scrape_with_retry(source.url)
         
         # Check if content changed (compare hash)
         result = await db.execute(
@@ -57,7 +45,6 @@ class IngestionService:
         existing_doc = result.scalar_one_or_none()
         
         if existing_doc:
-            # Content hasn't changed, skip re-ingestion
             return {
                 'status': 'skipped',
                 'reason': 'content_unchanged',
@@ -71,17 +58,15 @@ class IngestionService:
             content_hash=scraped_data['content_hash'],
             raw_html=scraped_data.get('raw_html'),
             extracted_text=scraped_data['extracted_text'],
-            # TODO: Upload raw_html to S3/Firebase and store URL
             storage_url=None,
         )
         db.add(document)
         await db.commit()
         await db.refresh(document)
         
-        # Step 2a: Factual Summary (Pre-digest documents)
+        # Step 2a: Factual Summary
         from app.services.llm import llm_service
         try:
-            # We take up to 30000 chars to avoid context limits
             text_to_summarize = scraped_data['extracted_text'][:30000]
             summary_text = await llm_service.factual_summarize(text_to_summarize)
             print(f"[INGESTION] Factual summary generated: {len(summary_text)} chars")
@@ -90,7 +75,7 @@ class IngestionService:
             summary_text = scraped_data['extracted_text']
 
         # Step 3: Chunk
-        chunks = chunk_document(
+        chunks = ingestion_pkg.chunk_document(
             text=summary_text,
             url=source.url,
             title=scraped_data['title'],
@@ -106,9 +91,8 @@ class IngestionService:
         
         # Step 4: Embed
         chunk_texts = [chunk['text'] for chunk in chunks]
-        embeddings = await embed_texts_batch(chunk_texts)
+        embeddings = await ingestion_pkg.embed_texts_batch(chunk_texts)
         
-        # Combine embeddings with chunks
         for chunk, embedding in zip(chunks, embeddings):
             chunk['embedding'] = embedding
             chunk['metadata']['source_id'] = source_id
@@ -118,7 +102,7 @@ class IngestionService:
             chunk['metadata']['source_type'] = source.source_type
         
         # Step 5: Store in vector DB
-        vector_ids = await vector_store.upsert_chunks(chunks)
+        vector_ids = await ingestion_pkg.vector_store.upsert_chunks(chunks)
         
         # Step 6: Save vector chunk metadata to DB
         for chunk, vector_id in zip(chunks, vector_ids):
@@ -127,13 +111,11 @@ class IngestionService:
                 chunk_index=chunk['chunk_index'],
                 text=chunk['text'],
                 vector_id=vector_id,
-                metadata=chunk['metadata'],
+                chunk_metadata=chunk['metadata'],
             )
             db.add(vector_chunk)
         
-        # Update source last_scraped_at
         source.last_scraped_at = document.scraped_at
-        
         await db.commit()
         
         return {
@@ -146,15 +128,7 @@ class IngestionService:
         }
     
     async def reingest_all_sources(self, db: AsyncSession) -> List[Dict]:
-        """
-        Reingest all active sources.
-        
-        Args:
-            db: Database session
-            
-        Returns:
-            List of ingestion results
-        """
+        """Reingest all active sources."""
         result = await db.execute(
             select(Source)
             .where(Source.is_active == True)
@@ -165,8 +139,8 @@ class IngestionService:
         results = []
         for source in sources:
             try:
-                result = await self.ingest_source(source.id, db)
-                results.append(result)
+                res = await self.ingest_source(source.id, db)
+                results.append(res)
             except Exception as e:
                 results.append({
                     'status': 'error',
@@ -178,5 +152,5 @@ class IngestionService:
         return results
 
 
-# Global instance
+# Global instance for backward compatibility
 ingestion_service = IngestionService()
