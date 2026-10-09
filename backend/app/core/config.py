@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://postgres:1@localhost:5432/visa_chatbot"
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
+    DATABASE_AUTO_CREATE_TABLES: bool = False
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"

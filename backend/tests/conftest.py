@@ -18,6 +18,8 @@ from app.core.config import settings
 
 
 import os
+from urllib.parse import urlparse
+from app.core.database import DISPOSABLE_DATABASE_ALLOWLIST
 
 # Test database URL
 TEST_DATABASE_URL = os.getenv(
@@ -25,9 +27,21 @@ TEST_DATABASE_URL = os.getenv(
     settings.DATABASE_URL.rsplit("/", 1)[0] + "/visa_chatbot_test",
 )
 
-# Create test engine
-test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+# Safety check: Enforce that test database target is strictly disposable
+_clean_test_url = TEST_DATABASE_URL.replace("+asyncpg", "")
+_target_db = (urlparse(_clean_test_url).path or "").lstrip("/")
+if not _target_db or _target_db not in DISPOSABLE_DATABASE_ALLOWLIST:
+    raise RuntimeError(
+        f"CRITICAL SAFETY VIOLATION: TEST_DATABASE_URL targets database '{_target_db}', "
+        f"which is not in DISPOSABLE_DATABASE_ALLOWLIST {sorted(DISPOSABLE_DATABASE_ALLOWLIST)}!"
+    )
+
+from sqlalchemy.pool import NullPool
+
+# Create test engine with NullPool to prevent connection lockups between tests
+test_engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
 TestSessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -47,7 +61,11 @@ async def db_session():
         await conn.run_sync(SQLModel.metadata.create_all)
     
     async with TestSessionLocal() as session:
-        yield session
+        try:
+            yield session
+        finally:
+            await session.rollback()
+            await session.close()
 
 
 @pytest_asyncio.fixture(scope="function")
