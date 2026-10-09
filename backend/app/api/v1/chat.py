@@ -12,8 +12,11 @@ from app.models.chat_message import ChatMessage
 from app.api.v1.chat_schemas import ChatMessage as ChatMessageSchema, ChatResponse, SourceCitation
 from app.services.rag_pipeline import rag_pipeline
 from app.services.guardrails.input_guardrail import input_guardrail
+from app.core.logging_config import get_logger, log_audit_event
 
+logger = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
 
 @router.post("/answer/stream")
 async def get_answer_stream(
@@ -88,6 +91,15 @@ async def get_answer_stream(
             db.add(assistant_msg)
             await db.commit()
             await db.close()
+
+            log_audit_event(
+                logger=logger,
+                event_type="INPUT_GUARDRAIL_BLOCKED",
+                user_id=current_user.id,
+                request_id=session_id,
+                guardrail_status=guardrail_result.violation.value if guardrail_result.violation else "BLOCKED",
+                extra_details={"reason": guardrail_result.reason},
+            )
 
             async def blocked_stream():
                 yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
@@ -164,6 +176,18 @@ async def get_answer_stream(
                     save_db.add(assistant_msg)
                     await save_db.commit()
                 
+                log_audit_event(
+                    logger=logger,
+                    event_type="CHAT_STREAM_COMPLETED",
+                    user_id=current_user.id,
+                    request_id=session_id,
+                    intent=metrics.get("intent", "general"),
+                    retrieval_chunks=metrics.get("retrieval_chunks", 0),
+                    latency_ms=metrics.get("latency_ms", 0),
+                    guardrail_status="REMEDIATED" if metrics.get("output_guardrail_remediated") else "ALLOWED",
+                    risk_categories=metrics.get("risk_categories", []),
+                )
+
                 # Send completion event with citations and metrics
                 yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'sources': sources, 'metrics': metrics})}\n\n"
                 
@@ -262,6 +286,15 @@ async def get_answer(
             db.add(assistant_msg)
             await db.commit()
             
+            log_audit_event(
+                logger=logger,
+                event_type="INPUT_GUARDRAIL_BLOCKED",
+                user_id=current_user.id,
+                request_id=session_id,
+                guardrail_status=guardrail_result.violation.value if guardrail_result.violation else "BLOCKED",
+                extra_details={"reason": guardrail_result.reason},
+            )
+
             return ChatResponse(
                 advice_text=refusal_text,
                 sources=[],
@@ -320,7 +353,20 @@ async def get_answer(
         
         await db.commit()
         
+        log_audit_event(
+            logger=logger,
+            event_type="CHAT_SYNC_COMPLETED",
+            user_id=current_user.id,
+            request_id=session_id,
+            intent=rag_metrics.get("intent", "general"),
+            retrieval_chunks=rag_metrics.get("retrieval_chunks", 0),
+            latency_ms=rag_metrics.get("latency_ms", 0),
+            guardrail_status="REMEDIATED" if rag_metrics.get("output_guardrail_remediated") else "ALLOWED",
+            risk_categories=rag_metrics.get("risk_categories", []),
+        )
+
         return ChatResponse(
+
             advice_text=answer,
             sources=[SourceCitation(**s) for s in sources] if sources else [],
             confidence=confidence,

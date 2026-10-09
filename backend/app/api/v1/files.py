@@ -1,7 +1,8 @@
-"""File upload API endpoints."""
+"""File upload and document ingestion API endpoints."""
+from pathlib import Path
+from typing import List, Optional
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
 from fastapi.responses import FileResponse
-from typing import List
 
 from app.core.security import get_current_user
 from app.models.user import User
@@ -18,7 +19,10 @@ async def upload_file(
     file_type: str = "all",
     current_user: User = Depends(get_current_user)
 ):
-    """Upload a single file."""
+    """
+    Upload and securely store a single file.
+    Enforces magic-byte verification, max size of 10MB, and strips metadata.
+    """
     result = await file_service.upload_file(file, str(current_user.id), file_type)
     return {"status": "success", "file": result}
 
@@ -29,12 +33,31 @@ async def upload_multiple_files(
     file_type: str = "all",
     current_user: User = Depends(get_current_user)
 ):
-    """Upload multiple files."""
+    """Upload multiple files (up to 10 files per request)."""
+    if len(files) > 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Batch upload exceeds limit of 10 files."
+        )
+
     results = []
-    for f in files[:10]:  # Limit to 10 files
+    for f in files:
         result = await file_service.upload_file(f, str(current_user.id), file_type)
         results.append(result)
     return {"status": "success", "files": results, "count": len(results)}
+
+
+@router.post("/sanitize")
+async def sanitize_document(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Upload and sanitize an applicant document (PDF).
+    Extracts text, strips comments/metadata, and neutralizes prompt injection payloads.
+    """
+    result = await file_service.extract_and_sanitize_document(file, str(current_user.id))
+    return {"status": "success", "data": result}
 
 
 @router.get("/{user_id}/{filename}")
@@ -43,8 +66,11 @@ async def get_file(
     filename: str,
     current_user: User = Depends(get_current_user)
 ):
-    """Get a file by path."""
-    # Users can only access their own files (or admin can access all)
+    """Get a file by path with ownership verification."""
+    # Prevent path traversal
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename")
+
     if str(current_user.id) != user_id and not current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     
@@ -61,7 +87,10 @@ async def delete_file(
     filename: str,
     current_user: User = Depends(get_current_user)
 ):
-    """Delete a file."""
+    """Delete a file with ownership verification."""
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename")
+
     if str(current_user.id) != user_id and not current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     
@@ -79,6 +108,9 @@ async def get_presigned_url(
     current_user: User = Depends(get_current_user)
 ):
     """Get a presigned URL for file access."""
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename")
+
     if str(current_user.id) != user_id and not current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     
