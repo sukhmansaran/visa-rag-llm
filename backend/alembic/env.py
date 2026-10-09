@@ -31,22 +31,26 @@ def _get_target_url() -> tuple[str, bool]:
     Resolve the target database URL and indicate whether an explicit override is active.
     Order of precedence:
     1. Alembic CLI -x url=... or -x db_url=...
-    2. Environment variable ALEMBIC_DATABASE_URL
-    3. alembic.ini / Config option 'sqlalchemy.url' (if not template placeholder)
+    2. Explicit programmatic Config option 'sqlalchemy.url' (if set and not template placeholder)
+    3. Environment variable ALEMBIC_DATABASE_URL
     4. Default application settings (app.core.config.settings.DATABASE_URL)
     """
     import os
     from app.core.config import settings
 
     x_args = context.get_x_argument(as_dictionary=True)
-    override = x_args.get("url") or x_args.get("db_url") or os.getenv("ALEMBIC_DATABASE_URL")
-    if override:
-        return override, True
+    cli_override = x_args.get("url") or x_args.get("db_url")
+    if cli_override:
+        return cli_override, True
 
     cfg_url = config.get_main_option("sqlalchemy.url")
     placeholder = "postgresql+asyncpg://postgres:postgres@localhost:5432/visa_chatbot"
     if cfg_url and cfg_url != placeholder and cfg_url != "driver://user:pass@localhost/dbname":
         return cfg_url, True
+
+    env_override = os.getenv("ALEMBIC_DATABASE_URL")
+    if env_override:
+        return env_override, True
 
     # Fall back to default development database settings
     return str(settings.DATABASE_URL), False

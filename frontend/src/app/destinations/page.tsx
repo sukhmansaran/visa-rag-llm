@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { Search, MapPin, GraduationCap, Heart, ExternalLink, Filter } from "lucide-react";
 
 export default function DestinationsPage() {
@@ -42,10 +43,12 @@ export default function DestinationsPage() {
                 {destinations.map((dest) => (
                     <div key={dest.id} className="group rounded-2xl border border-slate-100 bg-white overflow-hidden shadow-sm hover:shadow-md transition-all hover:-translate-y-1">
                         <div className="aspect-[16/10] bg-slate-100 relative overflow-hidden">
-                            <img
+                            <Image
                                 src={dest.img}
                                 alt={dest.name}
-                                className="object-cover w-full h-full transition-transform duration-500 group-hover:scale-110"
+                                fill
+                                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
+                                className="object-cover transition-transform duration-500 group-hover:scale-110"
                             />
                             <button className="absolute top-3 right-3 p-1.5 bg-white/80 backdrop-blur rounded-full text-slate-400 hover:text-red-500 transition-colors">
                                 <Heart className="h-4 w-4" />

@@ -55,6 +55,7 @@ def get_alembic_config(db_url):
     cfg = Config(os.path.join(backend_dir, "alembic.ini"))
     cfg.set_main_option("script_location", os.path.join(backend_dir, "alembic"))
     cfg.set_main_option("sqlalchemy.url", db_url)
+    cfg.cmd_opts = type("CmdOpts", (), {"x": [f"url={db_url}"]})()
     return cfg
 
 
