@@ -1,33 +1,28 @@
 """
-Unit tests for LLM service.
+Unit tests for LLM service (OllamaService) and algorithmic confidence scoring.
 """
 
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 import httpx
-from app.services.llm import llm_service, LLMService
+from app.services.llm import llm_service, LLMService, OllamaService
+from app.services.rag_pipeline import RAGPipeline
 
 
 class TestLLMService:
-    """Test LLM service functionality."""
+    """Test Ollama LLM service functionality."""
     
     @pytest.mark.asyncio
     @patch('httpx.AsyncClient.post')
     async def test_generate_answer_success(self, mock_post):
-        """Test successful answer generation."""
-        
-        # Mock successful API response
+        """Test successful answer generation via Ollama /api/chat."""
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {
-            "choices": [
-                {
-                    "message": {
-                        "content": "This is a generated answer with [Source 1] citation."
-                    }
-                }
-            ]
+            "message": {
+                "content": "This is a generated answer with [Source 1] citation."
+            }
         }
-        mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
         
         result = await llm_service.generate_answer(
@@ -40,17 +35,20 @@ class TestLLMService:
         
         assert result == "This is a generated answer with [Source 1] citation."
         mock_post.assert_called_once()
+        call_args = mock_post.call_args
+        assert call_args[1]['json']['options']['temperature'] == 0.3
+        assert call_args[1]['json']['options']['num_predict'] == 1500
+        assert call_args[1]['json']['stream'] is False
     
     @pytest.mark.asyncio
     @patch('httpx.AsyncClient.post')
     async def test_generate_answer_with_context(self, mock_post):
-        """Test answer generation with context."""
-        
+        """Test answer generation with regulatory context formatting."""
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {
-            "choices": [{"message": {"content": "Answer with context"}}]
+            "message": {"content": "Answer with context"}
         }
-        mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
         
         await llm_service.generate_answer(
@@ -59,11 +57,12 @@ class TestLLMService:
             context="Retrieved context from vector store"
         )
         
-        # Verify context was included in the request
+        # Verify regulatory context wrapping
         call_args = mock_post.call_args
         messages = call_args[1]['json']['messages']
-        user_message = messages[1]['content']
+        user_message = messages[-1]['content']
         
+        assert "Verified Regulatory Context (Authoritative IRCC Rules):" in user_message
         assert "Retrieved context from vector store" in user_message
         assert "User question" in user_message
     
@@ -71,12 +70,11 @@ class TestLLMService:
     @patch('httpx.AsyncClient.post')
     async def test_generate_answer_without_context(self, mock_post):
         """Test answer generation without context."""
-        
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {
-            "choices": [{"message": {"content": "Answer without context"}}]
+            "message": {"content": "Answer without context"}
         }
-        mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
         
         await llm_service.generate_answer(
@@ -87,21 +85,20 @@ class TestLLMService:
         
         call_args = mock_post.call_args
         messages = call_args[1]['json']['messages']
-        user_message = messages[1]['content']
+        user_message = messages[-1]['content']
         
-        # Should only contain user prompt
+        # Should only contain user prompt without wrapper
         assert user_message == "User question"
     
     @pytest.mark.asyncio
     @patch('httpx.AsyncClient.post')
     async def test_generate_answer_custom_temperature(self, mock_post):
         """Test answer generation with custom temperature."""
-        
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {
-            "choices": [{"message": {"content": "Answer"}}]
+            "message": {"content": "Answer"}
         }
-        mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
         
         await llm_service.generate_answer(
@@ -111,18 +108,17 @@ class TestLLMService:
         )
         
         call_args = mock_post.call_args
-        assert call_args[1]['json']['temperature'] == 0.8
+        assert call_args[1]['json']['options']['temperature'] == 0.8
     
     @pytest.mark.asyncio
     @patch('httpx.AsyncClient.post')
     async def test_generate_answer_custom_max_tokens(self, mock_post):
-        """Test answer generation with custom max tokens."""
-        
+        """Test answer generation with custom max tokens (num_predict)."""
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {
-            "choices": [{"message": {"content": "Answer"}}]
+            "message": {"content": "Answer"}
         }
-        mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
         
         await llm_service.generate_answer(
@@ -132,16 +128,42 @@ class TestLLMService:
         )
         
         call_args = mock_post.call_args
-        assert call_args[1]['json']['max_tokens'] == 2000
+        assert call_args[1]['json']['options']['num_predict'] == 2000
     
     @pytest.mark.asyncio
     @patch('httpx.AsyncClient.post')
     async def test_generate_answer_http_error(self, mock_post):
-        """Test error handling for HTTP errors."""
+        """Test error handling when Ollama returns non-200 status code."""
+        mock_response = Mock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal Model Error"
+        mock_post.return_value = mock_response
         
-        mock_post.side_effect = httpx.HTTPError("API Error")
+        with pytest.raises(Exception, match=r"Ollama error \(500\)"):
+            await llm_service.generate_answer(
+                system_prompt="System",
+                user_prompt="Question"
+            )
+    
+    @pytest.mark.asyncio
+    @patch('httpx.AsyncClient.post')
+    async def test_generate_answer_connection_error(self, mock_post):
+        """Test error handling when Ollama daemon is unreachable."""
+        mock_post.side_effect = httpx.ConnectError("Connection refused")
         
-        with pytest.raises(httpx.HTTPError):
+        with pytest.raises(Exception, match="Cannot connect to Ollama"):
+            await llm_service.generate_answer(
+                system_prompt="System",
+                user_prompt="Question"
+            )
+    
+    @pytest.mark.asyncio
+    @patch('httpx.AsyncClient.post')
+    async def test_generate_answer_timeout_error(self, mock_post):
+        """Test error handling when Ollama request times out."""
+        mock_post.side_effect = httpx.TimeoutException("Timed out")
+        
+        with pytest.raises(Exception, match="Ollama request timed out"):
             await llm_service.generate_answer(
                 system_prompt="System",
                 user_prompt="Question"
@@ -150,14 +172,13 @@ class TestLLMService:
     @pytest.mark.asyncio
     @patch('httpx.AsyncClient.post')
     async def test_generate_answer_invalid_response(self, mock_post):
-        """Test error handling for invalid response format."""
-        
+        """Test error handling for empty / malformed response payload."""
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {"invalid": "response"}
-        mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
         
-        with pytest.raises(Exception, match="Invalid response format"):
+        with pytest.raises(Exception, match="Ollama returned an empty response"):
             await llm_service.generate_answer(
                 system_prompt="System",
                 user_prompt="Question"
@@ -165,15 +186,14 @@ class TestLLMService:
     
     @pytest.mark.asyncio
     @patch('httpx.AsyncClient.post')
-    async def test_generate_answer_empty_choices(self, mock_post):
-        """Test error handling for empty choices."""
-        
+    async def test_generate_answer_empty_content(self, mock_post):
+        """Test error handling for empty string content in message."""
         mock_response = Mock()
-        mock_response.json.return_value = {"choices": []}
-        mock_response.raise_for_status = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"message": {"content": ""}}
         mock_post.return_value = mock_response
         
-        with pytest.raises(Exception, match="Invalid response format"):
+        with pytest.raises(Exception, match="Ollama returned an empty response"):
             await llm_service.generate_answer(
                 system_prompt="System",
                 user_prompt="Question"
@@ -181,127 +201,107 @@ class TestLLMService:
 
 
 class TestConfidenceCalculation:
-    """Test confidence score calculation."""
+    """
+    Test algorithmic confidence score calculation in RAGPipeline.
+    Confidence formula: similarity * 0.4 + authority * 0.4 + freshness * 0.2.
+    """
     
-    @pytest.mark.asyncio
-    async def test_calculate_confidence_base(self):
-        """Test base confidence without citations or sources."""
-        
-        confidence = await llm_service.calculate_confidence(
-            query="Test query",
-            answer="Answer without citations",
-            sources=[]
+    def test_calculate_confidence_base_insufficient(self):
+        """Test confidence when no chunks and no tourist db are present."""
+        result = RAGPipeline.calculate_algorithmic_confidence(
+            chunks=[],
+            has_tourist_db=False,
         )
-        
-        assert confidence == 0.5  # Base confidence
+        assert result["score"] == 0.0
+        assert result["level"] == "INSUFFICIENT"
     
-    @pytest.mark.asyncio
-    async def test_calculate_confidence_with_citations(self):
-        """Test confidence boost from citations."""
-        
-        confidence = await llm_service.calculate_confidence(
-            query="Test query",
-            answer="Answer with [Source 1] and [Source 2] citations",
-            sources=[]
+    def test_calculate_confidence_with_tourist_db(self):
+        """Test confidence boost from official tourist DB."""
+        result = RAGPipeline.calculate_algorithmic_confidence(
+            chunks=[],
+            has_tourist_db=True,
         )
-        
-        # Base (0.5) + citations (0.2)
-        assert confidence == 0.7
+        # similarity 0.85*0.4 (0.34) + authority 0.95*0.4 (0.38) + freshness 1.0*0.2 (0.2) = 0.92
+        assert result["score"] >= 0.75
+        assert result["level"] == "HIGH"
     
-    @pytest.mark.asyncio
-    async def test_calculate_confidence_with_many_citations(self):
-        """Test confidence cap with many citations."""
-        
-        answer = "Answer with " + " ".join([f"[Source {i}]" for i in range(1, 10)])
-        
-        confidence = await llm_service.calculate_confidence(
-            query="Test query",
-            answer=answer,
-            sources=[]
-        )
-        
-        # Base (0.5) + max citations (0.3)
-        assert confidence == 0.8
-    
-    @pytest.mark.asyncio
-    async def test_calculate_confidence_with_high_quality_sources(self):
-        """Test confidence boost from high-quality sources."""
-        
-        sources = [
-            {"source_type": "embassy"},
-            {"source_type": "official"},
-            {"source_type": "news"}
+    def test_calculate_confidence_with_tier1_sources(self):
+        """Test confidence calculation with official Tier-1 IRCC sources."""
+        chunks = [
+            {
+                "score": 0.85,
+                "authority_tier": 1,
+                "freshness_weight": 0.9,
+            }
         ]
-        
-        confidence = await llm_service.calculate_confidence(
-            query="Test query",
-            answer="Answer without citations",
-            sources=sources
-        )
-        
-        # Base (0.5) + high quality sources (0.2)
-        assert confidence == 0.7
+        result = RAGPipeline.calculate_algorithmic_confidence(chunks)
+        # similarity 0.85*0.4 + authority 1.0*0.4 + freshness 0.9*0.2 = 0.34 + 0.40 + 0.18 = 0.92
+        assert result["score"] >= 0.75
+        assert result["level"] == "HIGH"
     
-    @pytest.mark.asyncio
-    async def test_calculate_confidence_max_score(self):
-        """Test confidence caps at 1.0."""
-        
-        answer = "Answer with " + " ".join([f"[Source {i}]" for i in range(1, 10)])
-        sources = [{"source_type": "embassy"} for _ in range(5)]
-        
-        confidence = await llm_service.calculate_confidence(
-            query="Test query",
-            answer=answer,
-            sources=sources
-        )
-        
-        # Should cap at 1.0
-        assert confidence == 1.0
-    
-    @pytest.mark.asyncio
-    async def test_calculate_confidence_combined_factors(self):
-        """Test confidence with multiple factors."""
-        
-        sources = [
-            {"source_type": "embassy"},
-            {"source_type": "official"}
+    def test_calculate_confidence_with_low_quality_sources(self):
+        """Test confidence calculation with low-tier / low-similarity sources."""
+        chunks = [
+            {
+                "score": 0.30,
+                "authority_tier": 4,  # tier 4 weight 0.3
+                "freshness_weight": 0.4,
+            }
         ]
-        
-        confidence = await llm_service.calculate_confidence(
-            query="Test query",
-            answer="Answer with [Source 1] citation",
-            sources=sources
-        )
-        
-        # Base (0.5) + citation (0.1) + sources (0.2)
-        assert confidence == 0.8
+        result = RAGPipeline.calculate_algorithmic_confidence(chunks)
+        # similarity 0.30*0.4 (0.12) + authority 0.3*0.4 (0.12) + freshness 0.4*0.2 (0.08) = 0.32
+        assert result["score"] < 0.35
+        assert result["level"] == "INSUFFICIENT"
+    
+    def test_calculate_confidence_max_score(self):
+        """Test that confidence score properly reflects upper boundary."""
+        chunks = [
+            {
+                "score": 1.0,
+                "authority_tier": 1,
+                "freshness_weight": 1.0,
+            }
+        ]
+        result = RAGPipeline.calculate_algorithmic_confidence(chunks)
+        assert result["score"] == 1.0
+        assert result["level"] == "HIGH"
+    
+    def test_calculate_confidence_combined_factors(self):
+        """Test exact calculation of combined multi-factor weighting."""
+        chunks = [
+            {
+                "score": 0.75,
+                "authority_tier": 2,  # tier 2 weight 0.8
+                "freshness_weight": 0.8,
+            }
+        ]
+        result = RAGPipeline.calculate_algorithmic_confidence(chunks)
+        # 0.75 * 0.4 + 0.8 * 0.4 + 0.8 * 0.2 = 0.30 + 0.32 + 0.16 = 0.78
+        assert result["score"] == 0.78
+        assert result["level"] == "HIGH"
 
 
 class TestLLMServiceConfiguration:
     """Test LLM service configuration."""
     
     def test_llm_service_initialization(self):
-        """Test LLM service initializes with correct config."""
+        """Test Ollama service initializes with correct config fields."""
+        service = OllamaService()
         
-        service = LLMService()
-        
-        assert service.api_key is not None
         assert service.base_url is not None
         assert service.model is not None
+        assert service.base_url.startswith("http")
     
     @patch('app.services.llm.settings')
     def test_llm_service_uses_config(self, mock_settings):
-        """Test LLM service uses settings from config."""
+        """Test Ollama service uses settings from config."""
+        mock_settings.OLLAMA_BASE_URL = "http://custom-ollama:11434"
+        mock_settings.OLLAMA_MODEL = "llama3.2:3b"
         
-        mock_settings.OPENROUTER_API_KEY = "test-key"
-        mock_settings.OPENROUTER_BASE_URL = "https://test.api"
-        mock_settings.OPENROUTER_MODEL = "test-model"
+        service = OllamaService()
         
-        service = LLMService()
-        
-        assert service.api_key == "test-key"
-        assert service.base_url == "https://test.api"
-        assert service.model == "test-model"
+        assert service.base_url == "http://custom-ollama:11434"
+        assert service.model == "llama3.2:3b"
 
 
 if __name__ == "__main__":

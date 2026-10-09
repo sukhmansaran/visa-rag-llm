@@ -159,8 +159,9 @@ class JSONFormatter(logging.Formatter):
         }
         
         # Add request ID if available
-        if hasattr(record, 'request_id') and record.request_id:
-            log_data['request_id'] = str(record.request_id)
+        req_id = getattr(record, 'audit_request_id', None) or getattr(record, 'request_id', None)
+        if req_id:
+            log_data['request_id'] = str(req_id)
         
         # Non-PII User Hashing (SHA-256 salted hash)
         if hasattr(record, 'user_id') and record.user_id:
@@ -201,8 +202,8 @@ class RequestIDFilter(logging.Filter):
     """Filter to ensure request ID exists on log records."""
     
     def filter(self, record: logging.LogRecord) -> bool:
-        if not hasattr(record, 'request_id'):
-            record.request_id = None
+        if not hasattr(record, 'request_id') or record.request_id is None:
+            record.request_id = getattr(record, 'audit_request_id', None)
         return True
 
 
@@ -226,17 +227,21 @@ def log_audit_event(
     Emit a structured, non-PII operational audit telemetry event.
     Automatically redacts any accidental PII in extra_details and hashes user_id.
     """
-    extra = {
-        "user_id": user_id,
-        "request_id": request_id,
-        "intent": intent or "general",
-        "retrieval_chunks": retrieval_chunks,
-        "latency_ms": latency_ms,
-        "guardrail_status": guardrail_status,
-        "risk_categories": risk_categories or [],
-        "extra": extra_details or {},
-    }
-    logger.info(f"AUDIT_EVENT: {event_type}", extra=extra)
+    try:
+        extra = {
+            "user_id": user_id,
+            "audit_request_id": request_id,
+            "intent": intent or "general",
+            "retrieval_chunks": retrieval_chunks,
+            "latency_ms": latency_ms,
+            "guardrail_status": guardrail_status,
+            "risk_categories": risk_categories or [],
+            "extra": extra_details or {},
+        }
+        logger.info(f"AUDIT_EVENT: {event_type}", extra=extra)
+    except Exception:
+        # A logging failure must never silently break an otherwise valid request
+        pass
 
 
 # ==============================================================================

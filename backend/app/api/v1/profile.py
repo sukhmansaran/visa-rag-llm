@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
-from app.core.security import get_current_user, get_demo_user
+from app.core.security import get_current_user
 from app.models.user import User
 from app.models.profile import Profile
 from app.api.v1.profile_schemas import ProfileResponse, ProfileUpdateRequest, NotificationPreferencesRequest
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/profile", tags=["Profile"])
 
 @router.get("", response_model=ProfileResponse)
 async def get_profile(
-    current_user: User = Depends(get_demo_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get current user's profile."""
@@ -37,7 +37,7 @@ async def get_profile(
 @router.put("", response_model=ProfileResponse)
 async def update_profile(
     request: ProfileUpdateRequest,
-    current_user: User = Depends(get_demo_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Update user profile."""

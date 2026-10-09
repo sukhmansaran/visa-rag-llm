@@ -126,6 +126,7 @@ class TestIngestionPipeline:
         source = Source(
             url="https://example.com/visa-info",
             name="Test Source",
+            source_type="official",
             is_active=False
         )
         db_session.add(source)
@@ -263,7 +264,7 @@ class TestReingestAllSources:
         
         # Create multiple sources
         sources = [
-            Source(url=f"https://example.com/{i}", name=f"Source {i}", is_active=True, priority=i)
+            Source(url=f"https://example.com/{i}", name=f"Source {i}", source_type="official", is_active=True, priority=i)
             for i in range(3)
         ]
         for source in sources:
@@ -285,8 +286,8 @@ class TestReingestAllSources:
         """Test that reingest skips inactive sources."""
         
         # Create active and inactive sources
-        active_source = Source(url="https://example.com/1", name="Active", is_active=True)
-        inactive_source = Source(url="https://example.com/2", name="Inactive", is_active=False)
+        active_source = Source(url="https://example.com/1", name="Active", source_type="official", is_active=True)
+        inactive_source = Source(url="https://example.com/2", name="Inactive", source_type="official", is_active=False)
         
         db_session.add(active_source)
         db_session.add(inactive_source)
@@ -306,8 +307,8 @@ class TestReingestAllSources:
         """Test that reingest handles errors gracefully."""
         
         # Create sources
-        source1 = Source(url="https://example.com/1", name="Source 1", is_active=True)
-        source2 = Source(url="https://example.com/2", name="Source 2", is_active=True)
+        source1 = Source(url="https://example.com/1", name="Source 1", source_type="official", is_active=True)
+        source2 = Source(url="https://example.com/2", name="Source 2", source_type="official", is_active=True)
         
         db_session.add(source1)
         db_session.add(source2)

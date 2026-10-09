@@ -16,7 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel import select
 
 from app.core.database import get_db
-from app.core.security import get_current_user, get_demo_user
+from app.core.security import get_current_user
 from app.models.user import User
 from app.models.profile import Profile
 from app.models.visa_risk import VisaRiskSummary, RiskBucket
@@ -183,15 +183,15 @@ def _score_timing(profile: Profile) -> RiskBucket:
 async def get_visa_risk_summary(
     profile_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_demo_user),
+    current_user: User = Depends(get_current_user),
 ) -> VisaRiskSummary:
     """
     THE CORE ENDPOINT.
     Returns the Visa Risk Summary with 5 scored buckets.
     """
     statement = select(Profile).where(Profile.id == profile_id)
-    result = await db.exec(statement)
-    profile = result.first()
+    result = await db.execute(statement)
+    profile = result.scalar_one_or_none()
 
     if not profile:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")

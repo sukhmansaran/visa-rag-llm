@@ -79,7 +79,7 @@ async def test_generate_sop(client: AsyncClient):
             "university": "University of Toronto",
             "program": "MSc Computer Science",
         },
-        headers={" Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {token}"},
     )
     
     assert response.status_code == 201

@@ -1,13 +1,14 @@
 import sys
 from pathlib import Path
 import pytest
+import pytest_asyncio
 
 # Ensure backend root is on sys.path
 backend_path = Path(__file__).resolve().parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlmodel import SQLModel
 
@@ -16,15 +17,20 @@ from app.core.database import get_db
 from app.core.config import settings
 
 
+import os
+
 # Test database URL
-TEST_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/visa_chatbot_test"
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    settings.DATABASE_URL.rsplit("/", 1)[0] + "/visa_chatbot_test",
+)
 
 # Create test engine
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 TestSessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
 
 
-@pytest.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session")
 def event_loop():
     """Create event loop for async tests."""
     import asyncio
@@ -33,7 +39,7 @@ def event_loop():
     loop.close()
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def db_session():
     """Create a fresh database session for each test."""
     async with test_engine.begin() as conn:
@@ -42,11 +48,9 @@ async def db_session():
     
     async with TestSessionLocal() as session:
         yield session
-    
-    await test_engine.dispose()
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def client(db_session):
     """Create test client with database override."""
     async def override_get_db():
@@ -54,7 +58,7 @@ async def client(db_session):
     
     app.dependency_overrides[get_db] = override_get_db
     
-    async with AsyncClient(app=app, base_url="http://test") as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
     
     app.dependency_overrides.clear()

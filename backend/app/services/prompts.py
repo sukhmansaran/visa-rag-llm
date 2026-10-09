@@ -146,6 +146,8 @@ Disclaimer:
 
 Answer:"""
 
+SOP_PROMPT = SOP_GUIDANCE_PROMPT
+
 
 # SOP review prompt (for providing feedback on existing SOPs)
 SOP_REVIEW_PROMPT = """You are an expert SOP reviewer with experience in university admissions.
@@ -229,11 +231,19 @@ def build_prompt(
     if user_profile:
         profile_str = "\n".join([f"- {k}: {v}" for k, v in user_profile.items()])
     
+    # Safely resolve application_type (explicit kwargs > user_profile > fallback)
+    format_kwargs = kwargs.copy()
+    app_type = format_kwargs.pop('application_type', None)
+    if not app_type and user_profile:
+        app_type = user_profile.get('application_type') or user_profile.get('target_degree')
+    if not app_type:
+        app_type = 'N/A'
+    
     return template.format(
         query=query,
         context=context,
         user_profile=profile_str,
         retrieval_date=retrieval_date,
-        application_type=kwargs.get('application_type', 'N/A'),
-        **kwargs
+        application_type=app_type,
+        **format_kwargs
     )

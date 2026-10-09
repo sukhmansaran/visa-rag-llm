@@ -80,7 +80,7 @@ class RetrievalService:
             return 1
         if any(d in url for d in [".edu", ".ca/dli", "utoronto", "ubc", "mcgill"]) or source_type == "university":
             return 2
-        if any(d in url for d in [".org", "ontario.ca", "welcomebc.ca", "alberta.ca"]) or source_type == "organization":
+        if any(d in url for d in [".org", "ontario.ca", "welcomebc.ca", "alberta.ca"]) or source_type in ["organization", "news"]:
             return 3
         return 4
 

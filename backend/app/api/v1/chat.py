@@ -6,7 +6,7 @@ import uuid
 import json
 
 from app.core.database import get_db
-from app.core.security import get_current_user, get_demo_user
+from app.core.security import get_current_user
 from app.models.user import User
 from app.models.chat_message import ChatMessage
 from app.api.v1.chat_schemas import ChatMessage as ChatMessageSchema, ChatResponse, SourceCitation
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 @router.post("/answer/stream")
 async def get_answer_stream(
     message: ChatMessageSchema,
-    current_user: User = Depends(get_demo_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -217,7 +217,7 @@ async def get_answer_stream(
 @router.post("/answer", response_model=ChatResponse)
 async def get_answer(
     message: ChatMessageSchema,
-    current_user: User = Depends(get_demo_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """

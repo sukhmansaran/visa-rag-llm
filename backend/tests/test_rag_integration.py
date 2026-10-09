@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch, AsyncMock
 from app.services.retrieval import retrieval_service
 from app.services.llm import llm_service
 from app.services.prompts import build_prompt
+from app.services.rag_pipeline import RAGPipeline
 
 
 class TestRAGPipelineIntegration:
@@ -46,16 +47,14 @@ class TestRAGPipelineIntegration:
             }
         ]
         
-        # Step 3: Mock LLM response
+        # Step 3: Mock LLM response adhering to OllamaService HTTP contract
         mock_llm_response = Mock()
+        mock_llm_response.status_code = 200
         mock_llm_response.json.return_value = {
-            "choices": [{
-                "message": {
-                    "content": "To apply for a Canada student visa, you need [Source 1] proof of acceptance, financial documents, and English proficiency. The application fee is [Source 2] CAD 150 and processing takes 2-4 weeks."
-                }
-            }]
+            "message": {
+                "content": "To apply for a Canada student visa, you need [Source 1] proof of acceptance, financial documents, and English proficiency. The application fee is [Source 2] CAD 150 and processing takes 2-4 weeks."
+            }
         }
-        mock_llm_response.raise_for_status = Mock()
         mock_llm_post.return_value = mock_llm_response
         
         # Execute RAG pipeline
@@ -186,6 +185,24 @@ class TestPromptBuilding:
         assert "checklist" in prompt.lower() or "document" in prompt.lower()
         assert context in prompt
 
+    def test_build_checklist_prompt_precedence_and_duplicate_args(self):
+        """Test build_prompt safely resolves application_type when present in both kwargs and user_profile."""
+        context = "[Source 1] Required documents..."
+        query = "What documents do I need?"
+        user_profile = {
+            "application_type": "visitor_visa",
+            "education_level": "bachelor",
+        }
+        prompt = build_prompt(
+            query=query,
+            context=context,
+            query_type="checklist",
+            user_profile=user_profile,
+            application_type="student_visa",
+        )
+        assert "student_visa" in prompt
+        assert context in prompt
+
 
 class TestCitationValidation:
     """Test citation validation in answers."""
@@ -214,42 +231,50 @@ class TestCitationValidation:
 
 
 class TestConfidenceScoring:
-    """Test confidence scoring in RAG pipeline."""
+    """Test algorithmic confidence scoring in RAG pipeline."""
     
-    @pytest.mark.asyncio
-    async def test_confidence_with_citations_and_sources(self):
-        """Test confidence calculation with both citations and sources."""
-        
-        answer = "Answer with [Source 1] and [Source 2] citations."
-        sources = [
-            {"source_type": "embassy"},
-            {"source_type": "official"}
+    def test_confidence_with_citations_and_sources(self):
+        """Test confidence calculation with high-quality official sources."""
+        chunks = [
+            {
+                "score": 0.88,
+                "authority_tier": 1,
+                "freshness_weight": 0.9,
+            },
+            {
+                "score": 0.85,
+                "authority_tier": 1,
+                "freshness_weight": 0.85,
+            }
         ]
         
-        confidence = await llm_service.calculate_confidence(
-            query="Test query",
-            answer=answer,
-            sources=sources
-        )
+        confidence = RAGPipeline.calculate_algorithmic_confidence(chunks)
         
-        # Should have high confidence
-        assert confidence >= 0.8
+        # Should have high confidence (>= 0.75)
+        assert confidence["score"] >= 0.75
+        assert confidence["level"] == "HIGH"
     
-    @pytest.mark.asyncio
-    async def test_confidence_without_citations(self):
-        """Test confidence calculation without citations."""
+    def test_confidence_without_citations(self):
+        """Test confidence calculation with low-tier / unverified sources."""
+        chunks = [
+            {
+                "score": 0.35,
+                "authority_tier": 4,
+                "freshness_weight": 0.4,
+            }
+        ]
         
-        answer = "Answer without any citations."
-        sources = [{"source_type": "news"}]
+        confidence = RAGPipeline.calculate_algorithmic_confidence(chunks)
         
-        confidence = await llm_service.calculate_confidence(
-            query="Test query",
-            answer=answer,
-            sources=sources
-        )
-        
-        # Should have lower confidence
-        assert confidence <= 0.6
+        # Should have lower confidence (< 0.50)
+        assert confidence["score"] < 0.50
+        assert confidence["level"] in ["LOW", "INSUFFICIENT"]
+
+    def test_confidence_with_empty_retrieval(self):
+        """Test confidence calculation when no evidence is retrieved."""
+        confidence = RAGPipeline.calculate_algorithmic_confidence([], has_tourist_db=False)
+        assert confidence["score"] == 0.0
+        assert confidence["level"] == "INSUFFICIENT"
 
 
 class TestErrorHandling:
@@ -258,12 +283,17 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     @patch('app.services.retrieval.embed_text')
     async def test_embedding_error_handling(self, mock_embed):
-        """Test handling of embedding errors."""
-        
+        """Test graceful degradation when embedding generation fails."""
         mock_embed.side_effect = Exception("Embedding API error")
         
-        with pytest.raises(Exception):
-            await retrieval_service.retrieve(query="Test query")
+        # When embedding fails, retrieve gracefully logs and returns empty list
+        chunks = await retrieval_service.retrieve(query="Test query")
+        assert chunks == []
+        
+        # Downstream RAG pipeline safely handles empty chunks with zero-hallucination refusal
+        confidence = RAGPipeline.calculate_algorithmic_confidence(chunks)
+        assert confidence["level"] == "INSUFFICIENT"
+        assert confidence["score"] == 0.0
     
     @pytest.mark.asyncio
     @patch('app.services.retrieval.embed_text')
