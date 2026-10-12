@@ -250,3 +250,64 @@ class TestPALMastersDoctoral2026:
         facts = rule_engine.try_rule_answer("work", "canada", "student", query="How many hours can I work off-campus?")
         assert "unlimited hours" in facts
         assert "40 hours" not in facts
+
+
+class TestFamilySizeExtraction:
+    """Family size drives the binding proof-of-funds figure; the LLM must never do this arithmetic."""
+
+    @pytest.mark.parametrize("query, expected", [
+        ("What are the minimum living funds if my spouse and child come with me (3 people total)?", 3),
+        ("how much money for a family of four?", 4),
+        ("funds needed with my wife and 2 kids", 4),
+        ("money needed with my husband and our son and daughter", 4),
+        ("living costs for me and my partner", 2),
+        ("funds for 3 people", 3),
+        ("cost with spouse and child", 3),
+        ("how much money do I need?", 1),
+        # Bare numbers are not family sizes (previously "for 2" was read as 2 people)
+        ("how much money do I need for 2 years of study?", 1),
+        ("I have $20,000 in funds, is it enough?", 1),
+    ])
+    def test_extract_family_size(self, query, expected):
+        assert rule_engine.extract_family_size(query.lower()) == expected
+
+    def test_family_of_three_query_injects_binding_amount(self):
+        query = "What are the minimum living funds for a study permit if my spouse and child come with me (3 people total)?"
+        facts = rule_engine.try_rule_answer("financial", "canada", "student", query=query)
+        expected = rule_engine.calculate_proof_of_funds(family_members_count=3).total_required_cad
+        assert f"CAD ${expected:,.2f}" in facts
+
+
+class TestProcessingTimesRule:
+    @pytest.mark.parametrize("query", [
+        "What is the current processing time for a Canadian study permit application from India?",
+        "How long does it take to get a decision on my PGWP?",
+    ])
+    def test_processing_time_questions_point_to_live_tool_without_numbers(self, query):
+        facts = rule_engine.try_rule_answer("timing", "canada", "student", query=query)
+        assert "check-processing-times" in facts
+        assert "Do not state or estimate" in facts
+
+    def test_validity_question_is_not_a_processing_time_question(self):
+        facts = rule_engine.try_rule_answer("timing", "canada", "student", query="How long is a PGWP valid?") or ""
+        assert "PROCESSING TIMES" not in facts
+
+
+class TestApprovalGuaranteeFact:
+    @pytest.mark.parametrize("query", [
+        "If I show $40,000 in my bank account, will my Canadian study permit definitely be approved?",
+        "Is approval guaranteed if I have a GIC?",
+        "What are my chances of approval with a gap year?",
+        "Will my PGWP be approved if I apply late?",
+    ])
+    def test_certainty_seeking_questions_get_the_compliance_fact(self, query):
+        fact = rule_engine.approval_guarantee_fact(query)
+        assert fact and "cannot be guaranteed" in fact
+
+    @pytest.mark.parametrize("query", [
+        "How much money do I need?",
+        "How long is a PGWP valid?",
+        "Can I work while my PGWP application is processing?",
+    ])
+    def test_ordinary_questions_do_not(self, query):
+        assert rule_engine.approval_guarantee_fact(query) is None

@@ -103,6 +103,17 @@ class InputGuardrail:
         "visa", "visas", "study permit", "work permit", "visitor visa", "tourist visa",
         "visitor record", "super visa", "pgwp", "post-grad", "post-graduation work permit",
         "co-op work permit", "express entry", "crs", "pnp", "provincial nominee",
+        # Economic immigration programs & selection (previously missing: "How many points do I need on the
+        # Federal Skilled Worker selection grid?" was refused as off-topic)
+        "federal skilled worker", "federal skilled workers", "fsw", "fswp", "federal skilled trades", "fst",
+        "skilled worker", "skilled workers", "skilled trades", "canadian experience class", "cec",
+        "selection grid", "selection factors", "comprehensive ranking system", "crs score",
+        "invitation to apply", "ita", "eca", "educational credential assessment", "settlement funds",
+        "atlantic immigration program", "rural community immigration", "caregiver", "start-up visa",
+        # Family, status & documents
+        "sponsor", "sponsorship", "spousal sponsorship", "family sponsorship", "open work permit",
+        "spousal open work permit", "sowp", "bowp", "eta", "trv", "copr", "pr card", "prtd",
+        "biometric", "study visa", "temporary resident", "temporary residence", "refugee", "asylum",
         "ircc", "cic", "pr", "permanent residence", "permanent resident", "citizenship",
         "passport", "biometrics", "medical exam", "police clearance", "police certificate",
         "proof of funds", "funds", "bank statement", "gic", "tuition", "cad",

@@ -388,22 +388,46 @@ class RuleEngine:
     # Query Inspection & Parameter Extraction
     # ==========================================================================
 
+    _NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+                     "eight": 8, "nine": 9, "ten": 10}
+    _NUM = r"(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)"
+
+    @classmethod
+    def _to_int(cls, token: str) -> int:
+        return int(token) if token.isdigit() else cls._NUMBER_WORDS[token]
+
+    @classmethod
+    def extract_family_size(cls, q_lower: str) -> int:
+        """
+        Total people covered by the funds requirement (applicant included).
+
+        1. An explicit total wins: "3 people", "family of four", "4 members in total".
+        2. Otherwise: applicant + spouse/partner (if mentioned) + children (a number like
+           "2 kids", or 1 per singular mention such as "child", "son", "baby").
+        Bare numbers ("for 2 years", "$20,000") are never read as a family size.
+        """
+        explicit = re.search(rf"\b(?:family of|household of)\s+{cls._NUM}\b", q_lower) or \
+            re.search(rf"\b{cls._NUM}\s+(?:people|persons|members|individuals|family members)\b", q_lower)
+        if explicit:
+            return max(1, min(cls._to_int(explicit.group(1)), 20))
+
+        count = 1
+        if re.search(r"\b(spouse|partner|wife|husband|common[- ]law)\b", q_lower):
+            count += 1
+        kids = re.search(rf"\b{cls._NUM}\s+(?:kids?|children|child|dependents?|dependants?|sons?|daughters?)\b", q_lower)
+        if kids:
+            count += cls._to_int(kids.group(1))
+        else:
+            count += len(re.findall(r"\b(child|kid|son|daughter|baby|dependent|dependant)\b", q_lower))
+        return min(count, 20)
+
     def extract_query_financial_params(self, query: str) -> Optional[ProofOfFundsResult]:
         """Detect and calculate financial proof of funds if query mentions family/dependents."""
         q_lower = query.lower()
         if not any(w in q_lower for w in ["fund", "cost", "financial", "living", "money", "cad", "dollar", "expense", "bank"]):
             return None
 
-        # Detect family size or dependents
-        family_count = 1
-        # Check patterns like "family of 3", "3 people", "spouse and child", "with my wife and 2 kids"
-        match_family_num = re.search(r'\b(?:family of|for|with)\s+(\d+)\s*(?:people|persons|members)?\b', q_lower)
-        if match_family_num:
-            family_count = int(match_family_num.group(1))
-        elif any(w in q_lower for w in ["with spouse and child", "wife and kid", "husband and child", "2 dependents", "family of 3"]):
-            family_count = 3
-        elif any(w in q_lower for w in ["with spouse", "with wife", "with husband", "and spouse", "for 2", "for two", "2 people", "two people", "with 1 dependent", "with child"]):
-            family_count = 2
+        family_count = self.extract_family_size(q_lower)
 
         # Detect tuition mentions (e.g., "tuition is 15000", "$20,000 tuition")
         tuition_cad = 0.0
@@ -485,6 +509,29 @@ class RuleEngine:
     # Authoritative Rule Extraction for Context Injection
     # ==========================================================================
 
+    _APPROVAL_GUARANTEE_RE = re.compile(
+        r"\b(guarantee[ds]?|definitely|for sure|certainly|100\s*%|surely)\b.{0,60}\b(approv\w*|accept\w*|get (?:the|my|a) (?:visa|permit))"
+        r"|\b(will|would)\s+(?:i|my|it|the)\b.{0,60}\b(?:definitely|surely|certainly)?\s*(?:be\s+)?(approved|accepted|granted)\b"
+        r"|\b(chances?|odds|likelihood)\b.{0,40}\b(approv\w*|success|refus\w*)"
+        r"|\b(approv\w*|accept\w*)\b.{0,30}\bguarantee[ds]?\b",
+        re.IGNORECASE,
+    )
+
+    def approval_guarantee_fact(self, query: str) -> Optional[str]:
+        """
+        Deterministic compliance fact for questions seeking certainty about approval.
+        Appended to any other rule facts so the model always addresses it (it sometimes skipped it).
+        """
+        if not query or not self._APPROVAL_GUARANTEE_RE.search(query):
+            return None
+        return (
+            "OFFICIAL COMPLIANCE FACT - NO GUARANTEED OUTCOMES:\n"
+            "- No amount of funds or documents guarantees approval. Each application is assessed by an IRCC officer, "
+            "who decides based on the whole application (including ties to home country, purpose of study and admissibility).\n"
+            "- Meeting the minimum requirements makes an applicant eligible to apply; it is not a promise of approval.\n"
+            "- State clearly in the answer that approval cannot be guaranteed."
+        )
+
     def try_rule_answer(
         self, 
         intent: str, 
@@ -544,6 +591,23 @@ class RuleEngine:
                 f"- Category: {pal_calc.study_level}\n"
                 f"- Reason: {pal_calc.reason}\n"
                 f"- Rule Authority: IRCC International Student Intake Cap Operational Guidelines."
+            )
+
+        # 3b. Processing times: never answer with a number (they change regularly); point to IRCC's live tool
+        if re.search(
+            r"\bprocessing\s+times?\b"
+            r"|\bhow\s+long\s+(?:does|will|would)\s+(?:it|my|the|an?)\b.{0,40}\b(?:take|process|approved?|decision)\b",
+            query_lower,
+        ):
+            rule = self.rules_data.get("processing_times", {})
+            return (
+                f"OFFICIAL IRCC REGULATORY FACTS - APPLICATION PROCESSING TIMES (verified {rule.get('last_verified', '')}):\n"
+                f"- Source: {rule.get('source_url', '')}\n"
+                "- Pendu's official sources do NOT include current processing times. "
+                "Do not state or estimate any number of days, weeks or months.\n"
+                "- IRCC processing times change regularly and vary by application type and by the country you apply from.\n"
+                "- The applicant should check the current time for their exact application with IRCC's official tool: "
+                f"{rule.get('source_url', '')}"
             )
 
         # 4. Express Entry & Skilled Tech / Software Engineer Eligibility

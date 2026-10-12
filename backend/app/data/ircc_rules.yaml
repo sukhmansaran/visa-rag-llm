@@ -144,3 +144,15 @@ visitor_visa:
   maximum_authorized_stay_months: 6
   unauthorized_to_work: true
   unauthorized_to_study_fulltime: true
+
+processing_times:
+  rule_id: "IRCC-PROCESSING-TIMES-LIVE"
+  title: "Application processing times (live, not stored)"
+  effective_from: "2026-10-12"
+  last_verified: "2026-10-12"
+  verified_by: "Checked the canada.ca processing-times tool page on 2026-10-12 ('Our processing times are updated regularly')"
+  source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/check-processing-times.html"
+  # Pendu deliberately stores no processing-time figures: they change regularly and vary by
+  # application type and country/visa office, so any stored number would quickly be wrong.
+  stores_figures: false
+

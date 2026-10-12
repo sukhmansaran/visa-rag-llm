@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional, List, AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
+from app.core.config import settings
 from app.services.intent_parser import intent_parser
 from app.services.rule_engine import rule_engine, get_rules_content_hash
 from app.services.cache_service import intent_cache
@@ -26,30 +27,22 @@ from app.services.tourist_service import get_tourist_context
 logger = logging.getLogger(__name__)
 
 
-GROUNDED_SYSTEM_PROMPT = """You are Pendu, an expert, professional Canadian visa and immigration assistant.
-Your mission is to genuinely help applicants understand if they are eligible for Canadian visas, study permits, and immigration programs based on official regulations.
+GROUNDED_SYSTEM_PROMPT = """You are Pendu, a Canadian immigration information assistant (IRCC study permits, work, visitor visas, Express Entry).
 
-Instructions:
-1. Conversational Continuity & Tone:
-   - Communicate in a natural, articulate, professional, and helpful tone.
-   - You are in an ONGOING conversation with the applicant.
-   - If this is the first question of a new conversation (no prior dialogue), a brief, polite greeting is appropriate.
-   - If this is a FOLLOW-UP or continuing conversation, DO NOT repeat introductory greetings like "Hello there", "Thank you for reaching out", "Thank you for considering Canada", etc. Instead, transition naturally and dive straight into answering the user's specific question.
-   - Reference or connect to previously discussed background details (such as their tech/software experience, degree, or visa path) whenever relevant.
-2. Grounding & Regulatory Accuracy:
-   - Base all facts, numbers, TEER levels, NOC classifications, work hour limits, and financial thresholds ONLY on the verified official context provided below.
-   - Any statutory calculations (such as Proof of Funds dollar amounts, CLB benchmark levels, or PAL mandates) provided in the official context are IMMUTABLE. Preserve all figures and calculations accurately; your role is to explain them in clear, helpful, conversational prose.
-   - Do NOT invent or speculate on policies not found in the verified context.
+GROUNDING RULES (most important):
+- Answer ONLY with facts stated in the OFFICIAL STATUTORY FACTS and RETRIEVED DATA below. Do not use outside knowledge.
+- After each factual statement, cite the source it came from using the number shown in RETRIEVED DATA, e.g. [Source 1] or [Source 2]. Never write a literal "[Source N]" and never cite a source that does not say it.
+- If the sources do not cover part of the question, say plainly: "The official sources I have don't cover <that part>," and suggest checking canada.ca or a licensed RCIC. Do not fill the gap with general advice or guesses.
+- Copy numbers, dates, hour limits, dollar amounts and CLB levels exactly as written in the sources.
+- Statutory calculations in OFFICIAL STATUTORY FACTS are binding: repeat them exactly; only explain them.
+- Do not add requirements, steps, documents or exceptions that the sources do not state.
 
-   - If specific details (such as exact CRS cutoff scores or individual background checks) require external assessment, advise the user transparently.
-3. Structure & Formatting:
-   - Provide a well-structured response with clear paragraphs and organized bullet points for specific criteria or document checklists.
-   - Always put each bullet point on its own separate new line (never combine multiple bullet points into a single continuous sentence or line).
-   - Use clean Markdown list items (e.g. "- **Title**: Description" or "1. **Title**: Description").
-   - Cite official IRCC guidelines as your authority.
-4. Compliance & Guardrails:
-   - Never provide absolute legal guarantees (e.g. do not say "your visa is 100% guaranteed").
-   - Maintain strict fidelity to official Canadian immigration regulations."""
+STYLE:
+- Be direct and concise: answer the question first, then the key conditions. Aim for under 200 words.
+- Use short paragraphs or "- " bullet points, one per line. No greetings on follow-up questions.
+
+COMPLIANCE:
+- Never promise or imply guaranteed approval. Decisions are made by IRCC officers."""
 
 def normalize_markdown_output(text: str) -> str:
     """Ensure bullet points and headers generated on a single line are cleanly spaced with newlines."""
@@ -120,6 +113,9 @@ class RAGPipeline:
 
         # 2. Extract Authoritative Rule Engine Facts
         rule_facts = rule_engine.try_rule_answer(intent, country, visa_type, query=query)
+        guarantee_fact = rule_engine.approval_guarantee_fact(query)
+        if guarantee_fact:
+            rule_facts = (rule_facts + "\n\n" + guarantee_fact) if rule_facts else guarantee_fact
         rules_version = await self._answer_cache_version()
 
         # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)
@@ -149,7 +145,7 @@ class RAGPipeline:
                 country=country,
                 visa_type=visa_type,
                 intent=intent,
-                top_k=3,
+                top_k=settings.RAG_TOP_K,
             )
         except Exception as e:
             logger.warning(f"[RAG_PIPELINE] Retrieval error: {e}")
@@ -170,7 +166,7 @@ class RAGPipeline:
                 context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
 
             if chunks:
-                chunk_context = retrieval_service.prepare_context(chunks, max_context_length=1500)
+                chunk_context = retrieval_service.prepare_context(chunks, max_context_length=settings.RAG_CONTEXT_CHARS)
                 if chunk_context:
                     context_blocks.append(chunk_context)
 
@@ -197,8 +193,8 @@ class RAGPipeline:
                 user_prompt=user_prompt,
                 context=combined_context,
                 chat_history=chat_history,
-                temperature=0.2,  # Natural fluent phrasing with strict factual fidelity
-                max_tokens=700,
+                temperature=settings.RAG_TEMPERATURE,  # 0 = deterministic; same question, same answer
+                max_tokens=settings.RAG_MAX_ANSWER_TOKENS,
             )
             answer = normalize_markdown_output(answer)
 
@@ -391,6 +387,9 @@ class RAGPipeline:
 
         # 2. Extract Authoritative Rule Engine Facts
         rule_facts = rule_engine.try_rule_answer(intent, country, visa_type, query=query)
+        guarantee_fact = rule_engine.approval_guarantee_fact(query)
+        if guarantee_fact:
+            rule_facts = (rule_facts + "\n\n" + guarantee_fact) if rule_facts else guarantee_fact
         rules_version = await self._answer_cache_version()
 
         # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)
@@ -422,7 +421,7 @@ class RAGPipeline:
                 country=country,
                 visa_type=visa_type,
                 intent=intent,
-                top_k=3,
+                top_k=settings.RAG_TOP_K,
             )
         except Exception as e:
             logger.warning(f"[RAG_PIPELINE] Retrieval error: {e}")
@@ -441,7 +440,7 @@ class RAGPipeline:
                 context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
 
             if chunks:
-                chunk_context = retrieval_service.prepare_context(chunks, max_context_length=1500)
+                chunk_context = retrieval_service.prepare_context(chunks, max_context_length=settings.RAG_CONTEXT_CHARS)
                 if chunk_context:
                     context_blocks.append(chunk_context)
 
@@ -473,8 +472,8 @@ class RAGPipeline:
                     user_prompt=user_prompt,
                     context=combined_context,
                     chat_history=chat_history,
-                    temperature=0.2,  # Natural fluent phrasing with strict factual fidelity
-                    max_tokens=700,
+                    temperature=settings.RAG_TEMPERATURE,  # 0 = deterministic; same question, same answer
+                    max_tokens=settings.RAG_MAX_ANSWER_TOKENS,
                 )
 
                 async for event in output_guardrail.validate_stream(raw_token_stream):

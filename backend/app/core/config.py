@@ -45,6 +45,16 @@ class Settings(BaseSettings):
     OLLAMA_REQUEST_TIMEOUT_SECONDS: float = 180.0
     # Streaming calls: maximum gap between tokens (includes first-token latency / model load)
     OLLAMA_STREAM_IDLE_TIMEOUT_SECONDS: float = 90.0
+    # Model context window. Ollama's default can silently truncate the prompt (system + sources + history).
+    OLLAMA_NUM_CTX: int = 4096
+    # Ask thinking-capable models to skip hidden reasoning (a CPU can't afford it). Some builds ignore this.
+    OLLAMA_THINK: bool = False
+
+    # RAG generation budget
+    RAG_TOP_K: int = 4                    # chunks retrieved per question
+    RAG_CONTEXT_CHARS: int = 4000         # max source text given to the model (~1,000 tokens)
+    RAG_MAX_ANSWER_TOKENS: int = 450      # answer length cap (~7 tok/s on CPU -> ~1 min)
+    RAG_TEMPERATURE: float = 0.0          # deterministic answers; >0 only adds run-to-run variation
     
     # Vector Database
     VECTOR_DB_TYPE: str = "chroma"  # chroma or pinecone

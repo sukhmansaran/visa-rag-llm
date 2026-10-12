@@ -104,6 +104,11 @@ class OutputGuardrail:
         re.compile(r"Conversational\s+Continuity\s+&\s+Tone", re.IGNORECASE),
         re.compile(r"Base\s+all\s+facts,\s+numbers,\s+TEER\s+levels,\s+NOC\s+classifications", re.IGNORECASE),
         re.compile(r"Never\s+provide\s+absolute\s+legal\s+guarantees", re.IGNORECASE),
+        # Current grounded prompt (rewritten 2026-10-12): keep in sync with rag_pipeline.GROUNDED_SYSTEM_PROMPT
+        re.compile(r"You are Pendu,\s+a\s+Canadian\s+immigration\s+information\s+assistant", re.IGNORECASE),
+        re.compile(r"GROUNDING\s+RULES\s*\(most\s+important\)", re.IGNORECASE),
+        re.compile(r"Answer\s+ONLY\s+with\s+facts\s+stated\s+in\s+the\s+OFFICIAL\s+STATUTORY\s+FACTS", re.IGNORECASE),
+        re.compile(r"Never\s+write\s+a\s+literal\s+\"?\[Source\s+N\]", re.IGNORECASE),
     ]
 
     # --- 4. INTERNAL FILE PATHS & TRACEBACKS ---
@@ -300,7 +305,7 @@ class StreamingOutputValidator:
         self.early_triggers = [
             (OutputViolationType.CODE_BLOCK, re.compile(r"```|<\s*script\b|\bconsole\.log\(", re.IGNORECASE), "Code block / script tag detected"),
             (OutputViolationType.SECRET_LEAK, re.compile(r"\b(?:sk-[a-zA-Z0-9_-]{10,}|AKIA[0-9A-Z]{10,}|ghp_[a-zA-Z0-9]{15,}|(?:POSTGRES_PASSWORD|DATABASE_URL|SECRET_KEY)\s*=)", re.IGNORECASE), "Credential / API key prefix detected"),
-            (OutputViolationType.PROMPT_LEAK, re.compile(r"===\s*START\s+OFFICIAL\s+RETRIEVED|GROUNDED_SYSTEM_PROMPT|You are Pendu,\s+an expert", re.IGNORECASE), "System prompt / internal delimiter detected"),
+            (OutputViolationType.PROMPT_LEAK, re.compile(r"===\s*START\s+OFFICIAL\s+RETRIEVED|GROUNDED_SYSTEM_PROMPT|You are Pendu,\s+(?:an expert|a\s+Canadian\s+immigration\s+information)|GROUNDING\s+RULES\s*\(most", re.IGNORECASE), "System prompt / internal delimiter detected"),
             (OutputViolationType.PATH_LEAK, re.compile(r"\bTraceback\s+\(most\s+recent|[A-Za-z]:\\(?:Users|projects|backend)|/(?:backend|app)/(?:services|models)", re.IGNORECASE), "Server path / traceback detected"),
         ]
 

@@ -93,7 +93,9 @@ class OllamaService:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
+                "num_ctx": settings.OLLAMA_NUM_CTX,
             },
+            "think": settings.OLLAMA_THINK,
         }
 
         logger.info(f"[OLLAMA] Sending request - model: {self.model}, history_turns: {len(chat_history or [])}, max_tokens: {max_tokens}")
@@ -180,7 +182,9 @@ class OllamaService:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
+                "num_ctx": settings.OLLAMA_NUM_CTX,
             },
+            "think": settings.OLLAMA_THINK,
         }
 
         logger.info(f"[OLLAMA STREAM] Starting stream - model: {self.model}, history_turns: {len(chat_history or [])}")
