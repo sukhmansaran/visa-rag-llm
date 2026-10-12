@@ -160,7 +160,7 @@ pytest tests/test_rule_engine.py -v
 
 ## 5. Security & Safety Controls
 
-1. **Development Database Invariant:** The test runner strictly asserts that the development database (`visa_chatbot`) is either absent or fixed at revision `008`. Migration lifecycle tests dynamically spawn and drop disposable databases (`visa_chatbot_disposable_migration_test`).
+1. **Development Database Protection:** Tests never modify the development database (`visa_chatbot`): migration tests snapshot its revision and tables and fail if anything changes. Upgrade it deliberately with `alembic upgrade head` (currently at `010`). Migration lifecycle tests dynamically spawn and drop disposable databases (`visa_chatbot_disposable_migration_test`), and the whole test suite runs against `visa_chatbot_test`.
 2. **`init_db()` Allowlist:** `DATABASE_AUTO_CREATE_TABLES` defaults to `False`. Table creation through `SQLModel.metadata.create_all()` is blocked unless the database name is explicitly present in `DISPOSABLE_DATABASE_ALLOWLIST` and `ENVIRONMENT="test"`.
 3. **Magic-Byte Document Ingestion:** The file service verifies magic bytes (`%PDF-`, `\xFF\xD8\xFF`, `\x89PNG`), limits uploads to 10MB, strips EXIF/PDF metadata, and redacts embedded prompt injections before text extraction.
 4. **PII Log Redaction:** All application loggers scrub passports, SINs, UCIs, phone numbers, emails, and auth tokens automatically.

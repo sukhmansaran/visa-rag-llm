@@ -2,7 +2,9 @@
 Disposable Database Test Suite for Alembic Migration 010 and B2.1 Data Models.
 
 Target Database: visa_chatbot_disposable_migration_test
-Safety Boundary: visa_chatbot development database remains strictly untouched at revision 008.
+Safety Boundary: these tests must never modify the visa_chatbot development database. Its
+revision and table set are snapshotted before the suite and must be identical after every test
+(no fixed revision: the dev DB is upgraded deliberately with `alembic upgrade head`).
 
 Acceptance Criteria Tested:
 1. Deterministic legacy backfill (sequential versioning, chronological order, deduplication, null timestamps).
@@ -59,8 +61,8 @@ def get_alembic_config(db_url):
     return cfg
 
 
-def _verify_dev_db_revision(conn):
-    """Verify that the connected development database contains valid Alembic metadata at revision 008."""
+def _read_dev_db_state(conn):
+    """Return (alembic revision, frozenset of table names) for the connected development database."""
     # 1. Check alembic_version table exists
     tbl_exists = conn.execute(text(
         "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'alembic_version'"
@@ -73,22 +75,25 @@ def _verify_dev_db_revision(conn):
     if not rev:
         raise RuntimeError("CRITICAL SAFETY VIOLATION: visa_chatbot has empty or invalid alembic_version metadata!")
 
-    assert rev == "008", f"CRITICAL SAFETY VIOLATION: visa_chatbot is at revision {rev}, expected 008!"
+    tables = frozenset(conn.execute(text(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+    )).scalars().all())
+    return rev, tables
 
 
-def assert_dev_db_untouched():
+def dev_db_snapshot():
     """
-    Assert that the real development database remains strictly at revision 008 if present,
-    or confirmed absent in CI environments.
+    Snapshot the real development database: None if it is confirmed absent (e.g. CI),
+    otherwise (alembic revision, frozenset of table names).
     
     Fail-closed policy:
     1. Confirm existence through a reliable connection to the PostgreSQL maintenance database.
     2. If the maintenance database is unavailable, fail closed unless an explicitly supported fallback
        (direct probe returning 3D000) can safely establish database absence.
     3. If visa_chatbot is confirmed absent, verify that it remains absent (cannot connect).
-    4. If visa_chatbot is present, connect and verify:
-       - alembic_version table exists.
-       - exactly revision '008' is recorded.
+    4. If visa_chatbot is present, connect and read:
+       - alembic_version table exists with a valid revision.
+       - the set of public tables.
     5. Unexpected connection failures, missing tables, or invalid metadata must fail the check.
     """
     from sqlalchemy.exc import OperationalError, DBAPIError
@@ -110,18 +115,17 @@ def assert_dev_db_untouched():
     if not maint_connected:
         # Maintenance database is unavailable.
         # Fall back to direct probe ONLY to check if visa_chatbot is absent (code 3D000)
-        # or cleanly present and at revision 008. Any other connection failure fails closed.
+        # or cleanly present with valid metadata. Any other connection failure fails closed.
         try:
             dev_engine = create_engine(DEV_URL, poolclass=pool.NullPool)
             with dev_engine.connect() as conn:
-                _verify_dev_db_revision(conn)
-                return
+                return _read_dev_db_state(conn)
         except (OperationalError, DBAPIError) as err:
             err_msg = str(err).lower()
             pgcode = getattr(getattr(err, "orig", None), "pgcode", None)
             if pgcode == "3D000" or 'database "visa_chatbot" does not exist' in err_msg:
                 # Confirmed absent via PostgreSQL catalog error
-                return
+                return None
             raise RuntimeError(
                 f"FAIL-CLOSED: Maintenance DB unavailable ({maint_err}) and direct connection failed: {err}"
             ) from err
@@ -146,7 +150,7 @@ def assert_dev_db_untouched():
             pgcode = getattr(getattr(err, "orig", None), "pgcode", None)
             if pgcode == "3D000" or 'database "visa_chatbot" does not exist' in err_msg:
                 # Confirmed absent from both maintenance catalog and direct connection probe
-                return
+                return None
             raise RuntimeError(
                 f"FAIL-CLOSED: Confirmed absent in pg_database, but direct connection probe failed unexpectedly: {err}"
             ) from err
@@ -155,13 +159,33 @@ def assert_dev_db_untouched():
     try:
         dev_engine = create_engine(DEV_URL, poolclass=pool.NullPool)
         with dev_engine.connect() as conn:
-            _verify_dev_db_revision(conn)
+            return _read_dev_db_state(conn)
     except (AssertionError, RuntimeError):
         raise
     except Exception as err:
         raise RuntimeError(
             f"FAIL-CLOSED: visa_chatbot exists in pg_database but connection failed: {err}"
         ) from err
+
+
+_DEV_DB_BASELINE = {}
+
+
+def assert_dev_db_untouched():
+    """Fail if the development database changed since the suite's baseline snapshot."""
+    current = dev_db_snapshot()
+    baseline = _DEV_DB_BASELINE["state"]
+    if current != baseline:
+        def describe(state):
+            return "absent" if state is None else f"revision {state[0]}, {len(state[1])} tables"
+        changed = ""
+        if current is not None and baseline is not None:
+            added, removed = sorted(current[1] - baseline[1]), sorted(baseline[1] - current[1])
+            changed = f" (tables added: {added}, removed: {removed})"
+        raise AssertionError(
+            f"CRITICAL SAFETY VIOLATION: visa_chatbot changed during migration tests: "
+            f"before={describe(baseline)}, after={describe(current)}{changed}"
+        )
 
 
 def recreate_disposable_db():
@@ -178,8 +202,8 @@ class TestMilestoneB21MigrationAndModels(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        # 1. Verify development database is untouched at 008 before tests
-        assert_dev_db_untouched()
+        # 1. Snapshot the development database before any test runs
+        _DEV_DB_BASELINE["state"] = dev_db_snapshot()
 
     @classmethod
     def tearDownClass(cls):
@@ -190,7 +214,7 @@ class TestMilestoneB21MigrationAndModels(unittest.TestCase):
                 conn.execute(text(f"DROP DATABASE IF EXISTS {DISPOSABLE_DB} WITH (FORCE);"))
         except Exception:
             pass
-        # 2. Re-verify development database is still untouched at 008 after tests
+        # 2. Re-verify the development database is unchanged after the suite
         assert_dev_db_untouched()
 
     def setUp(self):

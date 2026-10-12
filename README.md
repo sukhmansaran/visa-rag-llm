@@ -38,7 +38,7 @@ Statutory requirements under Canadian immigration regulations are evaluated dete
 - Database revisions 009 (`crawler_pipeline`) and 010 (`crawler_anti_bot`) track jobs, seeds, page logs, and change events.
 
 ### 5. 🗄️ Database Lifecycle Safeguards & Disposable Isolation
-- **Development Database Invariant:** Local development database `visa_chatbot` is strictly protected at Alembic revision `008`.
+- **Development Database Protection:** Tests never modify the development database (`visa_chatbot`): migration tests snapshot its revision and tables and fail if anything changes. Upgrade it deliberately with `alembic upgrade head` (currently at `010`).
 - **`init_db()` Allowlist:** `DATABASE_AUTO_CREATE_TABLES` defaults to `False`. Table auto-creation via `SQLModel.metadata.create_all()` is blocked unless the database is explicitly listed in `DISPOSABLE_DATABASE_ALLOWLIST`.
 - **Disposable Lifecycle Runner:** Automated tests dynamically spawn and drop disposable databases (`visa_chatbot_disposable_migration_test`) for full 001 $\to$ 010 upgrade and downgrade testing.
 
@@ -156,7 +156,7 @@ For exhaustive context, refer to the dedicated markdown documents:
 | [PROJECT_STATUS.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/PROJECT_STATUS.md) | Executive status, system architecture, test metrics, and current readiness matrix. |
 | [backend/README.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/backend/README.md) | Backend engineering manual, API catalog, directory layout, and security controls. |
 | [docs/ARCHITECTURE.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/docs/ARCHITECTURE.md) | Authoritative multi-tier system architecture and dataflow diagrams. |
-| [docs/DATABASE_LIFECYCLE_AND_SAFEGUARDS.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/docs/DATABASE_LIFECYCLE_AND_SAFEGUARDS.md) | Migrations 001–010, the dev DB invariant (rev 008), `init_db()` allowlist, and disposable DB testing. |
+| [docs/DATABASE_LIFECYCLE_AND_SAFEGUARDS.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/docs/DATABASE_LIFECYCLE_AND_SAFEGUARDS.md) | Migrations 001–010, dev DB protection, `init_db()` allowlist, and disposable DB testing. |
 | [docs/RAG_COST_OPTIMIZATION.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/docs/RAG_COST_OPTIMIZATION.md) | Mathematical analysis of token reductions and cost savings via deterministic rule bypass. |
 | [project_plan/AUDIT_LOG.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/project_plan/AUDIT_LOG.md) | Granular chronological audit log of all completed engineering tasks and verification evidence. |
 | [project_plan/detailed_tasks.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/project_plan/detailed_tasks.md) | Granular task checklists across all Milestones (1–6) and engineering phases. |

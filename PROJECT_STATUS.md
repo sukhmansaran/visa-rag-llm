@@ -16,7 +16,7 @@ The project has transitioned from an exploratory prototype into an enterprise-gr
 2. **Deterministic Safety Engines:** Mathematical proof-of-funds verification, CLB language score conversion (IELTS, CELPIP, PTE), and Provincial Attestation Letter (PAL) requirement engines that bypass non-deterministic LLM hallucination.
 3. **Multi-Stage Security Firewalls:** Pre-retrieval adversarial input guardrails, post-generation streaming leakage shields (blocking internal prompts, filesystem paths, credentials, and unwarranted legal guarantees), and recursive PII log redaction with salted SHA-256 telemetry.
 4. **Resilient Crawler Infrastructure:** Production-grade web crawler pipeline with anti-bot throttling, domain allowlisting, robots.txt compliance, and database migrations (Alembic 001 through 010).
-5. **Database Lifecycles & Safeguards:** Strict protection of development databases (`visa_chatbot` locked at revision `008`), explicit opt-in table auto-creation with allowlist verification, and automated disposable database test runners.
+5. **Database Lifecycles & Safeguards:** Tests never modify the development database (`visa_chatbot`; snapshot before/after, upgraded deliberately to `010`), explicit opt-in table auto-creation with allowlist verification, and automated disposable database test runners.
 6. **Continuous Integration (CI/CD):** Dual-job GitHub Actions pipeline validating backend tests (unit, integration, and migration lifecycle) and frontend compilation with zero warnings.
 
 ---
@@ -52,7 +52,7 @@ graph TD
 
     subgraph Database Safety & State
         PG --> Alembic[Alembic Migrations 001 - 010]
-        Alembic -.-> DevDB[visa_chatbot: Fixed at Rev 008]
+        Alembic -.-> DevDB[visa_chatbot: unchanged by tests]
         Alembic -.-> DispDB[Disposable DBs: visa_chatbot_ci_test]
     end
 ```
@@ -144,14 +144,14 @@ graph TD
   - `009_crawler_pipeline.py`: Added crawler tables (`crawler_seeds`, `crawler_jobs`, `crawler_page_logs`, `crawler_metrics`, `crawler_change_events`).
   - `010_crawler_anti_bot.py`: Added anti-bot throttle and fingerprint tables (`crawler_domains`, `crawler_fingerprints`, `crawler_proxies`).
 - **Development Database Invariant:**
-  - Protected development database `visa_chatbot` remains strictly immutable at Alembic revision `008`.
-  - Prohibited running forward migrations or destructive tests against `visa_chatbot` or `visa_chatbot_dev`.
+  - Tests and CI never run migrations or destructive operations against `visa_chatbot` / `visa_chatbot_dev`; the migration suite snapshots the dev DB and fails if it changes.
+  - The dev DB is upgraded deliberately by the developer (`alembic upgrade head`), after a `pg_dump` backup.
 - **Startup Protection (`init_db`):**
   - Defaulted `DATABASE_AUTO_CREATE_TABLES=False`.
   - Restricted table auto-generation exclusively to databases explicitly listed in `DISPOSABLE_DATABASE_ALLOWLIST` (e.g., `visa_chatbot_ci_test`, `visa_chatbot_disposable_migration_test`).
   - Production, staging, unknown, and protected database names reject auto-generation and fail safely.
 - **Disposable Database Test Harness:**
-  - `test_migration_010_disposable.py` validates complete upgrade/downgrade lifecycles on dynamically created, isolated databases while verifying that `visa_chatbot` remains untouched at revision 008.
+  - `test_migration_010_disposable.py` validates complete upgrade/downgrade lifecycles on dynamically created, isolated databases while verifying that `visa_chatbot` is not changed by the tests (revision + tables snapshot).
 
 ### 3.6 Continuous Integration & Automation (Phase 2 - Completed)
 - **Workflow Configuration (`.github/workflows/ci.yml`):**

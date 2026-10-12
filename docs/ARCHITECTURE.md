@@ -120,7 +120,7 @@ graph TD
 - **Database Safety Guardrails (`backend/app/core/database.py`):**
   - `DATABASE_AUTO_CREATE_TABLES` defaulted to `False` to prevent startup schema overwrites.
   - Schema auto-creation restricted exclusively to test environments and approved databases in `DISPOSABLE_DATABASE_ALLOWLIST`.
-  - Local development database `visa_chatbot` strictly protected at revision `008`.
+  - Tests never modify the local development database `visa_chatbot` (snapshot before/after); it is upgraded deliberately with `alembic upgrade head`.
 - **Crawler Subsystem (`backend/app/services/crawler/`):**
   - Scrapes official government web sources (`canada.ca`, `cic.gc.ca`).
   - Implements anti-bot protections: robots.txt compliance, domain crawl delays, TLS browser fingerprint rotation, and proxy pools.
@@ -140,7 +140,7 @@ graph LR
         BackendJob --> PGService[PostgreSQL 16: AWS ECR Public Mirror]
         PGService --> AlembicLifecycle[Alembic Migrations 001-010 Lifecycle Test]
         AlembicLifecycle --> PytestSuite[Pytest: 517 Tests Unit/Integration/Security]
-        PytestSuite --> DevDBCheck[Assert visa_chatbot Untouched at Rev 008]
+        PytestSuite --> DevDBCheck[Assert visa_chatbot unchanged by tests]
     end
 
     subgraph Frontend CI Execution
