@@ -1,15 +1,26 @@
-version: '3.8'
+# Local development stack.
+# - Ollama runs on the host (`ollama serve`); containers reach it via host.docker.internal.
+# - Postgres/Redis ports are bound to 127.0.0.1 only, so they aren't reachable from your network.
+# - Requires backend/.env with a real SECRET_KEY (see .env.example).
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/visa_chatbot
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+  CHROMA_PERSIST_DIRECTORY: /app/chroma_data
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: visa_chatbot_postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: visa_chatbot
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +33,7 @@ services:
     image: redis:7-alpine
     container_name: visa_chatbot_redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -39,21 +50,19 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - .:/app
-      - ./chroma_data:/app/chroma_data
+      - chroma_data:/app/chroma_data
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
+    environment: *backend-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/visa_chatbot
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://redis:6379/2
 
   celery_worker:
     build:
@@ -63,35 +72,36 @@ services:
     command: python -m celery -A app.workers.celery_app worker --loglevel=info
     volumes:
       - .:/app
-      - ./chroma_data:/app/chroma_data
+      - chroma_data:/app/chroma_data
     env_file:
       - .env
+    environment: *backend-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - redis
-      - postgres
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/visa_chatbot
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   celery_beat:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: visa_chatbot_celery_beat
-    command: python -m celery -A app.workers.celery_app beat --loglevel=info
+    command: python -m celery -A app.workers.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
     volumes:
       - .:/app
     env_file:
       - .env
+    environment: *backend-env
     depends_on:
-      - redis
-      - postgres
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres_data:
   redis_data:
+  chroma_data:

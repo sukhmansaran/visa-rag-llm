@@ -11,12 +11,13 @@ import io
 import logging
 import time
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 import httpx
 
 from app.services.crawler.types import FetchResult
 from app.services.crawler.throttle import ThrottleManager
+from app.services.crawler.ssrf_validator import is_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -36,18 +37,21 @@ _DEFAULT_USER_AGENTS = [
     "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
 ]
 
-# Retry configuration
+# Retry and redirect configuration
 MAX_RETRIES = 3
 BACKOFF_DELAYS = [2, 4, 8]  # seconds
+MAX_REDIRECT_HOPS = 5
 
 
 class CrawlerWorker:
-    """Fetches web pages with retry, UA rotation, and proxy support."""
+    """Fetches web pages with retry, UA rotation, SSRF protection, and proxy support."""
 
     def __init__(
         self,
         throttle_manager: ThrottleManager,
         proxy_pool: Optional[list[str]] = None,
+        allowed_domains: Optional[list[str]] = None,
+        enforce_ssrf: bool = True,
     ) -> None:
         """
         Initialize the CrawlerWorker.
@@ -55,9 +59,13 @@ class CrawlerWorker:
         Args:
             throttle_manager: ThrottleManager instance for rate limiting.
             proxy_pool: Optional list of proxy URLs for rotation.
+            allowed_domains: Optional list of approved domain patterns.
+            enforce_ssrf: If True, validate all URLs and redirects against SSRF policy.
         """
         self.throttle_manager = throttle_manager
         self.proxy_pool = proxy_pool
+        self.allowed_domains = allowed_domains
+        self.enforce_ssrf = enforce_ssrf
         self._user_agents = list(_DEFAULT_USER_AGENTS)
         self._ua_counter = 0
         self._proxy_counter = 0
@@ -69,6 +77,7 @@ class CrawlerWorker:
         Uses Playwright for JS-heavy pages, httpx for static pages.
         Retries up to 3 times with exponential backoff (2s, 4s, 8s).
         Handles HTTP 403 (block domain) and 429 (pause domain).
+        Enforces SSRF validation before request and on each redirect hop.
 
         Args:
             url: The URL to fetch.
@@ -78,9 +87,14 @@ class CrawlerWorker:
             FetchResult with status, HTML, headers, and timing.
 
         Raises:
+            ValueError: On SSRF security violation (blocked IP/domain).
             httpx.HTTPStatusError: On 403 after blocking the domain.
             RuntimeError: If all retries are exhausted.
         """
+        if self.enforce_ssrf and not is_safe_url(url, self.allowed_domains):
+            logger.warning("SSRF blocked: URL '%s' rejected by security policy", url)
+            raise ValueError(f"SSRF blocked: URL '{url}' is not allowed or resolves to internal/prohibited IP")
+
         domain = urlparse(url).netloc
         last_exception: Optional[Exception] = None
 
@@ -150,6 +164,9 @@ class CrawlerWorker:
                     used_playwright=use_playwright,
                 )
 
+            except ValueError:
+                # SSRF or validation rejection - fail immediately without retry
+                raise
             except httpx.HTTPStatusError:
                 raise
             except Exception as exc:
@@ -169,7 +186,7 @@ class CrawlerWorker:
 
     async def fetch_pdf(self, url: str) -> FetchResult:
         """
-        Download a PDF and extract text using pypdf.
+        Download a PDF and extract text using pypdf with SSRF validation.
 
         Args:
             url: The URL of the PDF to download.
@@ -177,20 +194,52 @@ class CrawlerWorker:
         Returns:
             FetchResult with extracted_text set to the PDF text content.
         """
+        if self.enforce_ssrf and not is_safe_url(url, self.allowed_domains):
+            raise ValueError(f"SSRF blocked: URL '{url}' is not allowed or resolves to internal/prohibited IP")
+
         from pypdf import PdfReader
 
         user_agent = self._rotate_user_agent()
         proxy = self._get_proxy()
         start_time = time.monotonic()
 
+        current_url = url
+        redirect_hops = 0
+
         async with httpx.AsyncClient(
             timeout=30.0,
             proxy=proxy,
-            follow_redirects=True,
+            follow_redirects=False,
         ) as client:
-            response = await client.get(
-                url, headers={"User-Agent": user_agent}
-            )
+            while True:
+                if self.enforce_ssrf and not is_safe_url(current_url, self.allowed_domains):
+                    raise ValueError(f"SSRF blocked redirect target: {current_url}")
+
+                response = await client.get(
+                    current_url, headers={"User-Agent": user_agent}
+                )
+
+                if response.is_redirect:
+                    redirect_hops += 1
+                    if redirect_hops > MAX_REDIRECT_HOPS:
+                        raise httpx.TooManyRedirects(
+                            f"Exceeded max redirects ({MAX_REDIRECT_HOPS}) for {url}",
+                            request=response.request,
+                        )
+
+                    location = response.headers.get("location")
+                    if not location:
+                        break
+
+                    next_url = urljoin(str(response.url), location)
+                    if self.enforce_ssrf and not is_safe_url(next_url, self.allowed_domains):
+                        logger.warning("SSRF blocked redirect from %s to %s", current_url, next_url)
+                        raise ValueError(f"SSRF blocked redirect target: {next_url}")
+
+                    current_url = next_url
+                else:
+                    break
+
             response.raise_for_status()
 
         fetch_duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -241,15 +290,44 @@ class CrawlerWorker:
     async def _fetch_httpx(
         self, url: str, user_agent: str, proxy: Optional[str]
     ) -> dict:
-        """Fetch a URL using httpx.AsyncClient."""
+        """Fetch a URL using httpx.AsyncClient with manual redirect SSRF validation."""
+        current_url = url
+        redirect_hops = 0
+
         async with httpx.AsyncClient(
             timeout=30.0,
             proxy=proxy,
-            follow_redirects=True,
+            follow_redirects=False,
         ) as client:
-            response = await client.get(
-                url, headers={"User-Agent": user_agent}
-            )
+            while True:
+                if self.enforce_ssrf and not is_safe_url(current_url, self.allowed_domains):
+                    raise ValueError(f"SSRF blocked redirect target: {current_url}")
+
+                response = await client.get(
+                    current_url, headers={"User-Agent": user_agent}
+                )
+
+                if response.is_redirect:
+                    redirect_hops += 1
+                    if redirect_hops > MAX_REDIRECT_HOPS:
+                        raise httpx.TooManyRedirects(
+                            f"Exceeded max redirects ({MAX_REDIRECT_HOPS}) for {url}",
+                            request=response.request,
+                        )
+
+                    location = response.headers.get("location")
+                    if not location:
+                        break
+
+                    next_url = urljoin(str(response.url), location)
+                    if self.enforce_ssrf and not is_safe_url(next_url, self.allowed_domains):
+                        logger.warning("SSRF blocked redirect from %s to %s", current_url, next_url)
+                        raise ValueError(f"SSRF blocked redirect target: {next_url}")
+
+                    current_url = next_url
+                else:
+                    break
+
         return {
             "status_code": response.status_code,
             "html": response.text,
@@ -259,7 +337,10 @@ class CrawlerWorker:
     async def _fetch_playwright(
         self, url: str, user_agent: str, proxy: Optional[str]
     ) -> dict:
-        """Fetch a URL using Playwright (chromium) for JS rendering."""
+        """Fetch a URL using Playwright (chromium) for JS rendering with route sandboxing."""
+        if self.enforce_ssrf and not is_safe_url(url, self.allowed_domains):
+            raise ValueError(f"SSRF blocked: URL '{url}' is not allowed or resolves to internal/prohibited IP")
+
         from playwright.async_api import async_playwright
 
         proxy_config = {"server": proxy} if proxy else None
@@ -271,6 +352,20 @@ class CrawlerWorker:
                 proxy=proxy_config,
             )
             page = await context.new_page()
+
+            if self.enforce_ssrf:
+                async def route_handler(route):
+                    req_url = route.request.url
+                    if req_url.startswith(("data:", "about:", "blob:")):
+                        await route.continue_()
+                    elif not is_safe_url(req_url, self.allowed_domains):
+                        logger.warning("SSRF blocked Playwright sub-request to: %s", req_url)
+                        await route.abort()
+                    else:
+                        await route.continue_()
+
+                await page.route("**/*", route_handler)
+
             try:
                 response = await page.goto(url, wait_until="networkidle", timeout=30000)
                 html = await page.content()

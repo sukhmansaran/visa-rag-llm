@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -6,7 +7,7 @@ import redis.asyncio as redis
 from app.core.database import get_db
 from app.core.config import settings
 
-
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/health", tags=["Health"])
 
 
@@ -27,7 +28,8 @@ async def health_check_db(db: AsyncSession = Depends(get_db)):
         await db.execute(text("SELECT 1"))
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
-        return {"status": "unhealthy", "database": "disconnected", "error": str(e)}
+        logger.error(f"Health check DB failure: {e}", exc_info=True)
+        return {"status": "unhealthy", "database": "disconnected"}
 
 
 @router.get("/redis")
@@ -39,4 +41,5 @@ async def health_check_redis():
         await redis_client.close()
         return {"status": "healthy", "redis": "connected"}
     except Exception as e:
-        return {"status": "unhealthy", "redis": "disconnected", "error": str(e)}
+        logger.error(f"Health check Redis failure: {e}", exc_info=True)
+        return {"status": "unhealthy", "redis": "disconnected"}

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Send, BookOpen, ChevronDown, ChevronUp, Database, Zap, Clock, ExternalLink, ShieldCheck, FileText } from "lucide-react";
+import { Send, BookOpen, ChevronDown, ChevronUp, Database, Zap, Clock, ExternalLink, ShieldCheck, FileText, Lock } from "lucide-react";
 import Link from "next/link";
 import { MarkdownMessage } from "@/components/MarkdownMessage";
+import { getToken, isAuthenticated } from "@/lib/auth";
 
 
 interface Message {
@@ -22,10 +23,12 @@ export default function ChatPage() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [profile, setProfile] = useState<any>(null);
     const [sessionId, setSessionId] = useState<string | null>(null);
+    const [isAuth, setIsAuth] = useState(true);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
 
     useEffect(() => {
+        setIsAuth(isAuthenticated());
         const data = localStorage.getItem("user_profile");
         if (data) setProfile(JSON.parse(data));
     }, []);
@@ -59,28 +62,39 @@ export default function ChatPage() {
         abortControllerRef.current = new AbortController();
 
         try {
-            // Extract prior dialogue turns (up to 6) for conversational continuity
-            const historyPayload = messages
-                .filter(m => m.content && !m.streaming)
-                .slice(-6)
-                .map(m => ({
-                    role: m.role,
-                    content: m.content,
-                }));
+            // Conversation history is loaded server-side from the session (sessionId); never sent by the client
+            const token = getToken();
+            if (!token) {
+                setMessages(prev => [
+                    ...prev.slice(0, -1),
+                    {
+                        role: "assistant",
+                        content: "Authentication is required to query official records. Please [sign in](/login?redirect=/chat) or [create a free account](/signup?redirect=/chat).",
+                        streaming: false,
+                    }
+                ]);
+                setLoading(false);
+                return;
+            }
 
-            console.log("[CHAT] Sending request to backend with history:", historyPayload.length, "turns for:", textToSend);
-            const response = await fetch("http://localhost:8000/api/v1/chat/answer/stream", {
+            const response = await fetch("/api/v1/chat/answer/stream", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`,
+                },
                 body: JSON.stringify({
                     query: textToSend,
                     country: profile?.country || "Canada",
                     university: profile?.university || null,
                     sessionId: sessionId,
-                    chat_history: historyPayload,
                 }),
                 signal: abortControllerRef.current.signal,
             });
+
+            if (response.status === 401 || response.status === 403) {
+                throw new Error("Your session has expired. Please [sign in again](/login?redirect=/chat).");
+            }
 
             if (!response.ok) {
                 throw new Error(`Server returned HTTP ${response.status} (${response.statusText})`);
@@ -202,14 +216,35 @@ export default function ChatPage() {
 
     return (
         <div className="max-w-4xl mx-auto py-12 px-4 h-screen flex flex-col">
-            <div className="flex justify-between items-center mb-8 shrink-0">
+            <div className="flex justify-between items-center mb-6 shrink-0">
                 <h2 className="text-2xl font-bold flex items-center gap-2">
                     <BookOpen className="h-6 w-6 text-primary" /> Verified Visa Assistant
                 </h2>
-                <Link href="/demo/metrics" className="text-xs text-slate-500 hover:underline">
-                    System Metrics
-                </Link>
+                <div className="flex items-center gap-3">
+                    {!isAuth && (
+                        <Link href="/login?redirect=/chat" className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-500 font-medium">
+                            Sign In
+                        </Link>
+                    )}
+                    <Link href="/demo/metrics" className="text-xs text-slate-500 hover:underline">
+                        System Metrics
+                    </Link>
+                </div>
             </div>
+
+            {!isAuth && (
+                <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-blue-500/30 bg-blue-950/30 px-4 py-3 text-xs text-blue-300">
+                    <div className="flex items-center gap-2">
+                        <Lock className="h-4 w-4 shrink-0" />
+                        <span>Sign in required for full access to verified IRCC chat.</span>
+                    </div>
+                    <div className="flex items-center gap-2 font-medium">
+                        <Link href="/login?redirect=/chat" className="hover:underline">Login</Link>
+                        <span>·</span>
+                        <Link href="/signup?redirect=/chat" className="hover:underline">Sign Up</Link>
+                    </div>
+                </div>
+            )}
 
             {/* Chat Area */}
             <div className="flex-1 overflow-y-auto space-y-6 pb-28 px-2">

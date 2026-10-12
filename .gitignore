@@ -1,89 +1,95 @@
-# Miscellaneous
-*.class
-*.log
-*.pyc
-*.swp
-.DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+# ============================================================
+# Pendu (visa-rag-llm) — root .gitignore
+# Stack: FastAPI (backend/) + Next.js 14 (frontend/)
+# ============================================================
 
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
-.idea/
-
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
-
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
-/coverage/
-
-# Symbolication related
-app.*.symbols
-
-# Obfuscation related
-app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
-
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-
-# Environment and secrets
+# ---------- Secrets & environment ----------
 .env
 .env.*
 !.env.example
 !.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+secrets/
+credentials*.json
+service-account*.json
 
-# Node.js / Next.js
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+dist/
+.venv/
+venv/
+env/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+
+# ---------- Node / Next.js ----------
 node_modules/
 .next/
 out/
+.turbo/
+.vercel/
 coverage/
 *.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
 
-# Local application data
-backend/chroma_data/
-backend/logs/
-backend/uploads/
-*.db
-*.sqlite3
+# ---------- Runtime data (never commit user data or generated stores) ----------
+**/chroma_data/
+**/uploads/
+**/logs/
 *.log
+*.db
+*.sqlite
+*.sqlite3
+dump.rdb
+celerybeat-schedule*
+celerybeat.pid
 
-# Local editor & IDE settings
+# ---------- Build artifacts ----------
+/build/
+backend/build/
+
+# ---------- OS / editor ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+*.iml
 .vscode/
-.kiro/
+.history/
 
-# Temporary / cleanup files
+# ---------- AI-assistant / tool workspaces ----------
+.kiro/
+.claude/settings.local.json
+.antigravity/
+
+# ---------- Internal planning, audits & scratch (keep local, not public) ----------
+project_plan/
 GITHUB_UPLOAD_WARNINGS.md
 old_commit_history.txt
-
-# Project planning & internal docs
-project_plan/
-
+*.local.md
+scratch/
+tmp/

@@ -12,9 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 from app.services.intent_parser import intent_parser
-from app.services.rule_engine import rule_engine
+from app.services.rule_engine import rule_engine, get_rules_content_hash
 from app.services.cache_service import intent_cache
 from app.services.retrieval import retrieval_service
+from app.services.vector_store import vector_store
 from app.services.llm import llm_service
 from app.services.guardrails.input_guardrail import input_guardrail
 from app.services.guardrails.output_guardrail import output_guardrail
@@ -67,6 +68,15 @@ UNVERIFIED_EVIDENCE_REFUSAL = (
 class RAGPipeline:
     """Orchestrates the authoritative unified RAG flow for both synchronous and streaming chat."""
 
+    @staticmethod
+    async def _answer_cache_version() -> str:
+        """Cache-key version: rules file hash + knowledge-base fingerprint (B16)."""
+        try:
+            kb_version = await vector_store.content_version()
+        except Exception:
+            kb_version = "kb-unknown"
+        return f"{get_rules_content_hash()}:{kb_version}"
+
     async def process_query(
         self,
         query: str,
@@ -107,19 +117,26 @@ class RAGPipeline:
 
         # 2. Extract Authoritative Rule Engine Facts
         rule_facts = rule_engine.try_rule_answer(intent, country, visa_type, query=query)
+        rules_version = await self._answer_cache_version()
 
-        # 3. Cache Check (query-specific; bypass for multi-turn sessions)
-        cached_response = intent_cache.get(country, visa_type, intent, query=query)
+        # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)
+        cached_response = intent_cache.get(country, visa_type, intent, version=rules_version, query=query)
         if cached_response and not chat_history:
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             metrics["source"] = "cache"
             return {"answer": cached_response, "sources": [], "metrics": metrics, "guardrail_blocked": False}
 
-
-        # 4. Structured Database & Tourist Context Check
+        # 4. Structured Database & Tourist Context Check (A8 fallback session)
         tourist_context = ""
         if db:
             tourist_context = await get_tourist_context(db, query, country)
+        else:
+            try:
+                from app.core.database import AsyncSessionLocal
+                async with AsyncSessionLocal() as session:
+                    tourist_context = await get_tourist_context(session, query, country)
+            except Exception as e:
+                print(f"[RAG_PIPELINE] Tourist context DB error: {e}")
 
         # 5. Strict Vector Retrieval
         chunks = []
@@ -145,7 +162,21 @@ class RAGPipeline:
         sources: List[Dict[str, Any]] = []
 
         if has_evidence and conf_eval["level"] != "INSUFFICIENT":
-            sources = self.build_citations(chunks, tourist_context)
+            context_blocks = []
+            if rule_facts:
+                context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
+
+            if chunks:
+                chunk_context = retrieval_service.prepare_context(chunks, max_context_length=1500)
+                if chunk_context:
+                    context_blocks.append(chunk_context)
+
+            if tourist_context:
+                context_blocks.append(f"Official Tourist Database Records:\n{tourist_context}")
+
+            # Only cite sources that were actually included in the LLM context (A11)
+            cited_chunks = [c for c in chunks if c.get("_included_in_context")] if chunks else []
+            sources = self.build_citations(cited_chunks, tourist_context)
             if rule_facts and not sources:
                 sources = [{
                     "url": "https://www.canada.ca/en/immigration-refugees-citizenship.html",
@@ -153,15 +184,6 @@ class RAGPipeline:
                     "snippet": rule_facts[:200],
                     "scraped_at": "",
                 }]
-
-            context_blocks = []
-            if rule_facts:
-                context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
-
-            if chunks:
-                context_blocks.append(retrieval_service.prepare_context(chunks, max_context_length=1500))
-            if tourist_context:
-                context_blocks.append(f"Official Tourist Database Records:\n{tourist_context}")
 
             combined_context = "\n\n".join(context_blocks)
             user_prompt = f"User Question: {query}"
@@ -203,7 +225,7 @@ class RAGPipeline:
 
             # Cache grounded result only if validation passed without leakage
             if val_res.is_valid:
-                intent_cache.set(country, visa_type, intent, answer, query=query)
+                intent_cache.set(country, visa_type, intent, answer, version=rules_version, query=query)
         else:
             # RAG-ONLY POLICY: Reject answer when no verified sources or confidence is INSUFFICIENT
             answer = UNVERIFIED_EVIDENCE_REFUSAL
@@ -275,7 +297,7 @@ class RAGPipeline:
 
         # 1. Similarity score
         if chunks:
-            similarity = max(c.get("score", 0.70) for c in chunks)
+            similarity = max(float(c.get("score") or 0.0) for c in chunks)  # missing score = no evidence (A13)
         else:
             similarity = 0.85 if has_tourist_db else 0.0
 
@@ -299,7 +321,7 @@ class RAGPipeline:
 
         # 3. Freshness weight
         if chunks:
-            freshness_weights = [c.get("freshness_weight", 0.7) for c in chunks]
+            freshness_weights = [float(c.get("freshness_weight") or 0.5) for c in chunks]  # unknown age = neutral-low (A13)
             freshness = sum(freshness_weights) / len(freshness_weights)
         else:
             freshness = 1.0  # Current live database
@@ -366,9 +388,10 @@ class RAGPipeline:
 
         # 2. Extract Authoritative Rule Engine Facts
         rule_facts = rule_engine.try_rule_answer(intent, country, visa_type, query=query)
+        rules_version = await self._answer_cache_version()
 
-        # 3. Cache Check (query-specific; bypass for multi-turn sessions)
-        cached_response = intent_cache.get(country, visa_type, intent, query=query)
+        # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)
+        cached_response = intent_cache.get(country, visa_type, intent, version=rules_version, query=query)
         if cached_response and not chat_history:
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             metrics["source"] = "cache"
@@ -376,11 +399,17 @@ class RAGPipeline:
             yield {"type": "done", "full_response": cached_response, "sources": [], "metrics": metrics}
             return
 
-
-        # 4. Structured Database & Tourist Context Check
+        # 4. Structured Database & Tourist Context Check (A8 fallback session)
         tourist_context = ""
         if db:
             tourist_context = await get_tourist_context(db, query, country)
+        else:
+            try:
+                from app.core.database import AsyncSessionLocal
+                async with AsyncSessionLocal() as session:
+                    tourist_context = await get_tourist_context(session, query, country)
+            except Exception as e:
+                print(f"[RAG_PIPELINE] Tourist context DB error in stream: {e}")
 
         # 5. Strict Vector Retrieval
         chunks = []
@@ -404,7 +433,21 @@ class RAGPipeline:
         metrics["confidence_level"] = conf_eval["level"]
 
         if has_evidence and conf_eval["level"] != "INSUFFICIENT":
-            sources = self.build_citations(chunks, tourist_context)
+            context_blocks = []
+            if rule_facts:
+                context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
+
+            if chunks:
+                chunk_context = retrieval_service.prepare_context(chunks, max_context_length=1500)
+                if chunk_context:
+                    context_blocks.append(chunk_context)
+
+            if tourist_context:
+                context_blocks.append(f"Official Tourist Database Records:\n{tourist_context}")
+
+            # Only cite sources that were actually included in the LLM context (A11)
+            cited_chunks = [c for c in chunks if c.get("_included_in_context")] if chunks else []
+            sources = self.build_citations(cited_chunks, tourist_context)
             if rule_facts and not sources:
                 sources = [{
                     "url": "https://www.canada.ca/en/immigration-refugees-citizenship.html",
@@ -412,15 +455,6 @@ class RAGPipeline:
                     "snippet": rule_facts[:200],
                     "scraped_at": "",
                 }]
-
-            context_blocks = []
-            if rule_facts:
-                context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
-
-            if chunks:
-                context_blocks.append(retrieval_service.prepare_context(chunks, max_context_length=1500))
-            if tourist_context:
-                context_blocks.append(f"Official Tourist Database Records:\n{tourist_context}")
 
             combined_context = "\n\n".join(context_blocks)
             user_prompt = f"User Question: {query}"
@@ -477,7 +511,7 @@ class RAGPipeline:
                         metrics["risk_categories"] = []
 
                     normalized_full = normalize_markdown_output(full_response)
-                    intent_cache.set(country, visa_type, intent, normalized_full, query=query)
+                    intent_cache.set(country, visa_type, intent, normalized_full, version=rules_version, query=query)
             except Exception as e:
                 print(f"[RAG_PIPELINE] LLM stream error: {e}")
                 err_msg = "An error occurred while generating the answer from official sources."

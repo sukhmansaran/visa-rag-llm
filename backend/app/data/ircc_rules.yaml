@@ -1,0 +1,146 @@
+# ==============================================================================
+# IRCC Regulatory Rules & Statutory Benchmarks
+# Authoritative statutory guidelines for Canadian immigration and study permits.
+# Every rule fact MUST maintain effective_from, last_verified, and an official source_url.
+# ==============================================================================
+
+version: "2026.2"
+last_updated: "2026-10-12"
+
+proof_of_funds:
+  rule_id: "IRCC-POF-SCHEDULES"
+  title: "Minimum Living Funds for Study Permit Applicants (Outside Quebec, excluding tuition and transportation)"
+  # effective_from of the CURRENT schedule (the section-level fields describe the schedule in force today)
+  effective_from: "2026-09-01"
+  last_verified: "2026-10-12"
+  verified_by: "Checked against the canada.ca financial-support page on 2026-10-12"
+  source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/get-documents/financial-support.html"
+  statutory_basis: "75% of Statistics Canada Low-Income Cut-Off (LICO)"
+  currency: "CAD"
+  # Applications are assessed against the schedule in force on the application date.
+  # Ordered newest first. effective_to is inclusive; null = still in force.
+  schedules:
+    - effective_from: "2026-09-01"
+      effective_to: null
+      verified: true
+      rates_by_family_size: {1: 23448, 2: 29192, 3: 35888, 4: 43572, 5: 49419, 6: 55736, 7: 62054}
+      additional_family_member_cad: 6318
+    - effective_from: "2025-01-01"
+      effective_to: "2026-08-31"
+      verified: true
+      rates_by_family_size: {1: 22895, 2: 28502, 3: 35040, 4: 42543, 5: 48252, 6: 54420, 7: 60589}
+      additional_family_member_cad: 6170
+    - effective_from: "2024-01-01"
+      effective_to: "2024-12-31"
+      # Historical schedule carried over from the earlier codebase; not re-checked against canada.ca
+      verified: false
+      rates_by_family_size: {1: 20635, 2: 25690, 3: 31583, 4: 38346, 5: 43492, 6: 49051, 7: 54611}
+      additional_family_member_cad: 5559
+  quebec_guidelines:
+    # canada.ca defers to Quebec's MIFI for amounts; these figures are NOT verified against quebec.ca
+    source_url: "https://www.quebec.ca/en/immigration/study-in-quebec"
+    verified: false
+    single_applicant_cad: 15078
+    additional_person_cad: 5645
+
+off_campus_work:
+  rule_id: "IRCC-WORK-2024-24HR"
+  title: "International Student Off-Campus Work Regulations"
+  effective_from: "2024-11-08"
+  last_verified: "2026-10-12"
+  verified_by: "Checked against the canada.ca work-off-campus page on 2026-10-12"
+  source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/work-off-campus.html"
+  statutory_basis: "Immigration and Refugee Protection Regulations (IRPR) Section 186(v)"
+  academic_session_max_hours_per_week: 24
+  # canada.ca: students can work "unlimited" hours during scheduled breaks
+  academic_break_max_hours_per_week: null
+  academic_break_hours: "unlimited"
+  requires_dli_full_time: true
+  requires_sin: true
+  previous_cap_hours_per_week: 20
+
+student_direct_stream:
+  rule_id: "IRCC-SDS-SUNSET-2024"
+  title: "Student Direct Stream (SDS) Termination"
+  effective_from: "2024-11-08"
+  last_verified: "2026-10-01"
+  verified_by: "Entered by an automated tool; not yet checked by a person against source_url"
+  source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/student-direct-stream.html"
+  is_active: false
+  status: "TERMINATED"
+  termination_notice: "IRCC officially closed the Student Direct Stream (SDS) and Nigeria Student Express (NSE) on November 8, 2024 at 2:00 PM EST. All prospective international students must apply through the standard study permit application stream."
+
+post_graduation_work_permit:
+  rule_id: "IRCC-PGWP-2024-REFORM"
+  title: "Post-Graduation Work Permit (PGWP) Eligibility and Language Standards"
+  effective_from: "2024-11-01"
+  last_verified: "2026-10-12"
+  verified_by: "Language (CLB 7 university / CLB 5 college) and field-of-study rules checked against canada.ca on 2026-10-12; duration_rules not shown on that page and not re-verified"
+  source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/after-graduation/eligibility.html"
+  statutory_basis: "IRCC Operational Instructions for the Post-Graduation Work Permit Program"
+  automatic_eligibility: false
+  language_requirements:
+    university_graduates_clb: 7
+    college_graduates_clb: 5
+    accepted_tests: ["IELTS General", "CELPIP General", "PTE Core", "TEF Canada", "TCF Canada"]
+  field_of_study_requirements:
+    university_degrees: "Eligible in all fields of study (Bachelor's, Master's, Doctoral)"
+    college_diplomas: "Must graduate from a designated program linked to long-term labour shortages (Agriculture and Agri-Food, Healthcare, STEM, Trade, Transport)"
+  duration_rules:
+    programs_under_8_months: 0
+    masters_degrees_8_months_or_more: 36
+    general_programs_2_years_or_more: 36
+    general_programs_under_2_years: "Equal to program length"
+  application_window_days: 180
+
+provincial_attestation_letter:
+  rule_id: "IRCC-PAL-2026"
+  title: "Provincial/Territorial Attestation Letter (PAL/TAL) Requirement"
+  effective_from: "2026-01-01"
+  last_verified: "2026-10-12"
+  verified_by: "Checked against the canada.ca PAL page on 2026-10-12"
+  source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/get-documents/provincial-attestation-letter.html"
+  statutory_basis: "Ministerial Instructions respecting the Student Intake Cap under IRPA s. 10.1"
+  undergraduate_diploma_required: true
+  # From 2026-01-01: degree-granting master's/doctoral programs at a PUBLIC DLI are exempt
+  masters_doctoral_public_dli_exempt_from: "2026-01-01"
+  masters_doctoral_private_dli_required: true
+  exemptions:
+    k12_preschool_primary_secondary: true
+    masters_doctoral_at_public_dli_from_2026_01_01: true
+    in_canada_study_permit_extension_same_dli_and_level: true
+    exchange_students_paying_no_tuition_to_dli: true
+    global_affairs_canada_scholarship: true
+    federally_designated_military_college: true
+    francophone_minority_communities_student_pilot: true
+  exempt_applicants_must_show_proof_of_exemption: true
+
+express_entry_stem:
+  rule_id: "IRCC-EE-STEM-2023-2026"
+  title: "Express Entry Federal Skilled Worker & STEM Category-Based Selection"
+  effective_from: "2023-06-28"
+  last_verified: "2026-10-01"
+  verified_by: "Entered by an automated tool; not yet checked by a person against source_url"
+  source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/submit-profile/rounds-invitations/category-based-selection.html"
+  statutory_basis: "Immigration and Refugee Protection Act (IRPA) Category-Based Selection Provisions"
+  fsw_minimum_work_experience_years: 1
+  fsw_minimum_clb_all_bands: 7
+  fsw_selection_grid_pass_points: 67
+  stem_occupations:
+    software_engineers_and_designers_noc: "21231"
+    software_developers_and_programmers_noc: "21232"
+    computer_engineers_noc: "21311"
+    data_scientists_noc: "21211"
+    web_designers_and_developers_noc: "21233"
+
+visitor_visa:
+  rule_id: "IRCC-TRV-STANDARD"
+  title: "Temporary Resident Visa (TRV) and Electronic Travel Authorization (eTA)"
+  effective_from: "2024-01-01"
+  last_verified: "2026-10-01"
+  verified_by: "Entered by an automated tool; not yet checked by a person against source_url"
+  source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/about-visitor-visa.html"
+  statutory_basis: "Immigration and Refugee Protection Regulations (IRPR) Part 9"
+  maximum_authorized_stay_months: 6
+  unauthorized_to_work: true
+  unauthorized_to_study_fulltime: true

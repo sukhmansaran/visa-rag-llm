@@ -9,7 +9,7 @@ from typing import Optional
 from datetime import datetime
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_admin_user
 from app.models.user import User
 from pydantic import BaseModel
 
@@ -127,11 +127,10 @@ async def get_pricing():
 
 @router.post("/upgrade-to-pro")
 async def upgrade_to_pro(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     """
-    Simulate upgrading user to Pro tier.
-    In production, this is called AFTER Razorpay payment confirmation webhook.
+    Upgrade user to Pro tier (admin only until verified payment webhook integration).
     """
     usage = _get_usage(current_user.id)
     usage["tier"] = "pro"

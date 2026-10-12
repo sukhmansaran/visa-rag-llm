@@ -108,8 +108,9 @@ class CrawlFrontier:
         parsed = urlparse(normalized)
         domain = parsed.netloc
 
-        # Check if domain matches any allowed_domains pattern
-        if not any(fnmatch.fnmatch(domain, pattern) for pattern in allowed_domains):
+        # Check SSRF safety, scheme, domain policy without blocking on synchronous DNS at enqueue time
+        from app.services.crawler.ssrf_validator import is_safe_url
+        if not is_safe_url(normalized, allowed_patterns=allowed_domains, resolve_dns=False):
             return False
 
         # Check if already in the all-URLs set (dedup)

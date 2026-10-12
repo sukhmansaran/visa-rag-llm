@@ -1,35 +1,64 @@
 # Visa RAG LLM (Pendu) 🍁
 
-> An AI-powered immigration intelligence platform and visa guidance assistant focused on Canadian immigration (IRCC), student visas, and tourist travel.
+> An enterprise-grade AI immigration intelligence platform and automated guidance assistant focused on Canadian immigration (IRCC), student permits, study-to-work transitions, and tourist travel.
 
-Built with a high-performance **FastAPI** backend, **Next.js 14** modern web interface, hybrid **RAG pipeline** (Ollama / Llama 3.2 + Nomic Embeddings / ChromaDB), automated **crawler infrastructure**, and deterministic visa assessment rules.
+Built with a high-performance **FastAPI** backend, **Next.js 15** App Router interface, deterministic **statutory rule engine**, bi-directional **security firewalls**, autonomous **crawler pipeline**, and automated **CI/CD infrastructure**.
+
+[![CI Status](https://img.shields.io/badge/CI%2FCD-Passing-brightgreen?logo=github-actions)](.github/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/Tests-pytest-brightgreen)](backend/tests/)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue?logo=python)](backend/)
+[![Node](https://img.shields.io/badge/Node-20.x-green?logo=node.js)](frontend/)
+[![Next.js](https://img.shields.io/badge/Next.js-14.x-black?logo=next.js)](frontend/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue?logo=postgresql)](backend/alembic/)
+[![License](https://img.shields.io/badge/License-AGPL%20v3-orange)](LICENSE)
 
 ---
 
-## 🌟 Key Features
+## 🌟 Key Features & Engineering Innovations
 
-- **🤖 Intelligent Visa Chatbot:** Context-aware Q&A using RAG with IRCC policies and up-to-date immigration guidelines.
-- **🛡️ Visa Risk Assessment:** Profile analysis detecting risks, ties to home country, financial readiness, and program fit.
-- **📝 Automated SOP Generator:** Drafts tailored Statements of Purpose that directly address profile weaknesses.
-- **🕷️ Autonomous Crawler Pipeline:** Crawls official immigration portals and news sources with robots.txt compliance, deduplication, and rate-limiting.
-- **🔄 Change Detection & Notifications:** Monitors official policy updates and alerts users to regulatory changes.
-- **📊 Modern Dashboard & Metrics:** Clean Next.js 14 UI featuring metrics, application tracking, destination guides, and onboarding.
+### 1. 🛡️ Deterministic Rule Primacy
+Statutory requirements under Canadian immigration regulations are evaluated deterministically in Python code—completely bypassing probabilistic LLM hallucinations:
+- **Proof of Funds Calculator:** Encodes 2024 IRCC cost-of-living updates ($20,635 base + tuition + family dependents) with currency conversion.
+- **Language Conversion Engine:** Maps IELTS General/Academic, CELPIP-General, and PTE Core scores to Canadian Language Benchmark (CLB 4–10).
+- **Provincial Attestation Letter (PAL):** Evaluates exemption eligibility (Master's/PhD, primary/secondary school, in-Canada extensions).
+
+### 2. 🧱 Bi-Directional Security Firewalls
+- **Deterministic Input Guardrail:** Detects prompt injections, code generation requests, role-play jailbreaks (DAN), and out-of-scope non-visa topics pre-retrieval ($<15$ms response time, 0 LLM tokens).
+- **Sentence-Buffered Streaming Output Shield:** Validates generated text sentence-by-sentence in real-time, blocking internal prompt leaks, system delimiters, filesystem paths, credentials, and unwarranted legal guarantees.
+- **Statutory Legal Disclaimer Engine:** Appends context-aware non-legal advice disclaimers compliant with Canadian immigration regulatory guidelines.
+
+### 3. 🔒 Privacy & Secure File Ingestion
+- **Recursive PII Redaction:** Scrubs passports, IRCC Client ID/UCIs, Canadian SINs, phone numbers, emails, and bearer auth tokens across all server logs.
+- **Salted SHA-256 Telemetry:** Hashes user IDs before persisting structured audit log events.
+- **Magic-Byte Document Ingestion:** Verifies file signatures (PDF `%PDF-`, JPEG `\xFF\xD8\xFF`, PNG `\x89PNG`), enforces 10MB limits, strips EXIF/IPTC/PDF metadata, and neutralizes prompt injections inside uploaded resumes and bank statements.
+
+### 4. 🕷️ Autonomous Crawler Pipeline & Anti-Bot Subsystem
+- Scrapes official government web sources (`canada.ca`, `cic.gc.ca`) with robots.txt compliance.
+- Employs token bucket rate limiting (`throttle_manager.py`), rotating TLS browser fingerprints, and proxy pools to prevent crawler blacklisting.
+- Database revisions 009 (`crawler_pipeline`) and 010 (`crawler_anti_bot`) track jobs, seeds, page logs, and change events.
+
+### 5. 🗄️ Database Lifecycle Safeguards & Disposable Isolation
+- **Development Database Invariant:** Local development database `visa_chatbot` is strictly protected at Alembic revision `008`.
+- **`init_db()` Allowlist:** `DATABASE_AUTO_CREATE_TABLES` defaults to `False`. Table auto-creation via `SQLModel.metadata.create_all()` is blocked unless the database is explicitly listed in `DISPOSABLE_DATABASE_ALLOWLIST`.
+- **Disposable Lifecycle Runner:** Automated tests dynamically spawn and drop disposable databases (`visa_chatbot_disposable_migration_test`) for full 001 $\to$ 010 upgrade and downgrade testing.
+
+### 6. ⚙️ Dual-Job Continuous Integration (CI/CD)
+- GitHub Actions pipeline (`.github/workflows/ci.yml`) runs concurrent `backend` and `frontend` jobs.
+- Uses AWS ECR Public PostgreSQL 16 mirror (`public.ecr.aws/docker/library/postgres:16`) for unthrottled runner performance.
+- Pins all third-party actions by immutable commit SHAs.
 
 ---
 
 ## 🛠️ Tech Stack
 
-### Backend
-- **Framework:** FastAPI (Python 3.11+)
-- **Database & ORM:** PostgreSQL + SQLModel + Alembic migrations
-- **Cache & Task Queue:** Redis + Celery
-- **Vector Database:** ChromaDB (with Pinecone support)
-- **AI / LLM Stack:** Ollama (`llama3.2:3b`) + embeddings (`nomic-embed-text`) / Google Gemini support
-
-### Frontend
-- **Framework:** Next.js 14 (App Router) + React 18 + TypeScript
-- **Styling:** Tailwind CSS + Lucide Icons
-- **Package Manager:** pnpm
+| Layer | Technologies |
+|---|---|
+| **Frontend** | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS, Lucide Icons, pnpm 9.15.9 |
+| **Backend** | FastAPI, Python 3.11 / 3.12, Uvicorn, SQLModel ORM, Alembic |
+| **Databases & Cache** | PostgreSQL 16, Redis 7, Celery asynchronous task queue |
+| **Vector Search & AI** | ChromaDB (embedded, persistent), Ollama (`llama3.2:3b`, `nomic-embed-text`) |
+| **Crawler** | Playwright, BeautifulSoup4, Token-bucket rate limiting |
+| **CI/CD & DevOps** | GitHub Actions, Docker, Docker Compose, AWS ECR Public mirrors |
 
 ---
 
@@ -38,60 +67,55 @@ Built with a high-performance **FastAPI** backend, **Next.js 14** modern web int
 ```
 ├── backend/
 │   ├── app/
-│   │   ├── api/v1/         # Modular REST endpoints (chat, auth, visa-risk, crawler, etc.)
-│   │   ├── core/           # Config, database sessions, auth & security
-│   │   ├── models/         # SQLModel database schemas
-│   │   ├── services/       # RAG pipeline, crawler, SOP generator, LLM orchestrator
-│   │   └── workers/        # Celery asynchronous tasks & scheduled monitors
-│   ├── alembic/            # Database migration revisions
-│   ├── scripts/            # Seed data & system verification utilities
-│   ├── tests/              # Pytest test suite
-│   ├── Dockerfile          # Backend containerization
-│   └── docker-compose.yml  # PostgreSQL, Redis & Backend service definitions
+│   │   ├── api/v1/         # Modular REST endpoints (chat, risk, crawler, files, auth)
+│   │   ├── core/           # Config, database, security, input/output guardrails, logging
+│   │   ├── models/         # SQLModel database schemas (user, crawler, visa, doc)
+│   │   └── services/       # Unified RAG, rule engine, LLM orchestrator, crawler worker
+│   ├── alembic/            # Database migrations (001 through 010)
+│   ├── tests/              # Automated unit, integration, guardrail, and red-team tests
+│   └── Dockerfile          # Backend containerization
 ├── frontend/
 │   ├── src/
-│   │   ├── app/            # Next.js App Router (dashboard, chat, visa-risk, sop)
-│   │   └── components/     # UI components & layouts
-│   ├── package.json        # Frontend dependencies
-│   └── tailwind.config.ts  # Tailwind theme configuration
-├── docs/                   # Architecture & RAG cost optimization documentation
-├── LICENSE                 # GNU Affero General Public License v3.0
-└── PROJECT_STATUS.md       # Comprehensive architecture inventory & roadmap
+│   │   ├── app/            # Next.js App Router (dashboard, chat, visa-risk, sop, destinations)
+│   │   └── components/     # Reusable UI components & layouts
+│   ├── package.json        # Frontend dependencies (pnpm 9.15.9)
+│   └── next.config.mjs     # Remote image patterns & Next.js config
+├── docs/                   # Authoritative architecture & database documentation
+├── project_plan/           # Milestones, audit logs, incident post-mortems, roadmaps
+└── .github/workflows/      # Automated CI/CD workflow definitions
 ```
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Quick Start
 
 ### Prerequisites
 - Docker & Docker Compose
-- Node.js 18.17+ & pnpm (for frontend)
-- Python 3.11+ (for local backend development)
+- Node.js 20 & `pnpm` (`npm install -g pnpm@9.15.9`)
+- Python 3.11+
 - [Ollama](https://ollama.ai/) running locally with models:
   ```bash
   ollama pull llama3.2:3b
   ollama pull nomic-embed-text
   ```
 
----
+### Running Locally
 
-### Option A: Running with Docker Compose (Recommended)
-
-1. **Configure environment:**
+1. **Backend Setup:**
    ```powershell
    cd backend
+   python -m venv .venv
+   .\.venv\Scripts\activate
+   pip install -r requirements.txt
    Copy-Item .env.example .env
+   # REQUIRED: set SECRET_KEY in .env (min 32 chars; placeholders are rejected at startup)
+   python -c "import secrets; print(secrets.token_urlsafe(48))"
+   alembic upgrade head
+   uvicorn app.main:app --reload --port 8000
    ```
-   *(Update any custom settings in `backend/.env`)*
+   API runs at: `http://localhost:8000` (Swagger UI at `/docs`)
 
-2. **Start backend services:**
-   ```powershell
-   docker compose up -d --build
-   docker compose exec backend alembic upgrade head
-   ```
-   API runs at: `http://localhost:8000` (Interactive docs at `/docs`)
-
-3. **Start the frontend:**
+2. **Frontend Setup:**
    ```powershell
    cd ../frontend
    pnpm install
@@ -101,42 +125,44 @@ Built with a high-performance **FastAPI** backend, **Next.js 14** modern web int
 
 ---
 
-### Option B: Local Python Development
+## 🧪 Running Automated Tests
 
-1. **Backend setup:**
-   ```powershell
-   cd backend
-   python -m venv venv
-   .\venv\Scripts\activate
-   pip install -r requirements.txt
-   Copy-Item .env.example .env
-   alembic upgrade head
-   python -m uvicorn app.main:app --reload --port 8000
-   ```
-
-2. **Seed sample data (optional):**
-   ```powershell
-   python seed_tourist_data.py
-   python scripts/seed_sources.py
-   ```
-
-3. **Frontend setup:**
-   ```powershell
-   cd ../frontend
-   pnpm install
-   pnpm dev
-   ```
-
----
-
-## 🧪 Running Tests
-
-Run the backend test suite:
-
+### Backend Test Suite
 ```powershell
 cd backend
 pytest
 ```
+
+### Run Migration Lifecycle Tests (Disposable Database)
+```powershell
+pytest tests/test_migration_010_disposable.py -v
+```
+
+### Run Frontend Lint & Build
+```powershell
+cd ../frontend
+pnpm run lint
+pnpm run build
+```
+
+---
+
+## 📚 Complete Project Documentation Index
+
+For exhaustive context, refer to the dedicated markdown documents:
+
+| Documentation File | Description & Contents |
+|---|---|
+| [PROJECT_STATUS.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/PROJECT_STATUS.md) | Executive status, system architecture, test metrics, and current readiness matrix. |
+| [backend/README.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/backend/README.md) | Backend engineering manual, API catalog, directory layout, and security controls. |
+| [docs/ARCHITECTURE.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/docs/ARCHITECTURE.md) | Authoritative multi-tier system architecture and dataflow diagrams. |
+| [docs/DATABASE_LIFECYCLE_AND_SAFEGUARDS.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/docs/DATABASE_LIFECYCLE_AND_SAFEGUARDS.md) | Migrations 001–010, the dev DB invariant (rev 008), `init_db()` allowlist, and disposable DB testing. |
+| [docs/RAG_COST_OPTIMIZATION.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/docs/RAG_COST_OPTIMIZATION.md) | Mathematical analysis of token reductions and cost savings via deterministic rule bypass. |
+| [project_plan/AUDIT_LOG.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/project_plan/AUDIT_LOG.md) | Granular chronological audit log of all completed engineering tasks and verification evidence. |
+| [project_plan/detailed_tasks.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/project_plan/detailed_tasks.md) | Granular task checklists across all Milestones (1–6) and engineering phases. |
+| [project_plan/CI_CD_INCIDENT_REPORT.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/project_plan/CI_CD_INCIDENT_REPORT.md) | Post-mortem analysis of all 6 CI/CD errors (Action pins, Docker Hub 429, ESLint, devDeps, timing race). |
+| [project_plan/ROADMAP_AND_REMAINING_WORK.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/project_plan/ROADMAP_AND_REMAINING_WORK.md) | Detailed operational plan for remaining work: Milestone 5, Milestone 6, OWASP IDOR, and production gate. |
+| [GITHUB_UPLOAD_WARNINGS.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/GITHUB_UPLOAD_WARNINGS.md) | Security advisory regarding historical Git commit sanitization prior to public repository upload. |
 
 ---
 

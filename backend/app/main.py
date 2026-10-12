@@ -54,13 +54,14 @@ app = FastAPI(
 app.add_middleware(ErrorHandlerMiddleware)
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(RequestIDMiddleware)
-app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
+if settings.RATE_LIMIT_ENABLED:
+    app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:[0-9]+)?",
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:[0-9]+)?" if settings.CORS_ALLOW_LOCALHOST_REGEX else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

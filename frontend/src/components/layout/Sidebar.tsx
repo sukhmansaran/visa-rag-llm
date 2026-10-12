@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
     LayoutDashboard,
     ShieldAlert,
@@ -11,9 +12,11 @@ import {
     MessageSquare,
     BarChart3,
     LogOut,
-    UserCircle
+    UserCircle,
+    LogIn
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getUser, isAuthenticated, logout } from "@/lib/auth";
 
 const navItems = [
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -27,9 +30,26 @@ const navItems = [
 
 export function Sidebar() {
     const pathname = usePathname();
+    const router = useRouter();
+    const [user, setUser] = useState<any>(null);
+    const [authed, setAuthed] = useState(false);
 
-    // Don't show sidebar on landing page or onboarding
-    if (pathname === "/" || pathname === "/onboarding") return null;
+    useEffect(() => {
+        setAuthed(isAuthenticated());
+        setUser(getUser());
+    }, [pathname]);
+
+    // Don't show sidebar on landing page, onboarding, login or signup
+    if (pathname === "/" || pathname === "/onboarding" || pathname === "/login" || pathname === "/signup") {
+        return null;
+    }
+
+    const handleLogout = async () => {
+        await logout();
+        setUser(null);
+        setAuthed(false);
+        router.push("/login");
+    };
 
     return (
         <div className="flex flex-col w-64 h-screen bg-slate-900 text-white shrink-0 sticky top-0">
@@ -61,16 +81,33 @@ export function Sidebar() {
 
             <div className="p-4 border-t border-slate-800 space-y-4">
                 <div className="flex items-center gap-3 px-3">
-                    <UserCircle className="h-8 w-8 text-slate-500" />
-                    <div className="flex flex-col">
-                        <span className="text-xs font-bold">Sukhn</span>
-                        <span className="text-[10px] text-slate-500">Free Tier</span>
+                    <UserCircle className="h-8 w-8 text-slate-500 shrink-0" />
+                    <div className="flex flex-col min-w-0">
+                        <span className="text-xs font-bold truncate">
+                            {user?.email ? user.email.split("@")[0] : (authed ? "User" : "Guest")}
+                        </span>
+                        <span className="text-[10px] text-slate-500 truncate">
+                            {authed ? (user?.is_admin ? "Administrator" : "Standard Account") : "Unauthenticated"}
+                        </span>
                     </div>
                 </div>
-                <button className="flex items-center gap-3 px-3 py-2 text-sm font-medium text-slate-400 hover:text-white w-full transition-colors">
-                    <LogOut className="h-4 w-4" />
-                    Logout
-                </button>
+                {authed ? (
+                    <button
+                        onClick={handleLogout}
+                        className="flex items-center gap-3 px-3 py-2 text-sm font-medium text-slate-400 hover:text-white w-full transition-colors rounded-lg hover:bg-slate-800"
+                    >
+                        <LogOut className="h-4 w-4" />
+                        Logout
+                    </button>
+                ) : (
+                    <Link
+                        href={`/login?redirect=${encodeURIComponent(pathname)}`}
+                        className="flex items-center gap-3 px-3 py-2 text-sm font-medium text-blue-400 hover:text-blue-300 w-full transition-colors rounded-lg hover:bg-slate-800"
+                    >
+                        <LogIn className="h-4 w-4" />
+                        Sign In
+                    </Link>
+                )}
             </div>
         </div>
     );

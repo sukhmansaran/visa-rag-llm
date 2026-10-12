@@ -11,7 +11,7 @@ import hashlib
 class IntentCache:
     """Cache for grounded RAG responses keyed by query fingerprint and intent."""
     
-    def __init__(self, ttl_seconds: int = 86400 * 7):  # Default 7 days
+    def __init__(self, ttl_seconds: int = 86400):  # 24h backstop; keys are also versioned by rules + KB content (B16)
         self._cache: Dict[str, Dict] = {}
         self.ttl = ttl_seconds
     

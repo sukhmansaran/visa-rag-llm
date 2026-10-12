@@ -2,7 +2,10 @@ from typing import List
 from pydantic_settings import BaseSettings
 from pydantic import validator, Field
 import os
-import secrets
+
+TEST_ENVIRONMENTS = ("test", "testing", "pytest")
+MIN_SECRET_KEY_LENGTH = 32
+PLACEHOLDER_SECRET_MARKERS = ("your-secret-key", "change-in-production", "changeme", "replace-me")
 
 
 class Settings(BaseSettings):
@@ -11,20 +14,21 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Overseas Visa Chatbot API"
     ENVIRONMENT: str = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False
     API_V1_PREFIX: str = "/api/v1"
     
     # Security
-    SECRET_KEY: str = Field(default_factory=lambda: os.getenv("SECRET_KEY") or secrets.token_urlsafe(32))
+    SECRET_KEY: str = Field(default_factory=lambda: os.getenv("SECRET_KEY", ""))
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:1@localhost:5432/visa_chatbot"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/visa_chatbot"
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
     DATABASE_AUTO_CREATE_TABLES: bool = False
+    SQL_ECHO: bool = False
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -73,6 +77,12 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
     ]
+    # Allow any localhost port via regex (development convenience only; never enable in production)
+    CORS_ALLOW_LOCALHOST_REGEX: bool = False
+    # Request rate limiting (disable only in test suites that exercise the app from one client)
+    RATE_LIMIT_ENABLED: bool = True
+    # Comma-separated proxy IPs whose X-Forwarded-For header is trusted for client IP resolution
+    TRUSTED_PROXY_IPS: List[str] = []
     
     # Scraping
     MAX_CONCURRENT_SCRAPES: int = 5
@@ -85,25 +95,38 @@ class Settings(BaseSettings):
     CRAWLER_DEFAULT_MAX_PAGES: int = 10000
     CRAWLER_FRONTIER_TTL_DAYS: int = 7
     CRAWLER_RESPONSE_CACHE_TTL: int = 86400  # 24 hours in seconds
+    # Vetted extra crawl domains (exact or "*.domain" patterns) on top of the built-in official allowlist
+    CRAWLER_EXTRA_ALLOWED_DOMAINS: List[str] = []
     
-    @validator("CORS_ORIGINS", pre=True)
+    @validator("CORS_ORIGINS", "TRUSTED_PROXY_IPS", "CRAWLER_EXTRA_ALLOWED_DOMAINS", pre=True)
     def parse_cors_origins(cls, v):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",")]
         return v
 
     @validator("SECRET_KEY", pre=True, always=True)
-    def ensure_secret_key(cls, v):
-        if not v:
-            raise ValueError("SECRET_KEY must be set in environment or generated")
-        return v
+    def ensure_secret_key(cls, v, values):
+        val = (v or "").strip()
+        env = str(values.get("ENVIRONMENT", os.getenv("ENVIRONMENT", "development"))).lower()
+        if env in TEST_ENVIRONMENTS:
+            return val or "test-secret-key-32-chars-minimum-length-for-testing"
+        if not val:
+            raise ValueError("SECRET_KEY must be explicitly set outside test environments")
+        if len(val) < MIN_SECRET_KEY_LENGTH:
+            raise ValueError(f"SECRET_KEY must be at least {MIN_SECRET_KEY_LENGTH} characters")
+        if any(marker in val.lower() for marker in PLACEHOLDER_SECRET_MARKERS):
+            raise ValueError(
+                "SECRET_KEY is a placeholder value. Generate one with: "
+                "python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+            )
+        return val
     
     class Config:
-        import os
         from pathlib import Path
         _backend_env = Path(__file__).resolve().parent.parent.parent / ".env"
         env_file = (str(_backend_env), ".env")
         case_sensitive = True
+        extra = "ignore"
 
 
 # Global settings instance

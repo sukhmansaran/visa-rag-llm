@@ -8,6 +8,12 @@ backend_path = Path(__file__).resolve().parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
+import os
+
+# The shared app is exercised by many tests from one client IP; rate limiting is covered by
+# tests/test_rate_limit.py, which mounts the middleware on its own app.
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlmodel import SQLModel

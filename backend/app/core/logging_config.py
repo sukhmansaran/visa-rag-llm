@@ -10,6 +10,7 @@ from logging.handlers import RotatingFileHandler
 import json
 import re
 import hashlib
+import hmac
 from datetime import datetime
 from typing import Any, Dict, Optional, List
 import traceback
@@ -42,8 +43,10 @@ class PIIRedactor:
     )
 
     # 4. Passport Numbers (Standard ICAO uppercase single letter + 7 or 8 digits, or explicit context)
+    # Label + optional connector ("is", "was", ":", "=", "#") kept as group 1; the value must contain a digit
+    _LABEL_CONNECTOR = r'\s*(?:[:=#-]|\bis\b|\bwas\b)?\s*'
     PASSPORT_EXPLICIT_PATTERN = re.compile(
-        r'(?i)\b(?:passport\s*(?:number|no|id|#)?\s*[:=]?\s*)([A-Za-z0-9]{6,10})\b'
+        r'(?i)(\bpassport(?:\s*(?:number|no\.?|num|id|#))?' + _LABEL_CONNECTOR + r')((?=[A-Za-z]*\d)[A-Za-z0-9]{6,10})\b'
     )
     PASSPORT_ICAO_PATTERN = re.compile(
         r'\b[A-PR-WY-Za-pr-wy-z][0-9]{7,8}\b'
@@ -51,13 +54,13 @@ class PIIRedactor:
 
     # 5. Government IDs (Canadian SIN, US SSN, IRCC UCI)
     SIN_EXPLICIT_PATTERN = re.compile(
-        r'(?i)\b(?:sin|social\s*insurance\s*number)\s*[:=]?\s*(\d{3}[-\s]?\d{3}[-\s]?\d{3})\b'
+        r'(?i)(\b(?:sin|social\s*insurance\s*number)(?:\s*(?:number|no\.?|#))?' + _LABEL_CONNECTOR + r')(\d{3}[-\s]?\d{3}[-\s]?\d{3})\b'
     )
     SSN_PATTERN = re.compile(
         r'\b\d{3}-\d{2}-\d{4}\b'
     )
     UCI_EXPLICIT_PATTERN = re.compile(
-        r'(?i)\b(?:uci|unique\s*client\s*identifier)\s*[:=]?\s*(\d{2}[-\s]?\d{4}[-\s]?\d{4}|\d{4}[-\s]?\d{4}|\d{8,10})\b'
+        r'(?i)(\b(?:uci|unique\s*client\s*identifier|client\s*id)(?:\s*(?:number|no\.?|#))?' + _LABEL_CONNECTOR + r')(\d{2}[-\s]?\d{4}[-\s]?\d{4}|\d{4}[-\s]?\d{4}|\d{8,10})\b'
     )
 
 
@@ -82,13 +85,13 @@ class PIIRedactor:
         text = cls.EMAIL_PATTERN.sub("[REDACTED_EMAIL]", text)
 
         # 3. Scrub Explicit Passports & ICAO format
-        text = cls.PASSPORT_EXPLICIT_PATTERN.sub("passport: [REDACTED_PASSPORT]", text)
+        text = cls.PASSPORT_EXPLICIT_PATTERN.sub(r"\1[REDACTED_PASSPORT]", text)
         text = cls.PASSPORT_ICAO_PATTERN.sub("[REDACTED_PASSPORT]", text)
 
         # 4. Scrub Government IDs (SIN, SSN, UCI)
-        text = cls.SIN_EXPLICIT_PATTERN.sub("SIN: [REDACTED_GOV_ID]", text)
+        text = cls.SIN_EXPLICIT_PATTERN.sub(r"\1[REDACTED_GOV_ID]", text)
         text = cls.SSN_PATTERN.sub("[REDACTED_GOV_ID]", text)
-        text = cls.UCI_EXPLICIT_PATTERN.sub("UCI: [REDACTED_GOV_ID]", text)
+        text = cls.UCI_EXPLICIT_PATTERN.sub(r"\1[REDACTED_GOV_ID]", text)
 
         # 5. Scrub Financial Credentials (Credit cards & bank account numbers)
         text = cls.CREDIT_CARD_PATTERN.sub("[REDACTED_FINANCIAL]", text)
@@ -163,10 +166,11 @@ class JSONFormatter(logging.Formatter):
         if req_id:
             log_data['request_id'] = str(req_id)
         
-        # Non-PII User Hashing (SHA-256 salted hash)
+        # Non-PII User Hashing (HMAC-SHA-256 with server pepper)
         if hasattr(record, 'user_id') and record.user_id:
             raw_uid = str(record.user_id)
-            log_data['user_id_hash'] = hashlib.sha256(raw_uid.encode('utf-8')).hexdigest()[:16]
+            pepper = getattr(settings, "SECRET_KEY", "pendu_privacy_pepper") or "pendu_privacy_pepper"
+            log_data['user_id_hash'] = hmac.new(pepper.encode('utf-8'), raw_uid.encode('utf-8'), hashlib.sha256).hexdigest()[:16]
         else:
             log_data['user_id_hash'] = "anonymous"
 
@@ -199,11 +203,19 @@ class JSONFormatter(logging.Formatter):
 
 
 class RequestIDFilter(logging.Filter):
-    """Filter to ensure request ID exists on log records."""
+    """Filter to ensure request ID exists on log records via contextvars or audit attribute."""
     
     def filter(self, record: logging.LogRecord) -> bool:
-        if not hasattr(record, 'request_id') or record.request_id is None:
-            record.request_id = getattr(record, 'audit_request_id', None)
+        if not hasattr(record, 'request_id') or not record.request_id or record.request_id == "-":
+            try:
+                from app.core.middleware import request_id_ctx
+                ctx_id = request_id_ctx.get()
+                if ctx_id and ctx_id != "-":
+                    record.request_id = ctx_id
+                else:
+                    record.request_id = getattr(record, 'audit_request_id', None)
+            except Exception:
+                record.request_id = getattr(record, 'audit_request_id', None)
         return True
 
 

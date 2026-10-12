@@ -4,22 +4,42 @@ OllamaService is the single LLM provider for chat, SOP generation, and summariza
 Supports both regular and streaming responses.
 """
 
+import logging
 from typing import AsyncGenerator, Optional, List, Dict, Any
 import httpx
 import json
 
 from app.core.config import settings
+from app.core.exceptions import AIServiceUnavailableError
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaService:
     """
     LLM service backed by a local Ollama instance.
     Handles chat completion with both streaming and non-streaming modes.
+    Uses a shared httpx.AsyncClient with connection pooling and timeouts (A14).
     """
 
     def __init__(self):
         self.base_url = settings.OLLAMA_BASE_URL.rstrip("/")
         self.model = settings.OLLAMA_MODEL
+        self._client: Optional[httpx.AsyncClient] = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        """Get or initialize the shared HTTP client with production timeouts."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=10.0),
+                limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
+            )
+        return self._client
+
+    async def close(self):
+        """Cleanly close the shared HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
 
     async def generate_answer(
         self,
@@ -77,37 +97,42 @@ class OllamaService:
 
         print(f"[OLLAMA] Sending request — model: {self.model}, history_turns: {len(chat_history or [])}, max_tokens: {max_tokens}")
 
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            try:
-                response = await client.post(
-                    f"{self.base_url}/api/chat",
-                    headers={"Content-Type": "application/json"},
-                    json=payload,
+        client = self._get_client()
+        try:
+            response = await client.post(
+                f"{self.base_url}/api/chat",
+                headers={"Content-Type": "application/json"},
+                json=payload,
+            )
+
+            if response.status_code != 200:
+                logger.error(f"[OLLAMA] Service returned error {response.status_code}")
+                raise AIServiceUnavailableError(
+                    message=f"Ollama error ({response.status_code}): Service unavailable. Please retry in a few moments.",
+                    details={"status_code": response.status_code},
                 )
 
-                if response.status_code != 200:
-                    raise Exception(
-                        f"Ollama error ({response.status_code}): {response.text}"
-                    )
+            data = response.json()
+            content = data.get("message", {}).get("content", "")
 
-                data = response.json()
-                content = data.get("message", {}).get("content", "")
+            if not content:
+                raise AIServiceUnavailableError("Ollama returned an empty response.")
 
-                if not content:
-                    raise Exception(f"Ollama returned an empty response: {data}")
+            print(f"[OLLAMA] ✓ Response generated ({len(content)} chars)")
+            return content
 
-                print(f"[OLLAMA] ✓ Response generated ({len(content)} chars)")
-                return content
-
-            except httpx.ConnectError:
-                raise Exception(
-                    f"Cannot connect to Ollama at {self.base_url}. "
-                    "Make sure Ollama is running (`ollama serve`)."
-                )
-            except httpx.TimeoutException:
-                raise Exception("Ollama request timed out after 180 seconds.")
-            except Exception:
-                raise
+        except (httpx.ConnectError, httpx.NetworkError) as e:
+            logger.error(f"[OLLAMA] Connection to {self.base_url} failed: {e}")
+            raise AIServiceUnavailableError(
+                message="The AI inference service is starting or temporarily unavailable. Please retry shortly.",
+                details={"reason": "connection_refused"},
+            )
+        except httpx.TimeoutException as e:
+            logger.error(f"[OLLAMA] Request timed out: {e}")
+            raise AIServiceUnavailableError(
+                message="Ollama request timed out after 60 seconds.",
+                details={"reason": "timeout"},
+            )
 
     async def generate_answer_stream(
         self,
@@ -156,45 +181,46 @@ class OllamaService:
 
         print(f"[OLLAMA STREAM] Starting stream — model: {self.model}, history_turns: {len(chat_history or [])}")
 
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            try:
-                async with client.stream(
-                    "POST",
-                    f"{self.base_url}/api/chat",
-                    headers={"Content-Type": "application/json"},
-                    json=payload,
-                ) as response:
+        client = self._get_client()
+        try:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/api/chat",
+                headers={"Content-Type": "application/json"},
+                json=payload,
+            ) as response:
 
-                    if response.status_code != 200:
-                        error_text = await response.aread()
-                        raise Exception(
-                            f"Ollama error ({response.status_code}): {error_text}"
-                        )
+                if response.status_code != 200:
+                    logger.error(f"[OLLAMA STREAM] Error {response.status_code}")
+                    raise AIServiceUnavailableError(f"Ollama error ({response.status_code}): Streaming service temporarily unavailable.")
 
-                    print("[OLLAMA STREAM] Connected, receiving stream...")
+                print("[OLLAMA STREAM] Connected, receiving stream...")
 
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        try:
-                            data = json.loads(line)
-                            chunk = data.get("message", {}).get("content", "")
-                            if chunk:
-                                yield chunk
-                        except json.JSONDecodeError:
-                            continue
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        chunk = data.get("message", {}).get("content", "")
+                        if chunk:
+                            yield chunk
+                    except json.JSONDecodeError:
+                        continue
 
-                    print("[OLLAMA STREAM] Stream completed")
+                print("[OLLAMA STREAM] Stream completed")
 
-            except httpx.ConnectError:
-                raise Exception(
-                    f"Cannot connect to Ollama at {self.base_url}. "
-                    "Make sure Ollama is running (`ollama serve`)."
-                )
-            except httpx.TimeoutException:
-                raise Exception("Ollama streaming request timed out.")
-            except Exception:
-                raise
+        except (httpx.ConnectError, httpx.NetworkError) as e:
+            logger.error(f"[OLLAMA STREAM] Connection to {self.base_url} failed: {e}")
+            raise AIServiceUnavailableError(
+                message="The AI inference service is starting or temporarily unavailable. Please retry shortly.",
+                details={"reason": "connection_refused"},
+            )
+        except httpx.TimeoutException as e:
+            logger.error(f"[OLLAMA STREAM] Stream timed out: {e}")
+            raise AIServiceUnavailableError(
+                message="Ollama request timed out during streaming.",
+                details={"reason": "timeout"},
+            )
 
     async def factual_summarize(self, text: str) -> str:
         """

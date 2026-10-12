@@ -1,7 +1,7 @@
 # FastAPI and web server
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
+fastapi==0.143.0
+uvicorn[standard]==0.54.0
+python-multipart==0.0.32
 
 # Database
 sqlmodel==0.0.14
@@ -10,10 +10,12 @@ asyncpg==0.29.0
 psycopg2-binary==2.9.9
 
 # Authentication and security
-python-jose[cryptography]==3.3.0
+PyJWT[crypto]==2.15.1  # replaces python-jose (CVE-2024-33663/33664) and its ecdsa dependency
 passlib[bcrypt]==1.7.4
-python-dotenv==1.0.0
-pydantic-settings==2.1.0
+python-dotenv==1.2.4
+pydantic==2.14.1
+pydantic-settings==2.15.0
+PyYAML==6.0.3  # ircc_rules.yaml loader
 email-validator==2.1.0
 
 # Redis and caching
@@ -26,12 +28,13 @@ celery==5.3.4
 
 # Vector databases
 numpy==1.26.4
-chromadb==0.5.23        # 0.5.x has pre-built Windows wheels, no C++ build tools needed
+chromadb==0.5.23        # 0.5.x has pre-built Windows wheels. Its open advisories (CVE-2026-45830/45831/45833)
+                        # affect Chroma *server* auth/tenancy only; this app embeds Chroma in-process.
 # pinecone-client==3.0.0  # Uncomment for production
 
 # Web scraping
 playwright==1.40.0
-pypdf==3.17.1
+pypdf==6.20.0
 beautifulsoup4==4.12.2
 html2text==2020.1.16
 
@@ -48,20 +51,20 @@ aiofiles==23.2.1
 # Retry logic
 tenacity==8.2.3
 
-# Monitoring and logging
-sentry-sdk[fastapi]==1.38.0
+# Monitoring: sentry-sdk removed (it was never initialised anywhere in the app)
 
 # Payment processing
 stripe==7.8.0
 
 # Testing
-pytest==7.4.3
-pytest-asyncio==0.21.1
-pytest-cov==4.1.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
 hypothesis>=6.90.0
 fakeredis[lua]>=2.20.0
 
 # Development
-black==23.11.0
+black==26.10.1
+pip-audit==2.10.1
 flake8==6.1.0
 mypy==1.7.1

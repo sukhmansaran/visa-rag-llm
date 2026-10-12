@@ -12,7 +12,8 @@ from app.models.chat_message import ChatMessage
 from app.api.v1.chat_schemas import ChatMessage as ChatMessageSchema, ChatResponse, SourceCitation
 from app.services.rag_pipeline import rag_pipeline
 from app.services.guardrails.input_guardrail import input_guardrail
-from app.core.logging_config import get_logger, log_audit_event
+from app.core.logging_config import PIIRedactor, get_logger, log_audit_event
+from app.core.exceptions import AppException, app_exception_to_http_exception, AIServiceUnavailableError
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -35,17 +36,17 @@ async def get_answer_stream(
         # Use provided session_id or create new one
         session_id = message.sessionId if message.sessionId else str(uuid.uuid4())
         
-        # Get chat history from current session
+        # Get chat history from current session (latest 20 messages, chronological order)
         history_result = await db.execute(
             select(ChatMessage)
             .where(
                 ChatMessage.user_id == current_user.id,
                 ChatMessage.session_id == session_id
             )
-            .order_by(ChatMessage.created_at)
+            .order_by(desc(ChatMessage.created_at))
             .limit(20)
         )
-        history_messages = history_result.scalars().all()
+        history_messages = list(reversed(history_result.scalars().all()))
         
         # Convert to list format from DB
         db_history = [
@@ -53,8 +54,8 @@ async def get_answer_stream(
             for msg in history_messages
         ]
         
-        # Use client-provided chat_history if available, otherwise use DB history
-        chat_history = message.chat_history if (message.chat_history and len(message.chat_history) > 0) else db_history
+        # Enforce server-side DB history for multi-turn security
+        chat_history = db_history
 
         # 1. Deterministic Input Guardrail Check
         guardrail_result = input_guardrail.evaluate(message.query, chat_history=chat_history)
@@ -65,7 +66,7 @@ async def get_answer_stream(
             user_msg = ChatMessage(
                 user_id=current_user.id,
                 role="user",
-                content=message.query,
+                content=PIIRedactor.redact(message.query),  # stored redacted (A7); the LLM still sees the original
                 session_id=session_id,
                 message_metadata={
                     "country": message.country,
@@ -121,7 +122,7 @@ async def get_answer_stream(
         user_msg = ChatMessage(
             user_id=current_user.id,
             role="user",
-            content=message.query,
+            content=PIIRedactor.redact(message.query),  # stored redacted (A7); the LLM still sees the original
             session_id=session_id,
             message_metadata={
                 "country": message.country,
@@ -191,11 +192,13 @@ async def get_answer_stream(
                 # Send completion event with citations and metrics
                 yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'sources': sources, 'metrics': metrics})}\n\n"
                 
+            except AppException as exc:
+                http_exc = app_exception_to_http_exception(exc)
+                logger.error(f"AppException in streaming: {exc.message}")
+                yield f"data: {json.dumps({'type': 'error', 'status_code': http_exc.status_code, 'detail': http_exc.detail})}\n\n"
             except Exception as e:
-                print(f"Error in streaming: {e}")
-                import traceback
-                traceback.print_exc()
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                logger.error(f"Error in streaming: {e}", exc_info=True)
+                yield f"data: {json.dumps({'type': 'error', 'message': 'An error occurred while generating the response.'})}\n\n"
         
         return StreamingResponse(
             event_stream(),
@@ -207,11 +210,11 @@ async def get_answer_stream(
             }
         )
         
+    except (AppException, HTTPException):
+        raise
     except Exception as e:
-        print(f"Error setting up stream: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error setting up stream: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to initialize streaming response.")
 
 
 @router.post("/answer", response_model=ChatResponse)
@@ -233,17 +236,17 @@ async def get_answer(
         # Use provided session_id or create new one
         session_id = message.sessionId if message.sessionId else str(uuid.uuid4())
         
-        # Get chat history ONLY from current session for context
+        # Get chat history ONLY from current session for context (latest 20 messages, chronological order)
         history_result = await db.execute(
             select(ChatMessage)
             .where(
                 ChatMessage.user_id == current_user.id,
                 ChatMessage.session_id == session_id
             )
-            .order_by(ChatMessage.created_at)  # Oldest first
+            .order_by(desc(ChatMessage.created_at))
             .limit(20)
         )
-        history_messages = history_result.scalars().all()
+        history_messages = list(reversed(history_result.scalars().all()))
         
         # Convert to list format for agent
         chat_history = [
@@ -260,7 +263,7 @@ async def get_answer(
             user_msg = ChatMessage(
                 user_id=current_user.id,
                 role="user",
-                content=message.query,
+                content=PIIRedactor.redact(message.query),  # stored redacted (A7); the LLM still sees the original
                 session_id=session_id,
                 message_metadata={
                     "country": message.country,
@@ -327,7 +330,7 @@ async def get_answer(
         user_msg = ChatMessage(
             user_id=current_user.id,
             role="user",
-            content=message.query,
+            content=PIIRedactor.redact(message.query),  # stored redacted (A7); the LLM still sees the original
             session_id=session_id,
             message_metadata={
                 "country": message.country,
@@ -375,19 +378,19 @@ async def get_answer(
             metadata=rag_metrics,
         )
         
+    except AppException as exc:
+        raise app_exception_to_http_exception(exc)
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Error generating answer: {e}")
-        import traceback
-        traceback.print_exc()
-        import traceback
-        tb = traceback.format_exc()
+        logger.error(f"Error generating answer: {e}", exc_info=True)
         return ChatResponse(
-            advice_text=f"I'm sorry, I encountered an error processing your request. Please try again.",
+            advice_text="I'm sorry, I encountered an error processing your request. Please try again.",
             sources=[],
             confidence=0.0,
             escalate=True,
-            session_id=None,
-            metadata={"error": str(e), "traceback": tb},
+            session_id=session_id,
+            metadata={"error_code": "INTERNAL_PROCESSING_ERROR"},
         )
 
 

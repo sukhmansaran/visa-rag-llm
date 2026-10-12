@@ -6,6 +6,7 @@ from sqlalchemy import select
 from typing import List
 
 from app.core.database import get_db
+from app.core.security import get_current_admin_user
 from app.models.tourist_visa_info import TouristVisaInfo
 from app.api.v1.tourist_visa_schemas import (
     TouristVisaInfoResponse,
@@ -42,7 +43,8 @@ async def get_visa_info(country: str, db: AsyncSession = Depends(get_db)):
 @router.post("/", response_model=TouristVisaInfoResponse)
 async def create_visa_info(
     visa_info: TouristVisaInfoCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    admin_user = Depends(get_current_admin_user),
 ):
     """Create tourist visa information (admin only)."""
     db_visa_info = TouristVisaInfo(**visa_info.model_dump())

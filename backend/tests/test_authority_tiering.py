@@ -77,6 +77,11 @@ def test_infer_authority_tier_from_url_and_type():
     assert retrieval_service.infer_authority_tier({"metadata": {"url": "https://myvisablog.com/forum"}}) == 4
     assert retrieval_service.infer_authority_tier({"metadata": {"source_type": "blog"}}) == 4
 
+    # Anti-spoofing tests (A9: host parsing prevents spoofed subdomains from masquerading as Tier 1/2)
+    assert retrieval_service.infer_authority_tier({"metadata": {"url": "https://canada.ca.evil.com/fake"}}) == 4
+    assert retrieval_service.infer_authority_tier({"metadata": {"url": "https://evil-canada.ca/phish"}}) == 4
+    assert retrieval_service.infer_authority_tier({"metadata": {"url": "https://utoronto.ca.attacker.com/page"}}) == 4
+
 
 def test_tier_weighted_reranking_prioritizes_tier1():
     """Verify Tier 1 official sources outrank Tier 4 blogs despite similar base vector scores."""

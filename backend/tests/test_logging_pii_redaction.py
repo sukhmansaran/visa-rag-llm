@@ -208,3 +208,28 @@ class TestPIIRedactionLoggingIntegration:
         assert data["user_id_hash"] != "user_admin_123"
         assert "secret@ircc.ca" not in output
         assert "[REDACTED_EMAIL]" in json.dumps(data["extra"])
+
+
+@pytest.mark.parametrize(
+    "text, secret",
+    [
+        ("My passport number is K1234567", "K1234567"),
+        ("passport no. was ZX998877", "ZX998877"),
+        ("my UCI is 1122-3344", "1122-3344"),
+        ("Client ID: 11-2233-4455", "11-2233-4455"),
+        ("My SIN is 123-456-789", "123-456-789"),
+        ("social insurance number was 123 456 789", "123 456 789"),
+    ],
+)
+def test_redacts_ids_in_natural_phrasing(text, secret):
+    clean = PIIRedactor.redact(text)
+    assert secret not in clean
+    assert "REDACTED" in clean
+
+
+def test_does_not_mangle_labels_or_regulatory_numbers():
+    text = "My passport number is K1234567. Fill IMM 1294; NOC 21231 is TEER 1; CRS 489; fee $150."
+    clean = PIIRedactor.redact(text)
+    assert "passport number is [REDACTED_PASSPORT]" in clean
+    for kept in ("IMM 1294", "NOC 21231", "TEER 1", "CRS 489", "$150"):
+        assert kept in clean

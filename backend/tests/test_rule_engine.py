@@ -5,6 +5,7 @@ and Provincial Attestation Letter (PAL) requirements.
 """
 
 import pytest
+from datetime import date
 from app.services.rule_engine import (
     RuleEngine,
     rule_engine,
@@ -19,7 +20,7 @@ class TestProofOfFundsCalculations:
 
     def test_single_student_base_living_expenses(self):
         """Single student outside Quebec requires exactly CAD $20,635 living expenses."""
-        result = rule_engine.calculate_proof_of_funds(family_members_count=1)
+        result = rule_engine.calculate_proof_of_funds(family_members_count=1, application_date=date(2024, 6, 1))
         assert result.family_count == 1
         assert result.base_living_cad == 20635
         assert result.additional_dependents_cad == 0
@@ -28,7 +29,7 @@ class TestProofOfFundsCalculations:
 
     def test_student_with_one_dependent(self):
         """Student + 1 family member (family size 2) requires CAD $25,690."""
-        result = rule_engine.calculate_proof_of_funds(family_members_count=2)
+        result = rule_engine.calculate_proof_of_funds(family_members_count=2, application_date=date(2024, 6, 1))
         assert result.family_count == 2
         assert result.base_living_cad == 20635
         assert result.additional_dependents_cad == (25690 - 20635)
@@ -36,20 +37,20 @@ class TestProofOfFundsCalculations:
 
     def test_student_with_two_dependents_family_of_three(self):
         """Family of 3 requires CAD $31,583 living funds."""
-        result = rule_engine.calculate_proof_of_funds(family_members_count=3)
+        result = rule_engine.calculate_proof_of_funds(family_members_count=3, application_date=date(2024, 6, 1))
         assert result.family_count == 3
         assert result.total_required_cad == 31583.0
 
     def test_family_of_five(self):
         """Family of 5 requires CAD $43,492 living funds."""
-        result = rule_engine.calculate_proof_of_funds(family_members_count=5)
+        result = rule_engine.calculate_proof_of_funds(family_members_count=5, application_date=date(2024, 6, 1))
         assert result.family_count == 5
         assert result.total_required_cad == 43492.0
 
     def test_large_family_extrapolation_beyond_seven(self):
         """Families larger than 7 add CAD $5,559 per additional person."""
         # Family of 8: $54,611 (7 people) + $5,559 = $60,170
-        result = rule_engine.calculate_proof_of_funds(family_members_count=8)
+        result = rule_engine.calculate_proof_of_funds(family_members_count=8, application_date=date(2024, 6, 1))
         assert result.family_count == 8
         assert result.total_required_cad == 54611.0 + 5559.0
 
@@ -59,6 +60,7 @@ class TestProofOfFundsCalculations:
             family_members_count=2,
             tuition_cad=18500.50,
             transport_cad=3000.0,
+            application_date=date(2024, 6, 1),
         )
         expected_total = 25690.0 + 18500.50 + 3000.0
         assert result.total_required_cad == expected_total
@@ -157,12 +159,13 @@ class TestDynamicQueryExtractionAndRuleAnswer:
     """Verifies that queries mentioning specific dependents or scores trigger exact statutory data."""
 
     def test_query_with_dependents_returns_calculated_proof_of_funds(self):
-        """A question about proof of funds for 3 people extracts the exact CAD $31,583 calculation."""
+        """A question about proof of funds for 3 people uses the schedule in force today."""
         query = "How much proof of funds do I need for a family of 3 in Canada?"
         facts = rule_engine.try_rule_answer("financial", "canada", "student", query=query)
         assert facts is not None
         assert "STATUTORY PROOF OF FUNDS CALCULATION" in facts
-        assert "CAD $31,583.00" in facts
+        expected = rule_engine.calculate_proof_of_funds(family_members_count=3).total_required_cad
+        assert f"CAD ${expected:,.2f}" in facts
         assert "3 individuals" in facts
 
     def test_query_with_ielts_score_returns_clb_breakdown(self):
@@ -181,3 +184,69 @@ class TestDynamicQueryExtractionAndRuleAnswer:
         assert facts is not None
         assert "PROVINCIAL ATTESTATION LETTER (PAL) MANDATE" in facts
         assert "EXEMPT" in facts
+
+
+
+class TestProofOfFundsSchedules:
+    """Dated schedules verified against canada.ca on 2026-10-12 (financial-support page)."""
+
+    @pytest.mark.parametrize("size, expected", [
+        (1, 23448), (2, 29192), (3, 35888), (4, 43572), (5, 49419), (6, 55736), (7, 62054),
+    ])
+    def test_schedule_from_2026_09_01(self, size, expected):
+        result = rule_engine.calculate_proof_of_funds(size, application_date=date(2026, 9, 1))
+        assert result.total_required_cad == expected
+        assert result.effective_from == "2026-09-01"
+        assert result.schedule_verified is True
+
+    @pytest.mark.parametrize("size, expected", [
+        (1, 22895), (2, 28502), (3, 35040), (4, 42543), (5, 48252), (6, 54420), (7, 60589),
+    ])
+    def test_schedule_2025_01_01_to_2026_08_31(self, size, expected):
+        result = rule_engine.calculate_proof_of_funds(size, application_date=date(2026, 8, 31))
+        assert result.total_required_cad == expected
+        assert rule_engine.calculate_proof_of_funds(size, application_date=date(2025, 1, 1)).total_required_cad == expected
+
+    def test_additional_person_beyond_seven(self):
+        assert rule_engine.calculate_proof_of_funds(9, application_date=date(2026, 10, 1)).total_required_cad == 62054 + 2 * 6318
+        assert rule_engine.calculate_proof_of_funds(8, application_date=date(2025, 6, 1)).total_required_cad == 60589 + 6170
+
+    def test_default_uses_schedule_in_force_today(self):
+        today = rule_engine.get_pof_schedule()
+        assert rule_engine.calculate_proof_of_funds(1).total_required_cad == today["rates_by_family_size"][1]
+
+    def test_unverified_historical_schedule_is_flagged(self):
+        assert rule_engine.calculate_proof_of_funds(1, application_date=date(2024, 6, 1)).schedule_verified is False
+
+    def test_no_hardcoded_amounts_in_rule_engine_source(self):
+        """Amounts must come from ircc_rules.yaml only, so code and data can't drift apart again."""
+        from pathlib import Path
+        source = Path(__file__).resolve().parent.parent.joinpath("app", "services", "rule_engine.py").read_text(encoding="utf-8")
+        for amount in ("23448", "23,448", "22895", "22,895", "20635", "20,635"):
+            assert amount not in source, f"Hardcoded proof-of-funds amount {amount} found in rule_engine.py"
+
+
+class TestPALMastersDoctoral2026:
+    """canada.ca PAL page (verified 2026-10-12): master's/doctoral at a public DLI exempt from 2026-01-01."""
+
+    def test_public_dli_masters_exempt_from_2026(self):
+        result = rule_engine.evaluate_pal_requirement("Master's", public_dli=True, application_date=date(2026, 2, 1))
+        assert result.is_required is False
+        assert "public DLI" in result.summary
+
+    def test_private_dli_masters_still_requires_pal(self):
+        result = rule_engine.evaluate_pal_requirement("PhD", public_dli=False, application_date=date(2026, 2, 1))
+        assert result.is_required is True
+
+    def test_masters_before_2026_requires_pal(self):
+        result = rule_engine.evaluate_pal_requirement("Master's", public_dli=True, application_date=date(2025, 12, 31))
+        assert result.is_required is True
+
+    def test_unknown_institution_type_explains_both_cases(self):
+        result = rule_engine.evaluate_pal_requirement("Master's", application_date=date(2026, 3, 1))
+        assert "public DLI" in result.summary and "private DLI" in result.summary
+
+    def test_work_hours_during_breaks_are_unlimited(self):
+        facts = rule_engine.try_rule_answer("work", "canada", "student", query="How many hours can I work off-campus?")
+        assert "unlimited hours" in facts
+        assert "40 hours" not in facts

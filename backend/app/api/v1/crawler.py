@@ -7,9 +7,10 @@ Provides admin endpoints for managing crawl jobs, aggregator portals, and seed U
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy import select
 
+from app.core.security import get_current_admin_user
 from app.api.v1.crawler_schemas import (
     CrawlJobCreate,
     CrawlJobResponse,
@@ -26,7 +27,11 @@ from app.models.crawl_job import CrawlJob
 from app.models.seed_url import SeedURL
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/crawler", tags=["crawler"])
+router = APIRouter(
+    prefix="/crawler",
+    tags=["crawler"],
+    dependencies=[Depends(get_current_admin_user)],
+)
 
 
 # --- Crawl Jobs ---
