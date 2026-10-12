@@ -35,7 +35,7 @@ posthog==5.4.0          # chromadb 0.5 calls posthog.capture() with the pre-6.0 
 # pinecone-client==3.0.0  # Uncomment for production
 
 # Web scraping
-playwright==1.40.0
+playwright==1.63.0
 pypdf==6.20.0
 beautifulsoup4==4.12.2
 html2text==2020.1.16

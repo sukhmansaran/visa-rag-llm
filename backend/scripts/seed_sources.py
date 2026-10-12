@@ -55,21 +55,122 @@ EMBASSY_SOURCES = [
     #     "scrape_frequency": 336  # Bi-weekly
     # },
     
-    # Canada
+    # Canada — official IRCC pages (verified 2026-10-12: HTTP 200 and allowed by canada.ca/robots.txt)
     {
-        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada.html",
-        "name": "Study in Canada - Official",
+        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit.html",
+        "name": "Study permit - Overview",
         "country": "Canada",
-        "source_type": "embassy",
+        "source_type": "official",
+        "authority_tier": 1,
         "priority": 1,
         "scrape_frequency": 168
     },
     {
-        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit.html",
-        "name": "Canada Study Permit",
+        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/eligibility.html",
+        "name": "Study permit - Who can apply",
         "country": "Canada",
         "source_type": "official",
+        "authority_tier": 1,
         "priority": 1,
+        "scrape_frequency": 168
+    },
+    {
+        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/get-documents.html",
+        "name": "Study permit - Get the right documents",
+        "country": "Canada",
+        "source_type": "official",
+        "authority_tier": 1,
+        "priority": 1,
+        "scrape_frequency": 168
+    },
+    {
+        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/get-documents/financial-support.html",
+        "name": "Study permit - Proof of financial support",
+        "country": "Canada",
+        "source_type": "official",
+        "authority_tier": 1,
+        "priority": 1,
+        "scrape_frequency": 168
+    },
+    {
+        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/get-documents/provincial-attestation-letter.html",
+        "name": "Study permit - Provincial attestation letter (PAL/TAL)",
+        "country": "Canada",
+        "source_type": "official",
+        "authority_tier": 1,
+        "priority": 1,
+        "scrape_frequency": 168
+    },
+    {
+        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/extend-study-permit.html",
+        "name": "Study permit - Extend or restore status",
+        "country": "Canada",
+        "source_type": "official",
+        "authority_tier": 1,
+        "priority": 2,
+        "scrape_frequency": 168
+    },
+    {
+        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/work-off-campus.html",
+        "name": "Work off campus as an international student",
+        "country": "Canada",
+        "source_type": "official",
+        "authority_tier": 1,
+        "priority": 1,
+        "scrape_frequency": 168
+    },
+    {
+        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/after-graduation/about.html",
+        "name": "Post-graduation work permit - About",
+        "country": "Canada",
+        "source_type": "official",
+        "authority_tier": 1,
+        "priority": 1,
+        "scrape_frequency": 168
+    },
+    {
+        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/after-graduation/eligibility.html",
+        "name": "Post-graduation work permit - Who can apply",
+        "country": "Canada",
+        "source_type": "official",
+        "authority_tier": 1,
+        "priority": 1,
+        "scrape_frequency": 168
+    },
+    {
+        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/about-visitor-visa.html",
+        "name": "Visitor visa - About the document",
+        "country": "Canada",
+        "source_type": "official",
+        "authority_tier": 1,
+        "priority": 2,
+        "scrape_frequency": 168
+    },
+    {
+        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/who-can-apply/federal-skilled-workers.html",
+        "name": "Express Entry - Federal Skilled Worker Program",
+        "country": "Canada",
+        "source_type": "official",
+        "authority_tier": 1,
+        "priority": 2,
+        "scrape_frequency": 168
+    },
+    {
+        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/documents/language-test.html",
+        "name": "Express Entry - Language test results",
+        "country": "Canada",
+        "source_type": "official",
+        "authority_tier": 1,
+        "priority": 2,
+        "scrape_frequency": 168
+    },
+    {
+        "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/biometrics.html",
+        "name": "Biometrics",
+        "country": "Canada",
+        "source_type": "official",
+        "authority_tier": 1,
+        "priority": 2,
         "scrape_frequency": 168
     },
     
@@ -259,6 +360,7 @@ UNIVERSITY_SOURCES = [
         "name": "University of Toronto - International",
         "country": "Canada",
         "source_type": "university",
+        "authority_tier": 2,
         "priority": 1,
         "scrape_frequency": 336
     },
@@ -267,14 +369,16 @@ UNIVERSITY_SOURCES = [
         "name": "McGill University - International",
         "country": "Canada",
         "source_type": "university",
+        "authority_tier": 2,
         "priority": 1,
         "scrape_frequency": 336
     },
     {
-        "url": "https://you.ubc.ca/applying-ubc/international/",
+        "url": "https://you.ubc.ca/international/",
         "name": "UBC - International Students",
         "country": "Canada",
         "source_type": "university",
+        "authority_tier": 2,
         "priority": 1,
         "scrape_frequency": 336
     },
