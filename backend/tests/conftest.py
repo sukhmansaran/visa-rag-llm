@@ -14,24 +14,33 @@ import os
 # tests/test_rate_limit.py, which mounts the middleware on its own app.
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlmodel import SQLModel
+from urllib.parse import urlparse
 
-from app.main import app
-from app.core.database import get_db
+# Point the app's GLOBAL engine at the disposable test database before anything imports it.
+# Several code paths (chat stream persistence, pipeline tourist lookup, crawler, workers) open
+# sessions via app.core.database.AsyncSessionLocal directly rather than the get_db dependency,
+# so overriding get_db alone left them writing to the real development database.
 from app.core.config import settings
 
-
-import os
-from urllib.parse import urlparse
-from app.core.database import DISPOSABLE_DATABASE_ALLOWLIST
-
-# Test database URL
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
     settings.DATABASE_URL.rsplit("/", 1)[0] + "/visa_chatbot_test",
 )
+settings.DATABASE_URL = TEST_DATABASE_URL
+settings.DATABASE_USE_NULL_POOL = True  # each test runs on its own event loop
+
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlmodel import SQLModel
+
+from app.core.database import DISPOSABLE_DATABASE_ALLOWLIST, get_db
+from app.core import database as app_database
+
+assert str(app_database.engine.url).endswith(urlparse(TEST_DATABASE_URL.replace("+asyncpg", "")).path), (
+    "Global engine must target the test database"
+)
+
+from app.main import app
 
 # Safety check: Enforce that test database target is strictly disposable
 _clean_test_url = TEST_DATABASE_URL.replace("+asyncpg", "")

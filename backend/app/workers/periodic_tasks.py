@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime, timedelta
 from sqlalchemy import select
 from app.workers.celery_app import celery_app
+from app.workers.async_runner import run_async
 from app.core.database import AsyncSessionLocal
 from app.models.source import Source
 from app.workers.tasks import ingest_source_task, detect_changes_task
@@ -37,8 +38,7 @@ def scrape_high_priority_sources_task():
                 "timestamp": datetime.utcnow().isoformat()
             }
     
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(run())
+    return run_async(run())
 
 
 @celery_app.task
@@ -66,8 +66,7 @@ def scrape_medium_priority_sources_task():
                 "timestamp": datetime.utcnow().isoformat()
             }
     
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(run())
+    return run_async(run())
 
 
 @celery_app.task
@@ -95,8 +94,7 @@ def scrape_low_priority_sources_task():
                 "timestamp": datetime.utcnow().isoformat()
             }
     
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(run())
+    return run_async(run())
 
 
 @celery_app.task
@@ -124,8 +122,7 @@ def detect_changes_all_sources_task():
                 "timestamp": datetime.utcnow().isoformat()
             }
     
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(run())
+    return run_async(run())
 
 
 @celery_app.task
@@ -203,5 +200,4 @@ def send_weekly_digest_task():
                 "timestamp": datetime.utcnow().isoformat()
             }
     
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(run())
+    return run_async(run())

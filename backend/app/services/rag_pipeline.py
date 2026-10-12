@@ -4,6 +4,7 @@ Executes the authoritative flow: Guardrail -> Intent -> Cache -> Rule Engine -> 
 Enforces the RAG-Only policy: Zero ungrounded hallucinations, zero raw LLM fallbacks.
 """
 
+import logging
 import time
 import json
 import re
@@ -21,6 +22,8 @@ from app.services.guardrails.input_guardrail import input_guardrail
 from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
+
+logger = logging.getLogger(__name__)
 
 
 GROUNDED_SYSTEM_PROMPT = """You are Pendu, an expert, professional Canadian visa and immigration assistant.
@@ -136,7 +139,7 @@ class RAGPipeline:
                 async with AsyncSessionLocal() as session:
                     tourist_context = await get_tourist_context(session, query, country)
             except Exception as e:
-                print(f"[RAG_PIPELINE] Tourist context DB error: {e}")
+                logger.warning(f"[RAG_PIPELINE] Tourist context DB error: {e}")
 
         # 5. Strict Vector Retrieval
         chunks = []
@@ -149,7 +152,7 @@ class RAGPipeline:
                 top_k=3,
             )
         except Exception as e:
-            print(f"[RAG_PIPELINE] Retrieval error: {e}")
+            logger.warning(f"[RAG_PIPELINE] Retrieval error: {e}")
             chunks = []
         metrics["retrieval_chunks"] = len(chunks)
 
@@ -409,7 +412,7 @@ class RAGPipeline:
                 async with AsyncSessionLocal() as session:
                     tourist_context = await get_tourist_context(session, query, country)
             except Exception as e:
-                print(f"[RAG_PIPELINE] Tourist context DB error in stream: {e}")
+                logger.warning(f"[RAG_PIPELINE] Tourist context DB error in stream: {e}")
 
         # 5. Strict Vector Retrieval
         chunks = []
@@ -422,7 +425,7 @@ class RAGPipeline:
                 top_k=3,
             )
         except Exception as e:
-            print(f"[RAG_PIPELINE] Retrieval error: {e}")
+            logger.warning(f"[RAG_PIPELINE] Retrieval error: {e}")
             chunks = []
         metrics["retrieval_chunks"] = len(chunks)
 
@@ -513,7 +516,7 @@ class RAGPipeline:
                     normalized_full = normalize_markdown_output(full_response)
                     intent_cache.set(country, visa_type, intent, normalized_full, version=rules_version, query=query)
             except Exception as e:
-                print(f"[RAG_PIPELINE] LLM stream error: {e}")
+                logger.error(f"[RAG_PIPELINE] LLM stream error: {e}", exc_info=True)
                 err_msg = "An error occurred while generating the answer from official sources."
                 full_response += err_msg
                 yield {"type": "chunk", "content": err_msg}

@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
     DATABASE_AUTO_CREATE_TABLES: bool = False
+    # NullPool: open a fresh connection per session. Used by the test suite, where every test runs on
+    # its own event loop and pooled asyncpg connections can't be reused across loops.
+    DATABASE_USE_NULL_POOL: bool = False
     SQL_ECHO: bool = False
     
     # Redis
@@ -37,6 +40,10 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2:3b"
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"  # pull with: ollama pull nomic-embed-text
+    # Non-streaming calls must finish entirely within this (CPU inference ~7 tok/s -> 700 tokens ~100 s)
+    OLLAMA_REQUEST_TIMEOUT_SECONDS: float = 180.0
+    # Streaming calls: maximum gap between tokens (includes first-token latency / model load)
+    OLLAMA_STREAM_IDLE_TIMEOUT_SECONDS: float = 90.0
     
     # Vector Database
     VECTOR_DB_TYPE: str = "chroma"  # chroma or pinecone

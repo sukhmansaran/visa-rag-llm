@@ -3,6 +3,7 @@ Tourist context service.
 Fetches verified tourist visa details, destinations, and travel cost ranges from the PostgreSQL database.
 """
 
+import logging
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -10,6 +11,8 @@ from sqlalchemy import select
 from app.models.tourist_visa_info import TouristVisaInfo
 from app.models.tourist_destination import TouristDestination
 from app.models.travel_cost import TravelCost
+
+logger = logging.getLogger(__name__)
 
 
 async def get_tourist_context(db: Optional[AsyncSession], query: str, country: Optional[str] = None) -> str:
@@ -103,6 +106,6 @@ async def get_tourist_context(db: Optional[AsyncSession], query: str, country: O
                         context_parts.append(f"- {category.capitalize()}: ~${avg_cost:.2f} {unit}")
         
     except Exception as e:
-        print(f"[TOURIST_SERVICE] Error fetching tourist context: {e}")
+        logger.warning(f"[TOURIST_SERVICE] Error fetching tourist context: {e}")
     
     return "\n".join(context_parts) if context_parts else ""

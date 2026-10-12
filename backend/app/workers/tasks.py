@@ -4,6 +4,7 @@ Celery tasks for background processing.
 
 from celery.schedules import crontab
 from app.workers.celery_app import celery_app
+from app.workers.async_runner import run_async
 from app.services.ingestion import ingestion_service
 from app.services.change_detector import change_detector
 from app.services.notification_service import notification_service
@@ -33,9 +34,7 @@ def ingest_source_task(self, source_id: int):
                 # Retry on failure
                 raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
     
-    # Run async function in event loop
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(run_ingestion())
+    return run_async(run_ingestion())
 
 
 @celery_app.task(bind=True)
@@ -53,8 +52,7 @@ def reingest_all_sources_task(self):
             results = await ingestion_service.reingest_all_sources(db)
             return results
     
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(run_reingest())
+    return run_async(run_reingest())
 
 
 @celery_app.task(bind=True)
@@ -111,8 +109,7 @@ def detect_changes_task(self, source_id: int):
                 "affected_users": len(affected_users),
             }
     
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(run_detection())
+    return run_async(run_detection())
 
 
 @celery_app.task
@@ -156,5 +153,4 @@ def periodic_change_detection_task():
                 "timestamp": datetime.utcnow().isoformat(),
             }
     
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(run_periodic_check())
+    return run_async(run_periodic_check())

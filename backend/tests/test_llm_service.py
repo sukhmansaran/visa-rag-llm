@@ -167,7 +167,8 @@ class TestLLMService:
         """Test error handling when Ollama request times out."""
         mock_post.side_effect = httpx.TimeoutException("Timed out")
         
-        with pytest.raises(Exception, match="Ollama request timed out"):
+        from app.core.exceptions import AIServiceUnavailableError
+        with pytest.raises(AIServiceUnavailableError, match="did not finish within"):
             await llm_service.generate_answer(
                 system_prompt="System",
                 user_prompt="Question"

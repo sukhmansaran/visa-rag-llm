@@ -10,6 +10,7 @@ import httpx
 import json
 
 from app.core.config import settings
+from app.core.loop_local import LoopLocal
 from app.core.exceptions import AIServiceUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -19,27 +20,27 @@ class OllamaService:
     """
     LLM service backed by a local Ollama instance.
     Handles chat completion with both streaming and non-streaming modes.
-    Uses a shared httpx.AsyncClient with connection pooling and timeouts (A14).
+    Uses a pooled httpx.AsyncClient with timeouts (A14), one per event loop: a client is bound to
+    the loop it was created on, and Celery tasks / tests run on fresh loops.
     """
 
     def __init__(self):
         self.base_url = settings.OLLAMA_BASE_URL.rstrip("/")
         self.model = settings.OLLAMA_MODEL
-        self._client: Optional[httpx.AsyncClient] = None
+        self._clients: LoopLocal[httpx.AsyncClient] = LoopLocal()
 
     def _get_client(self) -> httpx.AsyncClient:
-        """Get or initialize the shared HTTP client with production timeouts."""
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=10.0),
-                limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
-            )
-        return self._client
+        """Get or create the HTTP client for the running event loop."""
+        return self._clients.get_or_create(lambda: httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=5.0, read=settings.OLLAMA_STREAM_IDLE_TIMEOUT_SECONDS, write=10.0, pool=10.0),
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
+        ))
 
     async def close(self):
-        """Cleanly close the shared HTTP client."""
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
+        """Close the running loop's HTTP client (call before that loop shuts down)."""
+        client = self._clients.pop()
+        if client is not None and not client.is_closed:
+            await client.aclose()
 
     async def generate_answer(
         self,
@@ -95,14 +96,17 @@ class OllamaService:
             },
         }
 
-        print(f"[OLLAMA] Sending request — model: {self.model}, history_turns: {len(chat_history or [])}, max_tokens: {max_tokens}")
+        logger.info(f"[OLLAMA] Sending request - model: {self.model}, history_turns: {len(chat_history or [])}, max_tokens: {max_tokens}")
 
         client = self._get_client()
         try:
+            # Non-streaming: the whole answer must arrive within the read timeout. On CPU
+            # (~7 tokens/s) a 700-token answer takes ~100 s, so this needs a generous limit.
             response = await client.post(
                 f"{self.base_url}/api/chat",
                 headers={"Content-Type": "application/json"},
                 json=payload,
+                timeout=httpx.Timeout(connect=5.0, read=settings.OLLAMA_REQUEST_TIMEOUT_SECONDS, write=10.0, pool=10.0),
             )
 
             if response.status_code != 200:
@@ -118,7 +122,7 @@ class OllamaService:
             if not content:
                 raise AIServiceUnavailableError("Ollama returned an empty response.")
 
-            print(f"[OLLAMA] ✓ Response generated ({len(content)} chars)")
+            logger.info(f"[OLLAMA] Response generated ({len(content)} chars)")
             return content
 
         except (httpx.ConnectError, httpx.NetworkError) as e:
@@ -130,7 +134,7 @@ class OllamaService:
         except httpx.TimeoutException as e:
             logger.error(f"[OLLAMA] Request timed out: {e}")
             raise AIServiceUnavailableError(
-                message="Ollama request timed out after 60 seconds.",
+                message=f"The AI inference service did not finish within {settings.OLLAMA_REQUEST_TIMEOUT_SECONDS:.0f} seconds. Please retry.",
                 details={"reason": "timeout"},
             )
 
@@ -179,10 +183,11 @@ class OllamaService:
             },
         }
 
-        print(f"[OLLAMA STREAM] Starting stream — model: {self.model}, history_turns: {len(chat_history or [])}")
+        logger.info(f"[OLLAMA STREAM] Starting stream - model: {self.model}, history_turns: {len(chat_history or [])}")
 
         client = self._get_client()
         try:
+            # Streaming: read timeout applies between chunks, so long answers are fine
             async with client.stream(
                 "POST",
                 f"{self.base_url}/api/chat",
@@ -194,7 +199,7 @@ class OllamaService:
                     logger.error(f"[OLLAMA STREAM] Error {response.status_code}")
                     raise AIServiceUnavailableError(f"Ollama error ({response.status_code}): Streaming service temporarily unavailable.")
 
-                print("[OLLAMA STREAM] Connected, receiving stream...")
+                logger.info("[OLLAMA STREAM] Connected, receiving stream...")
 
                 async for line in response.aiter_lines():
                     if not line:
@@ -207,7 +212,7 @@ class OllamaService:
                     except json.JSONDecodeError:
                         continue
 
-                print("[OLLAMA STREAM] Stream completed")
+                logger.info("[OLLAMA STREAM] Stream completed")
 
         except (httpx.ConnectError, httpx.NetworkError) as e:
             logger.error(f"[OLLAMA STREAM] Connection to {self.base_url} failed: {e}")

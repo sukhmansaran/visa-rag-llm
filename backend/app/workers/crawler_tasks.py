@@ -9,22 +9,15 @@ import logging
 from typing import Optional
 
 from app.workers.celery_app import celery_app
+from app.workers.async_runner import run_async
 from app.services.crawler.types import CrawlJobConfig, FrontierEntry
 
 logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
-    """Run an async coroutine from a sync Celery task."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, coro).result()
-        return loop.run_until_complete(coro)
-    except RuntimeError:
-        return asyncio.run(coro)
+    """Run an async coroutine from a sync Celery task (fresh loop + loop-resource cleanup)."""
+    return run_async(coro)
 
 
 @celery_app.task(bind=True, max_retries=3, queue="crawler")

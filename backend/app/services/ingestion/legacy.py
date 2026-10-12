@@ -2,6 +2,7 @@
 Legacy Ingestion Service (preserved for backward compatibility with tasks/workers).
 """
 
+import logging
 from typing import Dict, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -10,6 +11,8 @@ import app.services.ingestion as ingestion_pkg
 from app.models.source import Source
 from app.models.document import Document
 from app.models.vector_chunk import VectorChunk
+
+logger = logging.getLogger(__name__)
 
 
 class IngestionService:
@@ -69,9 +72,9 @@ class IngestionService:
         try:
             text_to_summarize = scraped_data['extracted_text'][:30000]
             summary_text = await llm_service.factual_summarize(text_to_summarize)
-            print(f"[INGESTION] Factual summary generated: {len(summary_text)} chars")
+            logger.info(f"[INGESTION] Factual summary generated: {len(summary_text)} chars")
         except Exception as e:
-            print(f"[INGESTION] Error during factual summarization: {e}")
+            logger.warning(f"[INGESTION] Error during factual summarization: {e}")
             summary_text = scraped_data['extracted_text']
 
         # Step 3: Chunk

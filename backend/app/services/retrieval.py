@@ -3,6 +3,7 @@ Retrieval service for RAG pipeline.
 Handles vector search, reranking, and context preparation.
 """
 
+import logging
 import re
 import urllib.parse
 from typing import List, Dict, Any, Optional
@@ -10,6 +11,8 @@ from datetime import datetime
 
 from app.services.vector_store import vector_store
 from app.services.embeddings import embed_text
+
+logger = logging.getLogger(__name__)
 
 
 class RetrievalService:
@@ -33,7 +36,7 @@ class RetrievalService:
         try:
             query_embedding = await embed_text(query)
         except Exception as e:
-            print(f"[RETRIEVAL] Error generating query embedding: {e}")
+            logger.warning(f"[RETRIEVAL] Error generating query embedding: {e}")
             return []
         
         # Primary filter on country (and university if specified)
