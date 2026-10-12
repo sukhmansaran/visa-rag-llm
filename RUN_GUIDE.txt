@@ -21,9 +21,10 @@ The backend manages the RAG pipeline, deterministic rules, and profile assessmen
 7. Run: python -m uvicorn app.main:app --reload --port 8000
    * The backend MUST run on port 8000 for the frontend proxy to work.
 
-### Option B: Docker
+### Background workers (Celery) — needs Redis/Memurai on 127.0.0.1:6379
 1. cd backend
-2. docker compose up -d
+2. .\scripts\start_celery_worker.ps1   (worker; --pool=solo because Windows has no prefork)
+3. .\scripts\start_celery_beat.ps1     (scheduler; run exactly one)
 
 ## 2. Frontend (React/Next.js)
 The frontend provides the intelligence interface and metrics dashboard. All UI pages default to Canada.

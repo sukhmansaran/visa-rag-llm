@@ -90,9 +90,10 @@ Statutory requirements under Canadian immigration regulations are evaluated dete
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Docker & Docker Compose
+- PostgreSQL 16 running locally
+- Redis on `127.0.0.1:6379` — on Windows use [Memurai](https://www.memurai.com/) (Redis-compatible service)
 - Node.js 20 & `pnpm` (`npm install -g pnpm@9.15.9`)
-- Python 3.11+
+- Python 3.12
 - [Ollama](https://ollama.ai/) running locally with models:
   ```bash
   ollama pull llama3.2:3b
@@ -122,6 +123,14 @@ Statutory requirements under Canadian immigration regulations are evaluated dete
    pnpm dev
    ```
    Web interface runs at: `http://localhost:3000`
+
+3. **Background workers (ingestion, crawling, scheduled jobs)** — each in its own terminal:
+   ```powershell
+   cd backend
+   .\scripts\start_celery_worker.ps1   # executes jobs (uses --pool=solo; Windows has no prefork)
+   .\scripts\start_celery_beat.ps1     # schedules periodic jobs; run exactly one
+   ```
+   The API works without workers, but ingestion/crawl endpoints and scheduled jobs need them.
 
 ---
 

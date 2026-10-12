@@ -151,3 +151,30 @@ def crawl_portal_task(portal_id: int) -> dict:
         return {"status": "started", "portal": portal.name, "seeds": len(seed_urls)}
 
     return _run_async(run())
+
+
+@celery_app.task(queue="crawler")
+def crawl_category_task(categories: list) -> dict:
+    """
+    Start crawls for every active portal in the given categories (used by Celery Beat).
+
+    Seeds come from the database (AggregatorPortal + SeedURL), so scheduled crawls follow
+    whatever portals/seeds are configured instead of a hard-coded, empty seed list.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.aggregator_portal import AggregatorPortal
+    from sqlalchemy import select
+
+    async def run():
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(AggregatorPortal.id, AggregatorPortal.name)
+                .where(AggregatorPortal.category.in_(categories))
+                .where(AggregatorPortal.is_active == True)  # noqa: E712
+            )
+            return result.all()
+
+    portals = _run_async(run())
+    for portal_id, _name in portals:
+        crawl_portal_task.delay(portal_id=portal_id)
+    return {"categories": categories, "portals_started": [name for _id, name in portals]}

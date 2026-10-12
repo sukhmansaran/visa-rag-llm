@@ -75,8 +75,13 @@ class ChromaVectorStore(VectorStore):
         persist_dir = persist_directory or settings.CHROMA_PERSIST_DIRECTORY
         Path(persist_dir).mkdir(parents=True, exist_ok=True)
         
+        from chromadb.config import Settings as ChromaSettings
+
+        # Telemetry off: don't send usage analytics to Chroma (privacy), and its client is
+        # incompatible with the installed posthog version, which spammed stderr on every start.
         self.client = chromadb.PersistentClient(
             path=str(persist_dir),
+            settings=ChromaSettings(anonymized_telemetry=False),
         )
         
         # Get or create collection with cosine distance metric

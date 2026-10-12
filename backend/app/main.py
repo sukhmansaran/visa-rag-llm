@@ -34,8 +34,14 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # Shutdown
+    # Shutdown: close loop-bound clients before the event loop goes away
     logger.info("Shutting down...")
+    from app.core.middleware import close_rate_limit_redis
+    from app.core.token_store import refresh_token_store
+    from app.services.llm import llm_service
+    await close_rate_limit_redis()
+    await refresh_token_store.aclose()
+    await llm_service.close()
     await close_db()
     logger.info("Database connections closed")
 

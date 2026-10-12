@@ -2,6 +2,7 @@ from typing import List
 from pydantic_settings import BaseSettings
 from pydantic import validator, Field
 import os
+import re
 
 TEST_ENVIRONMENTS = ("test", "testing", "pytest")
 MIN_SECRET_KEY_LENGTH = 32
@@ -34,7 +35,7 @@ class Settings(BaseSettings):
     SQL_ECHO: bool = False
     
     # Redis
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str = "redis://127.0.0.1:6379/0"
     
     # Ollama (local LLM and embeddings)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
@@ -53,8 +54,8 @@ class Settings(BaseSettings):
     PINECONE_INDEX_NAME: str = "visa-chatbot"
     
     # Celery
-    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
+    CELERY_BROKER_URL: str = "redis://127.0.0.1:6379/1"
+    CELERY_RESULT_BACKEND: str = "redis://127.0.0.1:6379/2"
     
     # Stripe
     STRIPE_SECRET_KEY: str = ""
@@ -109,6 +110,15 @@ class Settings(BaseSettings):
     def parse_cors_origins(cls, v):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",")]
+        return v
+
+    @validator("REDIS_URL", "CELERY_BROKER_URL", "CELERY_RESULT_BACKEND", pre=True)
+    def prefer_ipv4_loopback_for_redis(cls, v):
+        # On Windows "localhost" resolves to ::1 first. Redis/Memurai listen on 127.0.0.1 only, and the
+        # async redis client then times out on ::1 instead of falling back, so rate limiting and token
+        # revocation silently dropped to per-process memory. Use the IPv4 loopback explicitly.
+        if isinstance(v, str):
+            return re.sub(r"^(rediss?://(?:[^@/]*@)?)localhost(?=[:/]|$)", r"\g<1>127.0.0.1", v)
         return v
 
     @validator("SECRET_KEY", pre=True, always=True)

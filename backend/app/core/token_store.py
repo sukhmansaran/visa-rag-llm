@@ -44,6 +44,12 @@ class RefreshTokenStore:
             self._redis_retry_at = time.time() + _REDIS_RETRY_SECONDS
             return None
 
+    async def aclose(self) -> None:
+        """Close the running loop's Redis client (call on shutdown)."""
+        client = self._redis_clients.pop()
+        if client is not None:
+            await client.aclose()
+
     def _prune_memory(self) -> None:
         now = time.time()
         self._memory = {jti: exp for jti, exp in self._memory.items() if exp > now}

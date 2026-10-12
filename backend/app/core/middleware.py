@@ -80,6 +80,17 @@ from app.core.config import settings
 
 
 RATE_LIMIT_ERROR_BODY = "Rate limit exceeded ({limit} requests/min). Please slow down."
+
+# One async Redis client per event loop, shared by all middleware instances; closed on app shutdown
+from app.core.loop_local import LoopLocal
+
+_rate_limit_redis: LoopLocal = LoopLocal()
+
+
+async def close_rate_limit_redis() -> None:
+    client = _rate_limit_redis.pop()
+    if client is not None:
+        await client.aclose()
 REDIS_RETRY_SECONDS = 30
 # Credential-accepting endpoints share a strict per-IP bucket
 CREDENTIAL_ENDPOINTS = ("/auth/login", "/auth/signup", "/auth/refresh")
@@ -102,14 +113,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, requests_per_minute: int = 60):
         super().__init__(app)
         self.default_rpm = requests_per_minute
-        self._redis = None
         self._redis_retry_at = 0.0
         self._memory_counts = {}
         self._max_memory_keys = 10000
 
     async def _get_redis(self):
-        if self._redis is not None:
-            return self._redis
+        existing = _rate_limit_redis.get()
+        if existing is not None:
+            return existing
         if time.time() < self._redis_retry_at:
             return None
         try:
@@ -121,11 +132,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 decode_responses=True,
             )
             await client.ping()
-            self._redis = client
+            _rate_limit_redis.set(client)
+            return client
         except Exception:
-            self._redis = None
             self._redis_retry_at = time.time() + REDIS_RETRY_SECONDS
-        return self._redis
+            return None
 
     def _get_rate_limit_and_bucket(self, path: str) -> tuple[int, str]:
         path_lower = path.lower()
@@ -193,7 +204,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 await redis_client.expire(window_key, 60)
             return count
         except Exception:
-            self._redis = None
+            _rate_limit_redis.set(None)
             self._redis_retry_at = time.time() + REDIS_RETRY_SECONDS
             return None
 

@@ -28,6 +28,9 @@ TEST_DATABASE_URL = os.getenv(
 )
 settings.DATABASE_URL = TEST_DATABASE_URL
 settings.DATABASE_USE_NULL_POOL = True  # each test runs on its own event loop
+# Tests use a separate Redis logical database so revoked-token / rate-limit keys never land in the app's db 0
+TEST_REDIS_URL = os.getenv("TEST_REDIS_URL", settings.REDIS_URL.rsplit("/", 1)[0] + "/15")
+settings.REDIS_URL = TEST_REDIS_URL
 
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
