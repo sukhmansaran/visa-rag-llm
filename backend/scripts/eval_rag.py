@@ -34,7 +34,7 @@ from app.core.config import settings  # noqa: E402
 from app.core.database import engine  # noqa: E402
 from app.services import rag_pipeline as rag_module  # noqa: E402
 from app.services.cache_service import intent_cache  # noqa: E402
-from app.services.llm import llm_service  # noqa: E402
+from app.services.llm import llm_service, record_llm_calls  # noqa: E402
 
 EVAL_SET = BACKEND / "tests" / "data" / "rag_eval_set.json"
 GAP_PATTERNS = [
@@ -120,17 +120,25 @@ async def run_model(model: str, cases: list, baseline: bool, stream: bool = Fals
         intent_cache.clear()
         captured.clear()
         t0 = time.perf_counter()
-        if stream:
-            r = await _ask_streaming(case["question"])
-        else:
-            r = await rag_module.rag_pipeline.process_query(query=case["question"], context_metadata={"country": "Canada"})
+        with record_llm_calls() as calls:
+            if stream:
+                r = await _ask_streaming(case["question"])
+            else:
+                r = await rag_module.rag_pipeline.process_query(query=case["question"], context_metadata={"country": "Canada"})
         latency = time.perf_counter() - t0
+        llm = calls[-1] if calls else None
         metrics = r["metrics"]
         s = score(case, r["answer"], captured.get("context", ""), metrics.get("llm_called", False))
         results.append({
             "id": case["id"], "latency_s": round(latency, 1), "source": metrics.get("source"),
             "llm_called": metrics.get("llm_called"), "citations": [c.get("url") for c in r.get("sources", [])],
             "answer": r["answer"], **s,
+            # Ollama's own accounting for the answer call (M0.4)
+            "prompt_tokens": llm.prompt_tokens if llm else None,
+            "output_tokens": llm.output_tokens if llm else None,
+            "prompt_s": llm.prompt_s if llm else None,
+            "generation_s": llm.generation_s if llm else None,
+            "tokens_per_second": llm.tokens_per_second if llm else None,
         })
         status = "PASS" if s["passed"] else "FAIL"
         extra = []
@@ -139,7 +147,9 @@ async def run_model(model: str, cases: list, baseline: bool, stream: bool = Fals
         if s["gap_ok"] is False: extra.append("gap-not-acknowledged")
         if s["ungrounded_numbers"]: extra.append(f"ungrounded={s['ungrounded_numbers']}")
         if s["placeholder_citation"]: extra.append("literal-[Source N]")
-        print(f"  {status} {latency:6.1f}s  {case['id']:<30} {' '.join(extra)}", flush=True)
+        timing = (f"[{llm.prompt_tokens} in / {llm.output_tokens} out, read {llm.prompt_s}s, "
+                  f"gen {llm.generation_s}s, {llm.tokens_per_second} tok/s]") if llm else "[no model call]"
+        print(f"  {status} {latency:6.1f}s  {case['id']:<30} {timing} {' '.join(extra)}", flush=True)
 
     llm_service.generate_answer = original
     llm_service.generate_answer_stream = original_stream
@@ -152,8 +162,19 @@ async def run_model(model: str, cases: list, baseline: bool, stream: bool = Fals
         "answers_with_ungrounded_numbers": sum(bool(r["ungrounded_numbers"]) for r in results),
         "placeholder_citations": sum(r["placeholder_citation"] for r in results),
         "avg_latency_s": round(sum(r["latency_s"] for r in results if r["llm_called"]) / max(1, sum(r["llm_called"] for r in results)), 1),
+        **_timing_summary(results),
     }
     return {"summary": summary, "results": results}
+
+
+def _timing_summary(results: list) -> dict:
+    """Averages of Ollama's per-call accounting over the cases that called the model."""
+    def avg(key):
+        values = [r[key] for r in results if r.get(key) is not None]
+        return round(sum(values) / len(values), 2) if values else None
+    return {"avg_prompt_tokens": avg("prompt_tokens"), "avg_output_tokens": avg("output_tokens"),
+            "avg_prompt_s": avg("prompt_s"), "avg_generation_s": avg("generation_s"),
+            "avg_tokens_per_second": avg("tokens_per_second")}
 
 
 def _mode_name(baseline: bool, stream: bool) -> str:

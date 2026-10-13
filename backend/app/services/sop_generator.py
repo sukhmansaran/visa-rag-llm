@@ -136,6 +136,7 @@ async def generate_sop(
         context="",  # Context already in user_prompt
         temperature=0.7,  # More creative for SOP writing
         max_tokens=8000,
+        role="sop",
     )
     
     return sop_content

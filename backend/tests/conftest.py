@@ -98,3 +98,15 @@ async def client(db_session):
         yield ac
     
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def fake_llm(monkeypatch):
+    """Route every model call through a scripted FakeLLM (no Ollama needed). See app/services/llm_fake.py."""
+    from app.services.llm import llm_service
+    from app.services.llm_fake import FakeLLM
+
+    fake = FakeLLM()
+    for name in ("generate_answer", "generate_answer_stream", "structured_call"):
+        monkeypatch.setattr(llm_service, name, getattr(fake, name))
+    return fake

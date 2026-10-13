@@ -152,7 +152,8 @@ Return ONLY valid JSON, no additional text."""
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.8,
-            max_tokens=4000
+            max_tokens=4000,
+            role="itinerary",
         )
         
         # Parse JSON response

@@ -105,6 +105,16 @@ class LLMServiceError(ExternalServiceError):
         super().__init__("LLM", message, service_details)
 
 
+class LLMStructuredOutputError(LLMServiceError):
+    """Raised when the model's reply does not match the required JSON schema after all attempts."""
+
+    def __init__(self, schema_name: str, attempts: int, last_error: str):
+        super().__init__(
+            f"Model output did not match the {schema_name} schema after {attempts} attempt(s).",
+            details={"schema": schema_name, "attempts": attempts, "last_error": last_error[:500]},
+        )
+
+
 class IngestionError(AppException):
     """Raised when content ingestion fails."""
     

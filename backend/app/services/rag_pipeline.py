@@ -230,6 +230,7 @@ class RAGPipeline:
             chat_history=chat_history,
             temperature=settings.RAG_TEMPERATURE,  # 0 = deterministic; same question, same answer
             max_tokens=settings.RAG_MAX_ANSWER_TOKENS,
+            role="answer",
         )
         metrics["llm_called"] = True
 
