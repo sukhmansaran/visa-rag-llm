@@ -61,19 +61,23 @@ class RefreshTokenStore:
     async def revoke(self, jti: str, expires_at: Optional[float]) -> None:
         """Revoke a jti until the token's own expiry (after which it is invalid anyway)."""
         ttl = max(1, int((expires_at or time.time() + 86400 * 30) - time.time()))
+        # Always record locally too: if Redis drops in or out between revoke and check,
+        # this process must still see its own revocations (never fail open on a replay).
+        self._memory[jti] = time.time() + ttl
+        if len(self._memory) > _MAX_MEMORY_ENTRIES:
+            self._prune_memory()
         redis_client = await self._get_redis()
         if redis_client:
             try:
                 await redis_client.set(f"{_KEY_PREFIX}{jti}", "1", ex=ttl)
-                return
             except Exception:
                 self._redis_clients.set(None)
                 self._redis_retry_at = time.time() + _REDIS_RETRY_SECONDS
-        self._memory[jti] = time.time() + ttl
-        if len(self._memory) > _MAX_MEMORY_ENTRIES:
-            self._prune_memory()
 
     async def is_revoked(self, jti: str) -> bool:
+        expiry = self._memory.get(jti)
+        if expiry is not None and expiry > time.time():
+            return True
         redis_client = await self._get_redis()
         if redis_client:
             try:
@@ -81,8 +85,7 @@ class RefreshTokenStore:
             except Exception:
                 self._redis_clients.set(None)
                 self._redis_retry_at = time.time() + _REDIS_RETRY_SECONDS
-        expiry = self._memory.get(jti)
-        return expiry is not None and expiry > time.time()
+        return False
 
 
 refresh_token_store = RefreshTokenStore()

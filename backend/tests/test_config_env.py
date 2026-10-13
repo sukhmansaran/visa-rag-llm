@@ -11,8 +11,12 @@ from pydantic import ValidationError
 from app.core.config import Settings
 
 
-def test_env_example_loads_cleanly():
+def test_env_example_loads_cleanly(monkeypatch):
     """Verify that .env.example can be loaded into Settings with zero validation errors."""
+    # Real environment variables outrank the env file (CI exports ENVIRONMENT=testing etc.),
+    # so clear them to check what .env.example itself provides.
+    for field_name in Settings.model_fields:
+        monkeypatch.delenv(field_name, raising=False)
     example_path = Path(__file__).resolve().parent.parent / ".env.example"
     assert example_path.exists(), ".env.example file must exist in backend directory"
     
