@@ -86,6 +86,13 @@ desktop.ini
 .claude/settings.local.json
 .antigravity/
 
+# ---------- Documentation is local-only (owner rule: docs are never committed) ----------
+# README.md is the single exception: it stays on GitHub as the repo's front page.
+docs/
+PROJECT_STATUS.md
+RUN_GUIDE.txt
+backend/README.md
+
 # ---------- Internal planning, audits & scratch (keep local, not public) ----------
 project_plan/
 GITHUB_UPLOAD_WARNINGS.md
