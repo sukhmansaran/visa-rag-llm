@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 import uuid
 import json
+from contextlib import aclosing
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -14,6 +15,7 @@ from app.services.rag_pipeline import rag_pipeline
 from app.services.guardrails.input_guardrail import input_guardrail
 from app.core.logging_config import PIIRedactor, get_logger, log_audit_event
 from app.core.exceptions import AppException, app_exception_to_http_exception, AIServiceUnavailableError
+from app.services.tracing import TraceRecorder, activate_trace, save_trace
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -30,11 +32,14 @@ async def get_answer_stream(
     
     Returns Server-Sent Events (SSE) for real-time updates.
     Frontend should use EventSource or fetch with streaming.
+    Every request is traced (M0.5); the trace id is in the final "done" event.
     """
-    
+    trace = TraceRecorder("chat.stream", user_id=current_user.id, session_id=message.sessionId, query=message.query)
+
     try:
         # Use provided session_id or create new one
         session_id = message.sessionId if message.sessionId else str(uuid.uuid4())
+        trace.session_id = session_id
         
         # Get chat history from current session (latest 20 messages, chronological order)
         history_result = await db.execute(
@@ -58,7 +63,10 @@ async def get_answer_stream(
         chat_history = db_history
 
         # 1. Deterministic Input Guardrail Check
-        guardrail_result = input_guardrail.evaluate(message.query, chat_history=chat_history)
+        with trace.step("input_guardrail") as step:
+            guardrail_result = input_guardrail.evaluate(message.query, chat_history=chat_history)
+            step.update(allowed=guardrail_result.allowed,
+                        violation=guardrail_result.violation.value if guardrail_result.violation else None)
         if not guardrail_result.allowed:
             refusal_text = guardrail_result.refusal_message or "Request blocked by safety guardrail."
             
@@ -102,11 +110,14 @@ async def get_answer_stream(
                 extra_details={"reason": guardrail_result.reason},
             )
 
+            trace.finish(answer=refusal_text, source="input_guardrail")
+            await save_trace(trace)
+
             async def blocked_stream():
                 yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
                 yield f"data: {json.dumps({'type': 'guardrail_blocked', 'violation': guardrail_result.violation.value if guardrail_result.violation else None, 'reason': guardrail_result.reason})}\n\n"
                 yield f"data: {json.dumps({'type': 'chunk', 'content': refusal_text})}\n\n"
-                yield f"data: {json.dumps({'type': 'done', 'full_response': refusal_text})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'full_response': refusal_text, 'trace_id': trace.trace_id})}\n\n"
 
             return StreamingResponse(
                 blocked_stream(),
@@ -134,7 +145,7 @@ async def get_answer_stream(
         await db.close()  # Release DB connection before the long Ollama stream
         
         # Stream generator via authoritative RAG pipeline
-        async def event_stream():
+        async def _event_stream_body():
             """Generate Server-Sent Events for streaming response via unified RAG pipeline."""
             full_response = ""
             sources = []
@@ -161,7 +172,10 @@ async def get_answer_stream(
                     elif event_type == "done":
                         sources = event.get("sources", [])
                         metrics = event.get("metrics", {})
-                
+
+                trace.finish(answer=full_response, source=metrics.get("source"))
+                metrics["trace_id"] = trace.trace_id
+
                 # Open a fresh DB session to save the assistant message
                 from app.core.database import AsyncSessionLocal
                 async with AsyncSessionLocal() as save_db:
@@ -193,13 +207,27 @@ async def get_answer_stream(
                 yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'sources': sources, 'metrics': metrics})}\n\n"
                 
             except AppException as exc:
+                trace.finish(error=f"{type(exc).__name__}: {exc.message}")
                 http_exc = app_exception_to_http_exception(exc)
                 logger.error(f"AppException in streaming: {exc.message}")
                 yield f"data: {json.dumps({'type': 'error', 'status_code': http_exc.status_code, 'detail': http_exc.detail})}\n\n"
             except Exception as e:
+                trace.finish(error=type(e).__name__)
                 logger.error(f"Error in streaming: {e}", exc_info=True)
                 yield f"data: {json.dumps({'type': 'error', 'message': 'An error occurred while generating the response.'})}\n\n"
-        
+
+        async def event_stream():
+            """Run the stream inside the request's trace and always save the trace, even on disconnect."""
+            with activate_trace(trace):
+                try:
+                    async with aclosing(_event_stream_body()) as body:
+                        async for chunk in body:
+                            yield chunk
+                finally:
+                    if not trace.finished:
+                        trace.finish(error="stream_interrupted")
+                    await save_trace(trace)
+
         return StreamingResponse(
             event_stream(),
             media_type="text/event-stream",
@@ -210,10 +238,14 @@ async def get_answer_stream(
             }
         )
         
-    except (AppException, HTTPException):
+    except (AppException, HTTPException) as exc:
+        trace.finish(error=type(exc).__name__)
+        await save_trace(trace)
         raise
     except Exception as e:
         logger.error(f"Error setting up stream: {e}", exc_info=True)
+        trace.finish(error=type(e).__name__)
+        await save_trace(trace)
         raise HTTPException(status_code=500, detail="Failed to initialize streaming response.")
 
 
@@ -228,11 +260,25 @@ async def get_answer(
 
     Runs rag_pipeline.process_query on the local Ollama model, using the latest 20
     messages of this session as history, and stores both turns with PII redacted.
+    Every request is traced (M0.5); the trace id is returned in metadata.trace_id.
     """
-    
+    trace = TraceRecorder("chat.answer", user_id=current_user.id, session_id=message.sessionId, query=message.query)
+    with activate_trace(trace):
+        try:
+            return await _answer(message, current_user, db, trace)
+        except BaseException as exc:
+            if not trace.finished:
+                trace.finish(error=type(exc).__name__)
+            raise
+        finally:
+            await save_trace(trace)
+
+
+async def _answer(message: ChatMessageSchema, current_user: User, db: AsyncSession, trace: TraceRecorder) -> ChatResponse:
     try:
         # Use provided session_id or create new one
         session_id = message.sessionId if message.sessionId else str(uuid.uuid4())
+        trace.session_id = session_id
         
         # Get chat history ONLY from current session for context (latest 20 messages, chronological order)
         history_result = await db.execute(
@@ -253,7 +299,10 @@ async def get_answer(
         ]
 
         # 1. Deterministic Input Guardrail Check
-        guardrail_result = input_guardrail.evaluate(message.query, chat_history=chat_history)
+        with trace.step("input_guardrail") as step:
+            guardrail_result = input_guardrail.evaluate(message.query, chat_history=chat_history)
+            step.update(allowed=guardrail_result.allowed,
+                        violation=guardrail_result.violation.value if guardrail_result.violation else None)
         if not guardrail_result.allowed:
             refusal_text = guardrail_result.refusal_message or "Request blocked by safety guardrail."
             
@@ -296,6 +345,7 @@ async def get_answer(
                 extra_details={"reason": guardrail_result.reason},
             )
 
+            trace.finish(answer=refusal_text, source="input_guardrail")
             return ChatResponse(
                 advice_text=refusal_text,
                 sources=[],
@@ -308,6 +358,7 @@ async def get_answer(
                     "reason": guardrail_result.reason,
                     "latency_ms": 0,
                     "source": "input_guardrail",
+                    "trace_id": trace.trace_id,
                 },
             )
         
@@ -323,6 +374,8 @@ async def get_answer(
         )
         answer = rag_result["answer"]
         rag_metrics = rag_result["metrics"]
+        trace.finish(answer=answer, source=rag_metrics.get("source"))
+        rag_metrics["trace_id"] = trace.trace_id
         
         # Save user message
         user_msg = ChatMessage(
@@ -377,18 +430,20 @@ async def get_answer(
         )
         
     except AppException as exc:
+        trace.finish(error=f"{type(exc).__name__}: {exc.message}")
         raise app_exception_to_http_exception(exc)
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error generating answer: {e}", exc_info=True)
+        trace.finish(error=type(e).__name__)
         return ChatResponse(
             advice_text="I'm sorry, I encountered an error processing your request. Please try again.",
             sources=[],
             confidence=0.0,
             escalate=True,
             session_id=session_id,
-            metadata={"error_code": "INTERNAL_PROCESSING_ERROR"},
+            metadata={"error_code": "INTERNAL_PROCESSING_ERROR", "trace_id": trace.trace_id},
         )
 
 

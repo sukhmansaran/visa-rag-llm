@@ -7,6 +7,7 @@ from app.models.user_document import UserDocument
 from app.models.source import Source
 from app.models.vector_chunk import VectorChunk
 from app.models.chat_message import ChatMessage
+from app.models.request_trace import RequestTrace
 from app.models.change import Change
 from app.models.payment import Payment
 from app.models.review import Review
@@ -48,6 +49,7 @@ __all__ = [
     "Source",
     "VectorChunk",
     "ChatMessage",
+    "RequestTrace",
     "Change",
     "Payment",
     "Review",

@@ -81,6 +81,14 @@ class LLMCallStats:
 _call_log: contextvars.ContextVar[Optional[List[LLMCallStats]]] = contextvars.ContextVar("llm_call_log", default=None)
 
 
+def _reset(var: contextvars.ContextVar, token: contextvars.Token) -> None:
+    """Reset a context variable; tolerate a generator being finalised from a different context."""
+    try:
+        var.reset(token)
+    except ValueError:
+        pass
+
+
 @contextmanager
 def record_llm_calls() -> Iterator[List[LLMCallStats]]:
     """Collect the stats of every model call made inside this block (on this task / request)."""
@@ -89,7 +97,7 @@ def record_llm_calls() -> Iterator[List[LLMCallStats]]:
     try:
         yield calls
     finally:
-        _call_log.reset(token)
+        _reset(_call_log, token)
 
 
 _request_scope: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar("llm_request_scope", default=None)
@@ -107,7 +115,7 @@ def llm_request_scope() -> Iterator[Dict[str, Any]]:
     try:
         yield scope
     finally:
-        _request_scope.reset(token)
+        _reset(_request_scope, token)
 
 
 # Failures a different model can fix. Not: Ollama unreachable (same server) or queue timeout (busy, not broken).
@@ -135,6 +143,8 @@ class OllamaService:
         self.model = settings.OLLAMA_MODEL
         self._clients: LoopLocal[httpx.AsyncClient] = LoopLocal()
         self._slots: LoopLocal[asyncio.Semaphore] = LoopLocal()
+        self._digests: Dict[str, Optional[str]] = {}
+        self._digests_checked_at = 0.0
 
     def _get_client(self) -> httpx.AsyncClient:
         """Get or create the HTTP client for the running event loop."""
@@ -148,6 +158,22 @@ class OllamaService:
         client = self._clients.pop()
         if client is not None and not client.is_closed:
             await client.aclose()
+
+    async def model_digest(self, model: str) -> Optional[str]:
+        """
+        The exact build of `model` that Ollama serves (its manifest digest), for traces (principle 11).
+        Cached; re-read at most once a minute so a re-pulled model shows up. None if Ollama is unreachable.
+        """
+        name = model if ":" in model else f"{model}:latest"
+        if name not in self._digests or time.time() - self._digests_checked_at > 60:
+            try:
+                response = await self._get_client().get(f"{self.base_url}/api/tags", timeout=httpx.Timeout(2.0))
+                self._digests = {m.get("name"): m.get("digest") for m in response.json().get("models", [])}
+            except Exception:
+                self._digests = {}
+            self._digests_checked_at = time.time()
+        digest = self._digests.get(name)
+        return digest[:80] if digest else None
 
     # ------------------------------------------------------------------ routing & queueing
 

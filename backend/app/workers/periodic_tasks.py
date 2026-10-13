@@ -201,3 +201,16 @@ def send_weekly_digest_task():
             }
     
     return run_async(run())
+
+
+@celery_app.task
+def purge_old_traces_task():
+    """Delete request traces older than TRACE_RETENTION_DAYS (M0.5, retention decision D7)."""
+    from app.services.tracing import purge_old_traces
+
+    async def run():
+        async with AsyncSessionLocal() as db:
+            deleted = await purge_old_traces(db)
+        return {"deleted": deleted}
+
+    return run_async(run())

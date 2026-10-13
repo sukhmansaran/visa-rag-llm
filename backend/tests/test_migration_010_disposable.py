@@ -230,8 +230,8 @@ class TestMilestoneB21MigrationAndModels(unittest.TestCase):
         recreate_disposable_db()
         cfg = get_alembic_config(DISP_URL)
 
-        # Apply migrations up to head (010)
-        command.upgrade(cfg, "head")
+        # Apply migrations up to 010 (this suite tests 010; later revisions have their own tests)
+        command.upgrade(cfg, "010")
 
         engine = create_engine(DISP_URL, poolclass=pool.NullPool)
         with engine.connect() as conn:
@@ -652,7 +652,7 @@ class TestMilestoneB21MigrationAndModels(unittest.TestCase):
         """
         recreate_disposable_db()
         cfg = get_alembic_config(DISP_URL)
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, "010")
 
         engine = create_engine(DISP_URL, poolclass=pool.NullPool)
         with engine.connect() as conn:
@@ -721,8 +721,8 @@ class TestMilestoneB21MigrationAndModels(unittest.TestCase):
                 self.assertNotIn("document_changes", tbls)
                 self.assertNotIn("migration_unmapped_records", tbls)
 
-            # D. Re-upgrade cleanly from 008 back to head (010)
-            command.upgrade(cfg, "head")
+            # D. Re-upgrade cleanly from 008 back to 010
+            command.upgrade(cfg, "010")
             with engine.connect() as conn:
                 rev_head = conn.execute(text("SELECT version_num FROM alembic_version;")).scalar()
                 self.assertEqual(rev_head, "010")
