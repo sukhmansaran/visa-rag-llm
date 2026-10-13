@@ -24,6 +24,12 @@ class GuardrailResult:
     intent: Optional[str] = None
 
 
+def _keyword_regex(keyword: str) -> re.Pattern:
+    """Whole-word pattern in which hyphens and spaces are interchangeable ("off-campus" = "off campus" = "offcampus")."""
+    pattern = re.escape(keyword).replace(r"\-", r"[\s-]*").replace(r"\ ", r"[\s-]*")
+    return re.compile(rf"\b{pattern}\b", re.IGNORECASE)
+
+
 class InputGuardrail:
     """
     Deterministic input guardrail protecting the Visa RAG LLM.
@@ -131,12 +137,18 @@ class InputGuardrail:
         "calgary", "edmonton", "waterloo", "mcgill", "ubc",
         "canada", "canadian", "immigration", "immigrate", "immigrant", "student visa",
         "off-campus", "on-campus", "work off-campus", "working hours", "master's", "masters",
+        # Study and student life, as students actually ask (previously missing: "Can I work off campus
+        # while studying?" was refused as off-topic). Avoid ambiguous words such as "course" ("of course").
+        "student", "students", "international student", "international students",
+        "study", "studies", "studying", "program of study", "college", "colleges", "university",
+        "universities", "campus", "school", "semester", "academic", "graduate", "graduates",
+        "graduation", "graduating", "co-op", "internship", "scheduled break", "winter break", "summer break",
+        # Work rules for students and permit holders
+        "part-time", "full-time", "hours per week", "hours a week", "work hours", "work while studying",
     }
 
     # Precompile word-boundary patterns for whitelist keywords to prevent substring misclassifications
-    VISA_WHITELIST_REGEXES = [
-        re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE) for kw in VISA_WHITELIST_KEYWORDS
-    ]
+    VISA_WHITELIST_REGEXES = [_keyword_regex(kw) for kw in VISA_WHITELIST_KEYWORDS]
 
     # --- 4a. HARMFUL / ILLEGAL REQUEST PATTERNS (deny regardless of visa keywords) ---
     # Patterns target *intent to do* the harmful thing, not the vocabulary: questions like
