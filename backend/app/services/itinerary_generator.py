@@ -1,5 +1,6 @@
 """AI-powered travel itinerary generator using Gemini."""
 
+import logging
 from typing import Dict, List, Any
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,8 @@ from sqlalchemy import select
 from app.services.llm import llm_service
 from app.models.tourist_destination import TouristDestination
 from app.models.travel_cost import TravelCost
+
+logger = logging.getLogger(__name__)
 
 
 async def generate_itinerary(
@@ -178,15 +181,15 @@ Return ONLY valid JSON, no additional text."""
         }
         
     except json.JSONDecodeError as e:
-        print(f"[ITINERARY] JSON parse error: {e}")
-        print(f"[ITINERARY] Response: {response[:500]}")
+        logger.warning(f"[ITINERARY] JSON parse error: {e}")
+        logger.debug(f"[ITINERARY] Response: {response[:500]}")
         return {
             "success": False,
             "error": "Failed to parse AI response",
             "raw_response": response[:500]
         }
     except Exception as e:
-        print(f"[ITINERARY] Error generating itinerary: {e}")
+        logger.warning(f"[ITINERARY] Error generating itinerary: {e}")
         return {
             "success": False,
             "error": str(e)

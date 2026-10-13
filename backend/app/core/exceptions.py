@@ -128,6 +128,13 @@ class PaymentError(AppException):
         super().__init__(message, "PAYMENT_ERROR", details)
 
 
+class AIServiceUnavailableError(AppException):
+    """Raised when the AI inference / LLM provider is offline, unreachable, or timed out."""
+    
+    def __init__(self, message: str = "AI service temporarily unavailable. Please retry in a few moments.", details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, "AI_SERVICE_UNAVAILABLE", details or {})
+
+
 
 def app_exception_to_http_exception(exc: AppException) -> HTTPException:
     """Convert application exception to HTTP exception."""
@@ -140,6 +147,7 @@ def app_exception_to_http_exception(exc: AppException) -> HTTPException:
         "RESOURCE_ALREADY_EXISTS": status.HTTP_409_CONFLICT,
         "RATE_LIMIT_ERROR": status.HTTP_429_TOO_MANY_REQUESTS,
         "EXTERNAL_SERVICE_ERROR": status.HTTP_502_BAD_GATEWAY,
+        "AI_SERVICE_UNAVAILABLE": status.HTTP_503_SERVICE_UNAVAILABLE,
         "INGESTION_ERROR": status.HTTP_500_INTERNAL_SERVER_ERROR,
         "PAYMENT_ERROR": status.HTTP_402_PAYMENT_REQUIRED,
         "CONFIGURATION_ERROR": status.HTTP_500_INTERNAL_SERVER_ERROR,

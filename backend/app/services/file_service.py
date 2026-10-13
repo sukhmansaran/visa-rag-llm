@@ -520,6 +520,39 @@ class FileService:
         timestamp = datetime.utcnow().strftime('%Y%m%d')
         return f"{user_id}/{timestamp}_{unique_id}.{ext}"
 
+    @staticmethod
+    async def _read_file_safe(file: UploadFile, max_size: int = MAX_FILE_SIZE) -> bytes:
+        """
+        Stream upload content in 64KB chunks up to max_size.
+        Aborts early if cumulative bytes exceed max_size to prevent memory exhaustion DoS.
+        """
+        if getattr(file, "size", None) and file.size > max_size:
+            max_mb = max_size // (1024 * 1024)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"File too large. Maximum allowed size is {max_mb}MB."
+            )
+
+        chunks = []
+        total_size = 0
+        chunk_size = 64 * 1024
+
+        while True:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break
+            total_size += len(chunk)
+            if total_size > max_size:
+                max_mb = max_size // (1024 * 1024)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"File too large. Maximum allowed size is {max_mb}MB."
+                )
+            chunks.append(chunk)
+
+        await file.seek(0)
+        return b"".join(chunks)
+
     async def upload_file(
         self,
         file: UploadFile,
@@ -529,8 +562,7 @@ class FileService:
         """
         Validate, scrub metadata, and securely store an uploaded file.
         """
-        raw_content = await file.read()
-        await file.seek(0)
+        raw_content = await self._read_file_safe(file)
 
         # 1. Full security validation (magic bytes, size, extensions)
         val_meta = self.validator.validate_file_upload(
@@ -585,8 +617,7 @@ class FileService:
         """
         Extract text from an uploaded document (PDF) and sanitize prompt injections.
         """
-        raw_content = await file.read()
-        await file.seek(0)
+        raw_content = await self._read_file_safe(file)
 
         # Validate as document
         val_meta = self.validator.validate_file_upload(

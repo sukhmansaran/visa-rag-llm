@@ -7,6 +7,7 @@ import asyncio
 from typing import Dict, Optional
 from datetime import datetime
 from playwright.async_api import async_playwright, Browser, Page
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 import pypdf
 import httpx
 from bs4 import BeautifulSoup
@@ -15,13 +16,38 @@ import html2text
 from app.core.config import settings
 
 
+# Page furniture that is never policy content (canada.ca uses these ids/classes; generic ones too)
+_BOILERPLATE_SELECTORS = [
+    "script", "style", "noscript", "nav", "header", "footer", "aside", "form", "button",
+    "#wb-dtmd", ".pagedetails", "#wb-info", ".gc-subway", "#wb-lng", ".wb-share", "[role=navigation]",
+]
+
+
+def extract_main_text(raw_html: str, converter: "html2text.HTML2Text") -> str:
+    """
+    Convert a page to clean text, keeping only its main content.
+
+    Official pages wrap the policy text in <main>; menus, "Report a problem", share widgets and
+    "Date modified" blocks would otherwise end up in every chunk and pollute retrieval.
+    """
+    soup = BeautifulSoup(raw_html, "html.parser")
+    root = soup.find("main") or soup.find(attrs={"role": "main"}) or soup.body or soup
+    for selector in _BOILERPLATE_SELECTORS:
+        for element in root.select(selector):
+            element.decompose()
+    text = converter.handle(str(root))
+    return "\n".join(line.strip() for line in text.split("\n") if line.strip())
+
+
 class WebScraper:
     """Scrapes web content using Playwright and handles PDFs."""
     
     def __init__(self):
         self.browser: Optional[Browser] = None
         self.html_converter = html2text.HTML2Text()
-        self.html_converter.ignore_links = False
+        # Keep link text, drop URLs: URLs are noise in embedded chunks
+        self.html_converter.ignore_links = True
+        self.html_converter.body_width = 0  # don't hard-wrap lines
         self.html_converter.ignore_images = True
         
     async def __aenter__(self):
@@ -62,22 +88,19 @@ class WebScraper:
             if wait_for_selector:
                 await page.wait_for_selector(wait_for_selector, timeout=10000)
             else:
-                # Default wait for network idle
-                await page.wait_for_load_state("networkidle", timeout=10000)
+                # Best-effort wait for network idle. Sites with analytics/long-polling never go idle;
+                # the DOM is already loaded, so a timeout here must not discard the page.
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=10000)
+                except PlaywrightTimeoutError:
+                    pass
             
             # Get page content
             raw_html = await page.content()
             title = await page.title()
             
-            # Extract text content
-            soup = BeautifulSoup(raw_html, 'html.parser')
-            
-            # Remove script, style, and nav elements
-            for element in soup(['script', 'style', 'nav', 'header', 'footer']):
-                element.decompose()
-            
-            # Convert to markdown-ish text
-            extracted_text = self.html_converter.handle(str(soup))
+            # Extract text content from the page's main content area only
+            extracted_text = extract_main_text(raw_html, self.html_converter)
             
             # Clean up whitespace
             extracted_text = '\n'.join(line.strip() for line in extracted_text.split('\n') if line.strip())

@@ -8,6 +8,7 @@ Deterministic, multi-layered filter detecting:
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 from app.core.visa_constitution import ViolationType, REFUSAL_MESSAGES
@@ -29,11 +30,46 @@ class InputGuardrail:
     Zero LLM overhead: executes purely via compiled patterns and heuristics.
     """
 
+    # Override verbs aimed at the assistant's own configuration. Strong targets ("instructions",
+    # "guidelines", "system prompt") are injection-shaped with any filler; weak targets ("rules",
+    # "restrictions") are common in real visa questions ("ignore the 20 hour rule?"), so they only
+    # count when qualified as the assistant's own ("your rules", "the previous rules", "all rules").
+    _OVERRIDE_VERBS = r"(?:ignore|disregard|forget|override|skip|drop|abandon|discard)"
+    _STRONG_TARGETS = (
+        r"(?:instructions?|prompts?|guidelines?|guardrails?|programming|system\s+prompt|"
+        r"safety\s+(?:rules|filters?)|directives?)"
+    )
+    _WEAK_TARGETS = r"(?:rules?|directions?|restrictions?|policies|policy|constraints?|filters?)"
+    _OWNERSHIP_QUALIFIERS = (
+        r"(?:your|all|any|every|previous|prior|above|earlier|initial|original|preceding|"
+        r"these|those|system|safety|built-in|default)"
+    )
+
     # --- 1. PROMPT INJECTION & JAILBREAK PATTERNS ---
     INJECTION_PATTERNS = [
-        re.compile(r"ignore\s+(all\s+)?(your\s+)?(previous|above|prior|initial)\s+(instructions|directions|prompts|rules)", re.IGNORECASE),
-        re.compile(r"disregard\s+(all\s+)?(your\s+)?(previous|above|prior|initial)\s+(instructions|directions|rules|prompts)", re.IGNORECASE),
-        re.compile(r"you\s+are\s+now\s+(an?\s+)?(unrestricted|different|dan|freed|unfiltered)", re.IGNORECASE),
+        # Override verb + up to 4 filler words ("the", "earlier", "all of your", ...) + strong target
+        re.compile(rf"\b{_OVERRIDE_VERBS}\s+(?:[\w']+\s+){{0,4}}?{_STRONG_TARGETS}\b", re.IGNORECASE),
+        # Override verb + qualifier marking it as the assistant's own + weak target
+        re.compile(rf"\b{_OVERRIDE_VERBS}\s+(?:[\w']+\s+){{0,2}}?{_OWNERSHIP_QUALIFIERS}\s+(?:[\w']+\s+){{0,2}}?{_WEAK_TARGETS}\b", re.IGNORECASE),
+        # Persona / role overrides
+        re.compile(r"\byou\s+are\s+(?:now\s+)?(?:an?\s+|my\s+)?(?:pirate|unrestricted|unfiltered|uncensored|jailbroken|evil|different\s+(?:ai|assistant|bot)|dan)\b", re.IGNORECASE),
+        re.compile(r"\byou\s+are\s+now\s+(?:an?|my)\s+\w+", re.IGNORECASE),
+        re.compile(r"\b(?:respond|reply|answer|talk|speak|write)\s+(?:only\s+)?(?:as|like)\s+(?:an?\s+)?(?:pirate|unfiltered|unrestricted|evil|different)\b", re.IGNORECASE),
+        re.compile(r"\b(?:pretend|imagine)\s+(?:that\s+)?(?:you\s+are|you're|to\s+be)\b", re.IGNORECASE),
+        re.compile(r"\b(?:role-?play|roleplay)\s+as\b", re.IGNORECASE),
+        re.compile(r"\bfrom\s+now\s+on,?\s+(?:you|answer|respond|reply|act|behave)\b", re.IGNORECASE),
+        re.compile(r"\b(?:do\s+anything\s+now|developer\s+mode|jailbreak|jail-?broken)\b", re.IGNORECASE),
+        # Prompt / configuration exfiltration
+        re.compile(r"\b(?:tell|give|show|print|reveal|repeat|output|leak|share|display|dump|recite)\s+(?:me\s+)?(?:\w+\s+){0,3}?(?:system\s+prompt|hidden\s+(?:prompt|setup|instructions|text|context)|initial\s+(?:prompt|instructions)|setup\s+text|internal\s+(?:instructions|rules|configuration)|original\s+(?:prompt|instructions))\b", re.IGNORECASE),
+        re.compile(r"\b(?:your|the)\s+(?:system\s+prompt|hidden\s+(?:prompt|setup|instructions)|instructions)\s+verbatim\b", re.IGNORECASE),
+        re.compile(r"\bverbatim\b.{0,40}\b(?:prompt|instructions|setup)\b", re.IGNORECASE),
+        # Common non-English override phrasings (es, fr, pt, de, it, hi-Latn, pa-Latn)
+        re.compile(r"\bignora(?:r)?\s+(?:\w+\s+){0,3}?(?:instrucciones|reglas|indicaciones)\b", re.IGNORECASE),
+        re.compile(r"\bignore[rz]?\s+(?:\w+\s+){0,3}?(?:consignes|instructions|règles)\b", re.IGNORECASE),
+        re.compile(r"\bignor[ea]\s+(?:\w+\s+){0,3}?(?:instruções|instrucoes|regras|istruzioni|regole)\b", re.IGNORECASE),
+        re.compile(r"\bignorier(?:e|en)?\s+(?:\w+\s+){0,3}?(?:anweisungen|regeln|vorgaben)\b", re.IGNORECASE),
+        re.compile(r"\b(?:pichhle|pichle|purane|sabhi|saare)\s+(?:\w+\s+){0,2}?(?:nirdesh|niyam|instructions)\s+(?:ko\s+)?(?:bhool|ignore|nazarandaz)", re.IGNORECASE),
+        re.compile(r"\byou\s+are\s+now\s+(an?\s+)?(unrestricted|different|dan|freed|unfiltered)", re.IGNORECASE),
         re.compile(r"act\s+as\s+(an?\s+)?(unrestricted|jailbroken|developer\s+mode|dan|hacker|python\s+coder)", re.IGNORECASE),
         re.compile(r"reveal\s+(your\s+|the\s+)?(system\s+prompt|instructions|initial\s+prompt|hidden\s+prompt)", re.IGNORECASE),
         re.compile(r"what\s+(is|are)\s+your\s+(system\s+prompt|internal\s+instructions|secret\s+instructions)", re.IGNORECASE),
@@ -67,6 +103,17 @@ class InputGuardrail:
         "visa", "visas", "study permit", "work permit", "visitor visa", "tourist visa",
         "visitor record", "super visa", "pgwp", "post-grad", "post-graduation work permit",
         "co-op work permit", "express entry", "crs", "pnp", "provincial nominee",
+        # Economic immigration programs & selection (previously missing: "How many points do I need on the
+        # Federal Skilled Worker selection grid?" was refused as off-topic)
+        "federal skilled worker", "federal skilled workers", "fsw", "fswp", "federal skilled trades", "fst",
+        "skilled worker", "skilled workers", "skilled trades", "canadian experience class", "cec",
+        "selection grid", "selection factors", "comprehensive ranking system", "crs score",
+        "invitation to apply", "ita", "eca", "educational credential assessment", "settlement funds",
+        "atlantic immigration program", "rural community immigration", "caregiver", "start-up visa",
+        # Family, status & documents
+        "sponsor", "sponsorship", "spousal sponsorship", "family sponsorship", "open work permit",
+        "spousal open work permit", "sowp", "bowp", "eta", "trv", "copr", "pr card", "prtd",
+        "biometric", "study visa", "temporary resident", "temporary residence", "refugee", "asylum",
         "ircc", "cic", "pr", "permanent residence", "permanent resident", "citizenship",
         "passport", "biometrics", "medical exam", "police clearance", "police certificate",
         "proof of funds", "funds", "bank statement", "gic", "tuition", "cad",
@@ -91,9 +138,47 @@ class InputGuardrail:
         re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE) for kw in VISA_WHITELIST_KEYWORDS
     ]
 
-    # --- 4. EXPLICIT OUT-OF-SCOPE PATTERNS ---
+    # --- 4a. HARMFUL / ILLEGAL REQUEST PATTERNS (deny regardless of visa keywords) ---
+    # Patterns target *intent to do* the harmful thing, not the vocabulary: questions like
+    # "is this a fake job offer?" or "what happens if I lie to an officer?" must stay answerable.
+    _FRAUD_DOCS = (
+        r"(?:bank\s+statements?|passports?|ielts|celpip|pte|toefl|(?:test\s+)?scores?|certificates?|"
+        r"degrees?|diplomas?|transcripts?|marksheets?|documents?|loas?|letters?\s+of\s+acceptance|"
+        r"job\s+offers?|lmias?|payslips?|pay\s+stubs?|employment\s+letters?|visas?|stamps?|"
+        r"police\s+(?:certificates?|clearances?)|medical\s+(?:reports?|exams?)|proof\s+of\s+funds|"
+        r"gic|sponsorship\s+letters?|invitation\s+letters?)"
+    )
+    _INTENT_LEAD = r"(?:how\s+(?:do|can|could|should)\s+i|how\s+to|help\s+me|can\s+you|i\s+(?:want|need)\s+to|best\s+way\s+to|teach\s+me\s+to)"
+
+    HARMFUL_PATTERNS = [
+        # Weapons, explosives, violence
+        re.compile(r"\b(?:make|build|create|assemble|construct|manufacture)\s+(?:a\s+|an\s+|some\s+)?(?:bomb|explosives?|ied|grenade|molotov|detonator|pipe\s+bomb|nerve\s+agent|bioweapon|chemical\s+weapon|ghost\s+gun|silencer)\b", re.IGNORECASE),
+        re.compile(r"\b(?:bomb|ied|grenade|molotov)s?\b.{0,40}\b(?:recipe|instructions|step[s-]?\s*by[s-]?\s*step)\b", re.IGNORECASE),
+        re.compile(r"\b(?:how\s+(?:do|can)\s+i|how\s+to)\s+(?:kill|poison|hurt|kidnap|stab|shoot|strangle)\s+(?:a\s+|my\s+|some(?:one|body)|him|her|them|people|person|\w+'s)", re.IGNORECASE),
+        # Drugs synthesis / trafficking
+        re.compile(r"\b(?:synthesi[sz]e|cook|make|produce|smuggle|traffic)\s+(?:\w+\s+){0,2}?(?:meth|methamphetamine|cocaine|heroin|fentanyl|lsd|mdma)\b", re.IGNORECASE),
+        # Self-harm methods
+        re.compile(r"\b(?:how\s+to|ways\s+to|best\s+way\s+to)\s+(?:kill\s+myself|commit\s+suicide|end\s+my\s+life|self[-\s]?harm)\b", re.IGNORECASE),
+        # Document fraud: fraud verbs used as actions on documents
+        re.compile(rf"\b(?:forge|falsify|fabricate|photoshop|tamper\s+with|doctor\s+(?:my|the|a))\s+(?:\w+\s+){{0,3}}?{_FRAUD_DOCS}\b", re.IGNORECASE),
+        # Document fraud: obtaining/creating fake documents
+        re.compile(rf"\b(?:make|create|generate|produce|print|get|buy|purchase|order|need|want)\s+(?:me\s+)?(?:a\s+|an\s+|some\s+)?(?:fake|forged|false|fraudulent|counterfeit|bogus)\s+(?:\w+\s+){{0,2}}?{_FRAUD_DOCS}\b", re.IGNORECASE),
+        re.compile(r"\b(?:where|how)\s+(?:can|do)\s+i\s+(?:buy|get|purchase|order)\s+(?:a\s+|an\s+)?(?:fake|forged|fraudulent|counterfeit)\b", re.IGNORECASE),
+        # Marriage fraud: arranging it (not asking whether a genuine marriage looks suspicious)
+        re.compile(r"\b(?:arrange|set\s+up|plan|organi[sz]e|enter\s+(?:into\s+)?|do|have|find\s+someone\s+for)\s+(?:a\s+)?(?:fake|sham|fraudulent|contract|paper)\s+marriage\b", re.IGNORECASE),
+        # Deceiving officials / illegal entry: intent-led only
+        re.compile(rf"\b{_INTENT_LEAD}\s+(?:\w+\s+){{0,2}}?(?:lie|lying|deceive|trick|fool|mislead|hide\s+\w+\s+from|conceal\s+\w+\s+from)\s+(?:\w+\s+){{0,3}}?(?:ircc|visa\s+officers?|officers?|immigration|cbsa|border)", re.IGNORECASE),
+        re.compile(rf"\b{_INTENT_LEAD}\s+(?:\w+\s+){{0,2}}?(?:sneak|smuggle)\s+(?:\w+\s+){{0,3}}?(?:into|across|over)\b", re.IGNORECASE),
+        re.compile(rf"\b{_INTENT_LEAD}\s+cross\s+(?:the\s+)?border\s+(?:illegally|without\s+(?:a\s+)?(?:visa|papers|documents|being\s+caught))", re.IGNORECASE),
+        re.compile(r"\bwithout\s+getting\s+caught\b", re.IGNORECASE),
+    ]
+
+    # --- 4b. EXPLICIT OUT-OF-SCOPE PATTERNS ---
     OUT_OF_SCOPE_PATTERNS = [
-        re.compile(r"\b(write|compose|generate)\s+(a\s+)?(poem|song|rap|story|novel|joke|riddle|essay\s+about\s+love)\b", re.IGNORECASE),
+        re.compile(r"\b(write|compose|generate|create|make)(\s+me)?\s+(a\s+|an\s+|some\s+)?(poem|poetry|song|lyrics|rap|story|short\s+story|novel|joke|riddle|haiku|limerick|essay\s+about\s+love)\b", re.IGNORECASE),
+        re.compile(r"\btranslate\s+(?:this|the\s+following|my)\s+(?:poem|song|lyrics|story|joke)\b", re.IGNORECASE),
+        re.compile(r"\b(?:what\s+is|what's)\s+the\s+capital\s+of\b", re.IGNORECASE),
+        re.compile(r"\bwho\s+(?:is|was)\s+the\s+(?:president|prime\s+minister|king|queen|ceo)\s+of\s+(?!canada\b)", re.IGNORECASE),
         re.compile(r"\b(who\s+won|score\s+of|match\s+between)\s+(the\s+)?(cricket|football|nba|ipl|fifa|world\s+cup|match|game)\b", re.IGNORECASE),
         re.compile(r"\b(recipe\s+for|how\s+to\s+cook|ingredients\s+for|make\s+a\s+cake|bake)\b", re.IGNORECASE),
         re.compile(r"\b(weather\s+in|forecast\s+for|is\s+it\s+raining)\b", re.IGNORECASE),
@@ -104,12 +189,28 @@ class InputGuardrail:
         re.compile(r"\b(recommend\s+(a\s+)?movie|best\s+video\s+games|play\s+a\s+game)\b", re.IGNORECASE),
     ]
 
+    @staticmethod
+    def normalize_input(text: str) -> str:
+        """
+        Normalize input text via NFKC and strip zero-width and invisible control characters (R10).
+        Defuses fullwidth evasions, homoglyphs, and zero-width delimiter breakouts.
+        """
+        if not text:
+            return ""
+        # 1. NFKC Unicode canonical decomposition & composition (e.g. fullwidth latin -> standard ascii)
+        normalized = unicodedata.normalize("NFKC", text)
+        # 2. Strip zero-width & invisible formatting characters:
+        # \u200B (ZWSP), \u200C (ZWNJ), \u200D (ZWJ), \uFEFF (BOM), \u200E, \u200F (LTR/RTL marks), \u00AD (soft hyphen)
+        normalized = re.sub(r"[\u200B-\u200D\u200E\u200F\uFEFF\u00AD]", "", normalized)
+        # 3. Normalize whitespace
+        return " ".join(normalized.split())
+
     def evaluate(self, query: str, chat_history: Optional[List[Dict[str, Any]]] = None) -> GuardrailResult:
         """
         Evaluate an incoming user query against all guardrails.
         Returns GuardrailResult indicating whether the query is permitted.
         """
-        query_stripped = query.strip()
+        query_stripped = self.normalize_input(query)
         if not query_stripped:
             return GuardrailResult(
                 allowed=False,
@@ -126,6 +227,16 @@ class InputGuardrail:
                     violation=ViolationType.PROMPT_INJECTION,
                     refusal_message=REFUSAL_MESSAGES[ViolationType.PROMPT_INJECTION],
                     reason=f"Matched prompt injection pattern: {pattern.pattern}",
+                )
+
+        # 1b. Harmful / illegal request check (deny wins over any domain keyword)
+        for pattern in self.HARMFUL_PATTERNS:
+            if pattern.search(query_stripped):
+                return GuardrailResult(
+                    allowed=False,
+                    violation=ViolationType.MALICIOUS_REQUEST,
+                    refusal_message=REFUSAL_MESSAGES[ViolationType.MALICIOUS_REQUEST],
+                    reason="Harmful or illegal request detected",
                 )
 
         # 2. Code Request Check

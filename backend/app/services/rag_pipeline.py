@@ -4,6 +4,7 @@ Executes the authoritative flow: Guardrail -> Intent -> Cache -> Rule Engine -> 
 Enforces the RAG-Only policy: Zero ungrounded hallucinations, zero raw LLM fallbacks.
 """
 
+import logging
 import time
 import json
 import re
@@ -11,41 +12,37 @@ from typing import Dict, Any, Optional, List, AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
+from app.core.config import settings
 from app.services.intent_parser import intent_parser
-from app.services.rule_engine import rule_engine
+from app.services.rule_engine import rule_engine, get_rules_content_hash
 from app.services.cache_service import intent_cache
 from app.services.retrieval import retrieval_service
+from app.services.vector_store import vector_store
 from app.services.llm import llm_service
 from app.services.guardrails.input_guardrail import input_guardrail
 from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
 
+logger = logging.getLogger(__name__)
 
-GROUNDED_SYSTEM_PROMPT = """You are Pendu, an expert, professional Canadian visa and immigration assistant.
-Your mission is to genuinely help applicants understand if they are eligible for Canadian visas, study permits, and immigration programs based on official regulations.
 
-Instructions:
-1. Conversational Continuity & Tone:
-   - Communicate in a natural, articulate, professional, and helpful tone.
-   - You are in an ONGOING conversation with the applicant.
-   - If this is the first question of a new conversation (no prior dialogue), a brief, polite greeting is appropriate.
-   - If this is a FOLLOW-UP or continuing conversation, DO NOT repeat introductory greetings like "Hello there", "Thank you for reaching out", "Thank you for considering Canada", etc. Instead, transition naturally and dive straight into answering the user's specific question.
-   - Reference or connect to previously discussed background details (such as their tech/software experience, degree, or visa path) whenever relevant.
-2. Grounding & Regulatory Accuracy:
-   - Base all facts, numbers, TEER levels, NOC classifications, work hour limits, and financial thresholds ONLY on the verified official context provided below.
-   - Any statutory calculations (such as Proof of Funds dollar amounts, CLB benchmark levels, or PAL mandates) provided in the official context are IMMUTABLE. Preserve all figures and calculations accurately; your role is to explain them in clear, helpful, conversational prose.
-   - Do NOT invent or speculate on policies not found in the verified context.
+GROUNDED_SYSTEM_PROMPT = """You are Pendu, a Canadian immigration information assistant (IRCC study permits, work, visitor visas, Express Entry).
 
-   - If specific details (such as exact CRS cutoff scores or individual background checks) require external assessment, advise the user transparently.
-3. Structure & Formatting:
-   - Provide a well-structured response with clear paragraphs and organized bullet points for specific criteria or document checklists.
-   - Always put each bullet point on its own separate new line (never combine multiple bullet points into a single continuous sentence or line).
-   - Use clean Markdown list items (e.g. "- **Title**: Description" or "1. **Title**: Description").
-   - Cite official IRCC guidelines as your authority.
-4. Compliance & Guardrails:
-   - Never provide absolute legal guarantees (e.g. do not say "your visa is 100% guaranteed").
-   - Maintain strict fidelity to official Canadian immigration regulations."""
+GROUNDING RULES (most important):
+- Answer ONLY with facts stated in the OFFICIAL STATUTORY FACTS and RETRIEVED DATA below. Do not use outside knowledge.
+- After each factual statement, cite the source it came from using the number shown in RETRIEVED DATA, e.g. [Source 1] or [Source 2]. Never write a literal "[Source N]" and never cite a source that does not say it.
+- If the sources do not cover part of the question, say plainly: "The official sources I have don't cover <that part>," and suggest checking canada.ca or a licensed RCIC. Do not fill the gap with general advice or guesses.
+- Copy numbers, dates, hour limits, dollar amounts and CLB levels exactly as written in the sources.
+- Statutory calculations in OFFICIAL STATUTORY FACTS are binding: repeat them exactly; only explain them.
+- Do not add requirements, steps, documents or exceptions that the sources do not state.
+
+STYLE:
+- Be direct and concise: answer the question first, then the key conditions. Aim for under 200 words.
+- Use short paragraphs or "- " bullet points, one per line. No greetings on follow-up questions.
+
+COMPLIANCE:
+- Never promise or imply guaranteed approval. Decisions are made by IRCC officers."""
 
 def normalize_markdown_output(text: str) -> str:
     """Ensure bullet points and headers generated on a single line are cleanly spaced with newlines."""
@@ -66,6 +63,15 @@ UNVERIFIED_EVIDENCE_REFUSAL = (
 
 class RAGPipeline:
     """Orchestrates the authoritative unified RAG flow for both synchronous and streaming chat."""
+
+    @staticmethod
+    async def _answer_cache_version() -> str:
+        """Cache-key version: rules file hash + knowledge-base fingerprint (B16)."""
+        try:
+            kb_version = await vector_store.content_version()
+        except Exception:
+            kb_version = "kb-unknown"
+        return f"{get_rules_content_hash()}:{kb_version}"
 
     async def process_query(
         self,
@@ -107,19 +113,29 @@ class RAGPipeline:
 
         # 2. Extract Authoritative Rule Engine Facts
         rule_facts = rule_engine.try_rule_answer(intent, country, visa_type, query=query)
+        guarantee_fact = rule_engine.approval_guarantee_fact(query)
+        if guarantee_fact:
+            rule_facts = (rule_facts + "\n\n" + guarantee_fact) if rule_facts else guarantee_fact
+        rules_version = await self._answer_cache_version()
 
-        # 3. Cache Check (query-specific; bypass for multi-turn sessions)
-        cached_response = intent_cache.get(country, visa_type, intent, query=query)
+        # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)
+        cached_response = intent_cache.get(country, visa_type, intent, version=rules_version, query=query)
         if cached_response and not chat_history:
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             metrics["source"] = "cache"
             return {"answer": cached_response, "sources": [], "metrics": metrics, "guardrail_blocked": False}
 
-
-        # 4. Structured Database & Tourist Context Check
+        # 4. Structured Database & Tourist Context Check (A8 fallback session)
         tourist_context = ""
         if db:
             tourist_context = await get_tourist_context(db, query, country)
+        else:
+            try:
+                from app.core.database import AsyncSessionLocal
+                async with AsyncSessionLocal() as session:
+                    tourist_context = await get_tourist_context(session, query, country)
+            except Exception as e:
+                logger.warning(f"[RAG_PIPELINE] Tourist context DB error: {e}")
 
         # 5. Strict Vector Retrieval
         chunks = []
@@ -129,10 +145,10 @@ class RAGPipeline:
                 country=country,
                 visa_type=visa_type,
                 intent=intent,
-                top_k=3,
+                top_k=settings.RAG_TOP_K,
             )
         except Exception as e:
-            print(f"[RAG_PIPELINE] Retrieval error: {e}")
+            logger.warning(f"[RAG_PIPELINE] Retrieval error: {e}")
             chunks = []
         metrics["retrieval_chunks"] = len(chunks)
 
@@ -145,7 +161,21 @@ class RAGPipeline:
         sources: List[Dict[str, Any]] = []
 
         if has_evidence and conf_eval["level"] != "INSUFFICIENT":
-            sources = self.build_citations(chunks, tourist_context)
+            context_blocks = []
+            if rule_facts:
+                context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
+
+            if chunks:
+                chunk_context = retrieval_service.prepare_context(chunks, max_context_length=settings.RAG_CONTEXT_CHARS)
+                if chunk_context:
+                    context_blocks.append(chunk_context)
+
+            if tourist_context:
+                context_blocks.append(f"Official Tourist Database Records:\n{tourist_context}")
+
+            # Only cite sources that were actually included in the LLM context (A11)
+            cited_chunks = [c for c in chunks if c.get("_included_in_context")] if chunks else []
+            sources = self.build_citations(cited_chunks, tourist_context)
             if rule_facts and not sources:
                 sources = [{
                     "url": "https://www.canada.ca/en/immigration-refugees-citizenship.html",
@@ -153,15 +183,6 @@ class RAGPipeline:
                     "snippet": rule_facts[:200],
                     "scraped_at": "",
                 }]
-
-            context_blocks = []
-            if rule_facts:
-                context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
-
-            if chunks:
-                context_blocks.append(retrieval_service.prepare_context(chunks, max_context_length=1500))
-            if tourist_context:
-                context_blocks.append(f"Official Tourist Database Records:\n{tourist_context}")
 
             combined_context = "\n\n".join(context_blocks)
             user_prompt = f"User Question: {query}"
@@ -172,8 +193,8 @@ class RAGPipeline:
                 user_prompt=user_prompt,
                 context=combined_context,
                 chat_history=chat_history,
-                temperature=0.2,  # Natural fluent phrasing with strict factual fidelity
-                max_tokens=700,
+                temperature=settings.RAG_TEMPERATURE,  # 0 = deterministic; same question, same answer
+                max_tokens=settings.RAG_MAX_ANSWER_TOKENS,
             )
             answer = normalize_markdown_output(answer)
 
@@ -203,7 +224,7 @@ class RAGPipeline:
 
             # Cache grounded result only if validation passed without leakage
             if val_res.is_valid:
-                intent_cache.set(country, visa_type, intent, answer, query=query)
+                intent_cache.set(country, visa_type, intent, answer, version=rules_version, query=query)
         else:
             # RAG-ONLY POLICY: Reject answer when no verified sources or confidence is INSUFFICIENT
             answer = UNVERIFIED_EVIDENCE_REFUSAL
@@ -275,7 +296,7 @@ class RAGPipeline:
 
         # 1. Similarity score
         if chunks:
-            similarity = max(c.get("score", 0.70) for c in chunks)
+            similarity = max(float(c.get("score") or 0.0) for c in chunks)  # missing score = no evidence (A13)
         else:
             similarity = 0.85 if has_tourist_db else 0.0
 
@@ -299,7 +320,7 @@ class RAGPipeline:
 
         # 3. Freshness weight
         if chunks:
-            freshness_weights = [c.get("freshness_weight", 0.7) for c in chunks]
+            freshness_weights = [float(c.get("freshness_weight") or 0.5) for c in chunks]  # unknown age = neutral-low (A13)
             freshness = sum(freshness_weights) / len(freshness_weights)
         else:
             freshness = 1.0  # Current live database
@@ -366,9 +387,13 @@ class RAGPipeline:
 
         # 2. Extract Authoritative Rule Engine Facts
         rule_facts = rule_engine.try_rule_answer(intent, country, visa_type, query=query)
+        guarantee_fact = rule_engine.approval_guarantee_fact(query)
+        if guarantee_fact:
+            rule_facts = (rule_facts + "\n\n" + guarantee_fact) if rule_facts else guarantee_fact
+        rules_version = await self._answer_cache_version()
 
-        # 3. Cache Check (query-specific; bypass for multi-turn sessions)
-        cached_response = intent_cache.get(country, visa_type, intent, query=query)
+        # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)
+        cached_response = intent_cache.get(country, visa_type, intent, version=rules_version, query=query)
         if cached_response and not chat_history:
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             metrics["source"] = "cache"
@@ -376,11 +401,17 @@ class RAGPipeline:
             yield {"type": "done", "full_response": cached_response, "sources": [], "metrics": metrics}
             return
 
-
-        # 4. Structured Database & Tourist Context Check
+        # 4. Structured Database & Tourist Context Check (A8 fallback session)
         tourist_context = ""
         if db:
             tourist_context = await get_tourist_context(db, query, country)
+        else:
+            try:
+                from app.core.database import AsyncSessionLocal
+                async with AsyncSessionLocal() as session:
+                    tourist_context = await get_tourist_context(session, query, country)
+            except Exception as e:
+                logger.warning(f"[RAG_PIPELINE] Tourist context DB error in stream: {e}")
 
         # 5. Strict Vector Retrieval
         chunks = []
@@ -390,10 +421,10 @@ class RAGPipeline:
                 country=country,
                 visa_type=visa_type,
                 intent=intent,
-                top_k=3,
+                top_k=settings.RAG_TOP_K,
             )
         except Exception as e:
-            print(f"[RAG_PIPELINE] Retrieval error: {e}")
+            logger.warning(f"[RAG_PIPELINE] Retrieval error: {e}")
             chunks = []
         metrics["retrieval_chunks"] = len(chunks)
 
@@ -404,7 +435,21 @@ class RAGPipeline:
         metrics["confidence_level"] = conf_eval["level"]
 
         if has_evidence and conf_eval["level"] != "INSUFFICIENT":
-            sources = self.build_citations(chunks, tourist_context)
+            context_blocks = []
+            if rule_facts:
+                context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
+
+            if chunks:
+                chunk_context = retrieval_service.prepare_context(chunks, max_context_length=settings.RAG_CONTEXT_CHARS)
+                if chunk_context:
+                    context_blocks.append(chunk_context)
+
+            if tourist_context:
+                context_blocks.append(f"Official Tourist Database Records:\n{tourist_context}")
+
+            # Only cite sources that were actually included in the LLM context (A11)
+            cited_chunks = [c for c in chunks if c.get("_included_in_context")] if chunks else []
+            sources = self.build_citations(cited_chunks, tourist_context)
             if rule_facts and not sources:
                 sources = [{
                     "url": "https://www.canada.ca/en/immigration-refugees-citizenship.html",
@@ -412,15 +457,6 @@ class RAGPipeline:
                     "snippet": rule_facts[:200],
                     "scraped_at": "",
                 }]
-
-            context_blocks = []
-            if rule_facts:
-                context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
-
-            if chunks:
-                context_blocks.append(retrieval_service.prepare_context(chunks, max_context_length=1500))
-            if tourist_context:
-                context_blocks.append(f"Official Tourist Database Records:\n{tourist_context}")
 
             combined_context = "\n\n".join(context_blocks)
             user_prompt = f"User Question: {query}"
@@ -436,8 +472,8 @@ class RAGPipeline:
                     user_prompt=user_prompt,
                     context=combined_context,
                     chat_history=chat_history,
-                    temperature=0.2,  # Natural fluent phrasing with strict factual fidelity
-                    max_tokens=700,
+                    temperature=settings.RAG_TEMPERATURE,  # 0 = deterministic; same question, same answer
+                    max_tokens=settings.RAG_MAX_ANSWER_TOKENS,
                 )
 
                 async for event in output_guardrail.validate_stream(raw_token_stream):
@@ -477,9 +513,9 @@ class RAGPipeline:
                         metrics["risk_categories"] = []
 
                     normalized_full = normalize_markdown_output(full_response)
-                    intent_cache.set(country, visa_type, intent, normalized_full, query=query)
+                    intent_cache.set(country, visa_type, intent, normalized_full, version=rules_version, query=query)
             except Exception as e:
-                print(f"[RAG_PIPELINE] LLM stream error: {e}")
+                logger.error(f"[RAG_PIPELINE] LLM stream error: {e}", exc_info=True)
                 err_msg = "An error occurred while generating the answer from official sources."
                 full_response += err_msg
                 yield {"type": "chunk", "content": err_msg}

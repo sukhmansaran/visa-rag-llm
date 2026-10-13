@@ -4,6 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, User, GraduationCap, Clock, Wallet, FileText } from "lucide-react";
 import Link from "next/link";
+import { getAuthHeaders, isAuthenticated } from "@/lib/auth";
+
+/** Convert a GPA on the user's chosen scale to the backend's 10-point scale; null if invalid. */
+function toTenPointGpa(raw: string, scale: string): number | null {
+    const value = parseFloat(raw);
+    if (Number.isNaN(value) || value < 0) return null;
+    const max = scale === "4" ? 4 : scale === "100" ? 100 : 10;
+    if (value > max) return null;
+    return Math.round((value / max) * 10 * 100) / 100;
+}
 
 export default function OnboardingPage() {
     const router = useRouter();
@@ -11,8 +21,9 @@ export default function OnboardingPage() {
     const [formData, setFormData] = useState({
         country: "Canada",
         degree: "Masters",
-        gpa: "3.5",
-        gapYears: "0",
+        gpa: "8.0",
+        gpaScale: "10",
+        workExperienceYears: "0",
         sponsor: "Parents",
         exams: "IELTS 7.5",
     });
@@ -21,12 +32,36 @@ export default function OnboardingPage() {
         e.preventDefault();
         setLoading(true);
 
-        // In a real app, we would POST to /api/v1/profile
-        // For this demo, we'll store in local storage and navigate to summary
         localStorage.setItem("user_profile", JSON.stringify(formData));
 
-        // Simulate API delay
-        await new Promise(resolve => setTimeout(resolve, 800));
+        if (isAuthenticated()) {
+            try {
+                const gpaScale10 = toTenPointGpa(formData.gpa, formData.gpaScale);
+                const workYears = parseInt(formData.workExperienceYears, 10);
+
+                const res = await fetch("/api/v1/profile", {
+                    method: "PUT",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        education_level: formData.degree.toLowerCase(),
+                        gpa: gpaScale10,
+                        work_experience: Number.isNaN(workYears) ? null : Math.max(0, workYears),
+                        target_countries: { primary: formData.country },
+                        test_scores: { language: formData.exams, sponsor: formData.sponsor },
+                    }),
+                });
+
+                if (res.ok) {
+                    const profileData = await res.json();
+                    if (profileData?.id) {
+                        sessionStorage.setItem("user_profile_id", String(profileData.id));
+                    }
+                }
+            } catch (err) {
+                console.warn("Could not sync profile to backend API:", err);
+            }
+        }
+
         router.push("/visa-risk");
     };
 
@@ -84,28 +119,42 @@ export default function OnboardingPage() {
                     {/* GPA */}
                     <div className="space-y-2">
                         <label className="text-sm font-medium flex items-center gap-2">
-                            <FileText className="h-4 w-4" /> Last GPA / Percentage
+                            <FileText className="h-4 w-4" /> GPA / Percentage
                         </label>
-                        <input
-                            type="text"
-                            className="w-full p-2 rounded-md border border-slate-200 dark:bg-slate-900 dark:border-slate-800"
-                            placeholder="e.g. 3.8 / 4.0"
-                            value={formData.gpa}
-                            onChange={(e) => setFormData({ ...formData, gpa: e.target.value })}
-                        />
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                inputMode="decimal"
+                                className="w-full p-2 rounded-md border border-slate-200 dark:bg-slate-900 dark:border-slate-800"
+                                placeholder={formData.gpaScale === "100" ? "e.g. 78" : formData.gpaScale === "4" ? "e.g. 3.4" : "e.g. 8.5"}
+                                value={formData.gpa}
+                                onChange={(e) => setFormData({ ...formData, gpa: e.target.value })}
+                            />
+                            <select
+                                aria-label="GPA scale"
+                                className="p-2 rounded-md border border-slate-200 dark:bg-slate-900 dark:border-slate-800"
+                                value={formData.gpaScale}
+                                onChange={(e) => setFormData({ ...formData, gpaScale: e.target.value })}
+                            >
+                                <option value="10">out of 10</option>
+                                <option value="4">out of 4</option>
+                                <option value="100">percent</option>
+                            </select>
+                        </div>
                     </div>
 
-                    {/* Gap Years */}
+                    {/* Work experience (the backend's gap-year assessment is based on this) */}
                     <div className="space-y-2">
                         <label className="text-sm font-medium flex items-center gap-2">
-                            <Clock className="h-4 w-4" /> Study Gap (Years)
+                            <Clock className="h-4 w-4" /> Work Experience Since Graduation (Years)
                         </label>
                         <input
                             type="number"
+                            min={0}
                             className="w-full p-2 rounded-md border border-slate-200 dark:bg-slate-900 dark:border-slate-800"
                             placeholder="0"
-                            value={formData.gapYears}
-                            onChange={(e) => setFormData({ ...formData, gapYears: e.target.value })}
+                            value={formData.workExperienceYears}
+                            onChange={(e) => setFormData({ ...formData, workExperienceYears: e.target.value })}
                         />
                     </div>
 

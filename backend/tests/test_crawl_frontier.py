@@ -16,6 +16,13 @@ async def redis_client():
     await client.aclose()
 
 
+@pytest.fixture(autouse=True)
+def allow_test_domains(monkeypatch):
+    """Test domains are opted in via settings; they are not in the production allowlist."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "CRAWLER_EXTRA_ALLOWED_DOMAINS", ["example.com", "*.example.com"])
+
+
 @pytest_asyncio.fixture
 async def frontier(redis_client):
     """Create a CrawlFrontier with fake Redis."""

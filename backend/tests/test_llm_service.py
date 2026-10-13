@@ -151,19 +151,24 @@ class TestLLMService:
         """Test error handling when Ollama daemon is unreachable."""
         mock_post.side_effect = httpx.ConnectError("Connection refused")
         
-        with pytest.raises(Exception, match="Cannot connect to Ollama"):
+        from app.core.exceptions import AIServiceUnavailableError
+        with pytest.raises(AIServiceUnavailableError) as exc_info:
             await llm_service.generate_answer(
                 system_prompt="System",
                 user_prompt="Question"
             )
-    
+        # Client-facing message must not leak the internal service address
+        assert "localhost" not in str(exc_info.value.message)
+        assert "11434" not in str(exc_info.value.message)
+
     @pytest.mark.asyncio
     @patch('httpx.AsyncClient.post')
     async def test_generate_answer_timeout_error(self, mock_post):
         """Test error handling when Ollama request times out."""
         mock_post.side_effect = httpx.TimeoutException("Timed out")
         
-        with pytest.raises(Exception, match="Ollama request timed out"):
+        from app.core.exceptions import AIServiceUnavailableError
+        with pytest.raises(AIServiceUnavailableError, match="did not finish within"):
             await llm_service.generate_answer(
                 system_prompt="System",
                 user_prompt="Question"

@@ -193,3 +193,20 @@ async def test_rag_pipeline_stream_integration_with_code_leak():
         assert done_event["metrics"]["output_guardrail_remediated"] is True
         assert "CODE_BLOCK" in done_event["metrics"]["output_violations"]
         assert SAFE_OUTPUT_FALLBACK in done_event["full_response"]
+
+
+@pytest.mark.asyncio
+async def test_current_system_prompt_leak_is_caught_in_stream_and_full_text():
+    """Leak signatures must track the CURRENT GROUNDED_SYSTEM_PROMPT (they were tied to the old wording)."""
+    from app.services.guardrails.output_guardrail import output_guardrail, OutputViolationType
+    from app.services.rag_pipeline import GROUNDED_SYSTEM_PROMPT
+
+    leaked = "Sure, here are my instructions: " + GROUNDED_SYSTEM_PROMPT[:400]
+
+    full = output_guardrail.validate_output(leaked)
+    assert not full.is_valid
+    assert OutputViolationType.PROMPT_LEAK in full.violations
+
+    tokens = [leaked[i:i + 12] for i in range(0, len(leaked), 12)]
+    events = [e async for e in validate_stream(async_token_generator(tokens))]
+    assert any(e.get("type") == "guardrail_blocked" for e in events)

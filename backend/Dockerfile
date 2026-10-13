@@ -1,29 +1,36 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
-# Set working directory
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# System dependencies (postgresql-client for pg_isready / psql)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers (without --with-deps to avoid package conflicts)
-RUN playwright install chromium
+# Chromium plus the OS libraries it needs (without --with-deps it fails to launch on slim images)
+RUN playwright install --with-deps chromium
 
-# Copy application code
-COPY . .
+# Unprivileged runtime user
+RUN useradd --create-home --uid 10001 appuser
 
-# Create chroma data directory
-RUN mkdir -p /app/chroma_data
+# Application code (.dockerignore keeps .env, .venv, data and tests out of the image)
+COPY --chown=appuser:appuser . .
 
-# Expose port
+RUN mkdir -p /app/chroma_data /app/uploads /app/logs \
+    && chown -R appuser:appuser /app/chroma_data /app/uploads /app/logs
+
+USER appuser
+
 EXPOSE 8000
 
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

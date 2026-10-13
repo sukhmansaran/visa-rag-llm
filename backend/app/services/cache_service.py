@@ -3,22 +3,25 @@ Aggressive caching service for RAG responses.
 Caches at the intent + query fingerprint level to minimize redundant LLM calls.
 """
 
+import logging
 from typing import Optional, Dict
 import time
 import hashlib
+
+logger = logging.getLogger(__name__)
 
 
 class IntentCache:
     """Cache for grounded RAG responses keyed by query fingerprint and intent."""
     
-    def __init__(self, ttl_seconds: int = 86400 * 7):  # Default 7 days
+    def __init__(self, ttl_seconds: int = 86400):  # 24h backstop; keys are also versioned by rules + KB content (B16)
         self._cache: Dict[str, Dict] = {}
         self.ttl = ttl_seconds
     
     def clear(self) -> None:
         """Clear all entries from the in-memory cache."""
         self._cache.clear()
-        print("[CACHE] Cleared all cache entries.")
+        logger.debug("[CACHE] Cleared all cache entries.")
 
     def get(
         self, 
@@ -35,10 +38,10 @@ class IntentCache:
         if entry:
             # Check TTL
             if time.time() - entry['timestamp'] < self.ttl:
-                print(f"[CACHE] Hit for key: {key}")
+                logger.debug(f"[CACHE] Hit for key: {key}")
                 return entry['response']
             else:
-                print(f"[CACHE] Expired key: {key}")
+                logger.debug(f"[CACHE] Expired key: {key}")
                 del self._cache[key]
         
         return None
@@ -54,7 +57,7 @@ class IntentCache:
     ):
         """Store a response in the cache."""
         key = self._build_key(country, visa_type, intent, version, query)
-        print(f"[CACHE] Storing response for key: {key}")
+        logger.debug(f"[CACHE] Storing response for key: {key}")
         self._cache[key] = {
             'response': response,
             'timestamp': time.time()

@@ -34,16 +34,17 @@ async def throttle(redis_client):
 
 @pytest_asyncio.fixture
 async def worker(throttle):
-    """Create a CrawlerWorker with no proxy pool."""
-    return CrawlerWorker(throttle_manager=throttle)
+    """Create a CrawlerWorker with no proxy pool (SSRF enforcement disabled for mocked tests)."""
+    return CrawlerWorker(throttle_manager=throttle, enforce_ssrf=False)
 
 
 @pytest_asyncio.fixture
 async def worker_with_proxies(throttle):
-    """Create a CrawlerWorker with a proxy pool."""
+    """Create a CrawlerWorker with a proxy pool (SSRF enforcement disabled for mocked tests)."""
     return CrawlerWorker(
         throttle_manager=throttle,
         proxy_pool=["http://proxy1:8080", "http://proxy2:8080", "http://proxy3:8080"],
+        enforce_ssrf=False,
     )
 
 

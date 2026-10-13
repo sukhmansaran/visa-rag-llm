@@ -4,15 +4,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional, Dict, Any
+import logging
 from pydantic import BaseModel, Field
 
 from app.core.database import get_db
+from app.core.security import get_current_admin_user, get_current_user
 from app.models.tourist_destination import TouristDestination
 from app.api.v1.tourist_visa_schemas import (
     TouristDestinationResponse,
     TouristDestinationCreate,
 )
 from app.services.itinerary_generator import generate_itinerary
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/travel", tags=["travel"])
 
@@ -69,7 +73,8 @@ async def get_destinations_by_city(
 @router.post("/destinations", response_model=TouristDestinationResponse)
 async def create_destination(
     destination: TouristDestinationCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    admin_user = Depends(get_current_admin_user),
 ):
     """Create a tourist destination (admin only)."""
     db_destination = TouristDestination(**destination.model_dump())
@@ -83,7 +88,8 @@ async def create_destination(
 @router.post("/itinerary/generate", response_model=Dict[str, Any])
 async def generate_travel_itinerary(
     request: ItineraryGenerateRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user),
 ):
     """Generate AI-powered travel itinerary."""
     try:
@@ -97,4 +103,5 @@ async def generate_travel_itinerary(
         )
         return itinerary
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate itinerary: {str(e)}")
+        logger.error("Failed to generate itinerary: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to generate itinerary. Please try again later.")

@@ -5,8 +5,38 @@ for prompt grounding in the RAG pipeline.
 """
 
 from typing import Optional, Dict, Any, List
+from datetime import date
 from dataclasses import dataclass
+from pathlib import Path
+import os
 import re
+import yaml
+import hashlib
+
+# Path to authoritative regulatory data file
+RULES_DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "ircc_rules.yaml"
+
+
+def load_ircc_rules() -> Dict[str, Any]:
+    """Load authoritative IRCC rules from versioned YAML file."""
+    if RULES_DATA_PATH.exists():
+        try:
+            with open(RULES_DATA_PATH, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {}
+    return {}
+
+
+def get_rules_content_hash() -> str:
+    """Return SHA256 fingerprint of ircc_rules.yaml for deterministic cache invalidation (B16)."""
+    if RULES_DATA_PATH.exists():
+        try:
+            content = RULES_DATA_PATH.read_bytes()
+            return hashlib.sha256(content).hexdigest()[:12]
+        except Exception:
+            pass
+    return "v2026.1"
 
 
 # ==============================================================================
@@ -24,6 +54,10 @@ class ProofOfFundsResult:
     total_required_cad: float
     breakdown: str
     authority_statute: str
+    effective_from: str = ""
+    last_verified: str = ""
+    source_url: str = ""
+    schedule_verified: bool = True
 
 
 @dataclass
@@ -58,18 +92,32 @@ class RuleEngine:
     for Canadian immigration law and IRCC statutory criteria.
     """
 
-    # Official IRCC Proof of Living Expenses Table (Outside Quebec, 2024–2026 Statutory Guideline)
-    # 75% of low-income cut-off (LICO) benchmark
-    POF_STATUTORY_TABLE = {
-        1: 20635,
-        2: 25690,
-        3: 31583,
-        4: 38346,
-        5: 43492,
-        6: 49051,
-        7: 54611,
-    }
-    POF_ADDITIONAL_PERSON_CAD = 5559  # For each family member beyond 7
+    def __init__(self):
+        self.rules_data = load_ircc_rules()
+
+    # Proof-of-funds amounts live ONLY in app/data/ircc_rules.yaml (dated schedules verified against
+    # canada.ca). Hardcoding them here previously let the code drift from the data file.
+    LEGACY_SCHEDULE_YEAR_DATES = {"2024": date(2024, 6, 1), "2025": date(2025, 6, 1), "2026": date(2026, 9, 1)}
+
+    def _pof_section(self) -> Dict[str, Any]:
+        section = self.rules_data.get("proof_of_funds") or {}
+        if not section.get("schedules"):
+            raise RuntimeError("ircc_rules.yaml is missing proof_of_funds.schedules")
+        return section
+
+    def get_pof_schedule(self, application_date: Optional[date] = None) -> Dict[str, Any]:
+        """Return the proof-of-funds schedule in force on `application_date` (default: today)."""
+        on = application_date or date.today()
+        schedules = self._pof_section()["schedules"]
+        for schedule in schedules:
+            start = date.fromisoformat(str(schedule["effective_from"]))
+            end = schedule.get("effective_to")
+            if start <= on and (end is None or on <= date.fromisoformat(str(end))):
+                return schedule
+        return schedules[-1]  # earlier than any known schedule: oldest available
+
+    def current_single_applicant_funds(self) -> int:
+        return int(self.get_pof_schedule()["rates_by_family_size"][1])
 
     # IELTS General to CLB conversion thresholds (minimum score required for level)
     IELTS_GENERAL_CLB_MAP = {
@@ -93,6 +141,8 @@ class RuleEngine:
         tuition_cad: float = 0.0,
         transport_cad: float = 0.0,
         in_quebec: bool = False,
+        schedule_year: Optional[str] = None,
+        application_date: Optional[date] = None,
     ) -> ProofOfFundsResult:
         """
         Deterministically calculate mandatory IRCC Proof of Funds for study permit applicants.
@@ -100,26 +150,41 @@ class RuleEngine:
         Args:
             family_members_count: Total individuals (applicant + accompanying family members)
             tuition_cad: First year tuition fee in CAD
-            transport_cad: Estimated round-trip travel funds in CAD (default 0 or standard estimate)
-            in_quebec: True if studying in Quebec (Quebec uses separate MIDI schedules)
+            transport_cad: Estimated round-trip travel funds in CAD
+            in_quebec: True if studying in Quebec
+            schedule_year: Deprecated; use application_date. Kept for backward compatibility.
+            application_date: Date the application is submitted (default: today). Selects the schedule.
         """
+        if application_date is None and schedule_year:
+            application_date = self.LEGACY_SCHEDULE_YEAR_DATES.get(str(schedule_year))
+        section = self._pof_section()
         count = max(1, family_members_count)
 
         if in_quebec:
-            # Quebec living benchmark is set separately under CAQ regulations (~$15,078 for single)
-            base_living = 15078
-            add_living = max(0, count - 1) * 5645
+            quebec = section.get("quebec_guidelines", {})
+            base_living = int(quebec["single_applicant_cad"])
+            add_living = max(0, count - 1) * int(quebec["additional_person_cad"])
             living_total = base_living + add_living
             statute = "Ministère de l'Immigration, de la Francisation et de l'Intégration (MIFI) Quebec Guidelines"
+            effective_from = ""
+            source_url = quebec["source_url"]
+            schedule_verified = bool(quebec.get("verified", False))
         else:
-            if count in self.POF_STATUTORY_TABLE:
-                living_total = self.POF_STATUTORY_TABLE[count]
+            schedule = self.get_pof_schedule(application_date)
+            table = {int(k): int(v) for k, v in schedule["rates_by_family_size"].items()}
+            add_rate = int(schedule["additional_family_member_cad"])
+            effective_from = str(schedule["effective_from"])
+            statute = f"IRCC Study Permit Financial Support Guidelines (75% LICO; schedule effective {effective_from})"
+            schedule_verified = bool(schedule.get("verified", False))
+
+            if count in table:
+                living_total = table[count]
             else:
-                living_total = self.POF_STATUTORY_TABLE[7] + ((count - 7) * self.POF_ADDITIONAL_PERSON_CAD)
-            
-            base_living = self.POF_STATUTORY_TABLE[1]
+                living_total = table[7] + ((count - 7) * add_rate)
+
+            base_living = table[1]
             add_living = living_total - base_living
-            statute = "IRCC Study Permit Financial Guidelines (75% LICO Benchmark, in effect 2024–2026)"
+            source_url = section["source_url"]
 
         total_required = float(living_total) + float(tuition_cad) + float(transport_cad)
 
@@ -144,6 +209,10 @@ class RuleEngine:
             total_required_cad=total_required,
             breakdown=breakdown,
             authority_statute=statute,
+            effective_from=effective_from,
+            last_verified=str(section.get("last_verified", "")),
+            source_url=source_url,
+            schedule_verified=schedule_verified,
         )
 
     def convert_to_clb(
@@ -222,6 +291,8 @@ class RuleEngine:
         is_extension: bool = False,
         is_minor: bool = False,
         in_canada: bool = False,
+        public_dli: Optional[bool] = None,
+        application_date: Optional[date] = None,
     ) -> PALEvaluationResult:
         """
         Deterministically evaluate if an applicant requires a Provincial Attestation Letter (PAL)
@@ -259,20 +330,45 @@ class RuleEngine:
                 summary="PAL EXEMPT: Short-term programs under 6 months do not require a PAL.",
             )
 
-        # Rule 4: Master's and Doctoral (PhD) degree programs
-        # Note: Under January 2024 policy, Master's and PhD degrees were initially exempt.
-        # Under subsequent 2025/2026 cap revisions, IRCC allocated a dedicated quota, but students still need to check provincial distribution.
+        # Rule 4: Master's and doctoral degree programs. From 2026-01-01, programs at a PUBLIC DLI are exempt;
+        # private DLIs still require a PAL (canada.ca PAL page, verified 2026-10-12).
         if any(w in level_clean for w in ["master", "phd", "doctorate", "doctoral"]):
+            pal_rules = self.rules_data.get("provincial_attestation_letter", {})
+            exempt_from = date.fromisoformat(str(pal_rules.get("masters_doctoral_public_dli_exempt_from", "2026-01-01")))
+            on = application_date or date.today()
+            if on < exempt_from or public_dli is False:
+                why = (
+                    f"applications submitted before {exempt_from.isoformat()}"
+                    if on < exempt_from else "master's/doctoral programs at a private DLI"
+                )
+                return PALEvaluationResult(
+                    is_required=True,
+                    study_level=study_level,
+                    reason=f"A Provincial Attestation Letter (PAL) is required for {why}.",
+                    exemption_category=None,
+                    summary=f"PAL MANDATORY: required for {why}.",
+                )
+            exemption = "Master's/Doctoral at Public DLI Exemption (from 2026-01-01)"
+            if public_dli:
+                return PALEvaluationResult(
+                    is_required=False,
+                    study_level=study_level,
+                    reason=(
+                        "From January 1, 2026, degree-granting master's and doctoral programs at a public DLI are exempt "
+                        "from the PAL/TAL requirement. You must show proof of the exemption when you apply."
+                    ),
+                    exemption_category=exemption,
+                    summary="PAL EXEMPT: master's/doctoral program at a public DLI (from January 1, 2026). Proof of exemption required.",
+                )
             return PALEvaluationResult(
-                is_required=True,
+                is_required=False,
                 study_level=study_level,
                 reason=(
-                    "Under updated IRCC cap guidelines, graduate degree applicants (Master's and PhD) now require "
-                    "a Provincial Attestation Letter (PAL) from their province, but benefit from reserved allocations "
-                    "recognizing their high economic value and 3-year PGWP eligibility."
+                    "From January 1, 2026, degree-granting master's and doctoral programs at a PUBLIC DLI are exempt from the "
+                    "PAL/TAL requirement (proof of exemption required). Programs at a PRIVATE DLI still require a PAL."
                 ),
-                exemption_category=None,
-                summary="PAL MANDATORY: Master's and PhD applicants require a Provincial Attestation Letter (PAL) under national cap guidelines.",
+                exemption_category=exemption,
+                summary="PAL EXEMPT if your master's/doctoral program is at a public DLI (from January 1, 2026); a private DLI still requires a PAL.",
             )
 
         # Rule 5: Standard Post-Secondary Undergraduate (Bachelor's, Diploma, Certificate)
@@ -292,22 +388,46 @@ class RuleEngine:
     # Query Inspection & Parameter Extraction
     # ==========================================================================
 
+    _NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+                     "eight": 8, "nine": 9, "ten": 10}
+    _NUM = r"(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)"
+
+    @classmethod
+    def _to_int(cls, token: str) -> int:
+        return int(token) if token.isdigit() else cls._NUMBER_WORDS[token]
+
+    @classmethod
+    def extract_family_size(cls, q_lower: str) -> int:
+        """
+        Total people covered by the funds requirement (applicant included).
+
+        1. An explicit total wins: "3 people", "family of four", "4 members in total".
+        2. Otherwise: applicant + spouse/partner (if mentioned) + children (a number like
+           "2 kids", or 1 per singular mention such as "child", "son", "baby").
+        Bare numbers ("for 2 years", "$20,000") are never read as a family size.
+        """
+        explicit = re.search(rf"\b(?:family of|household of)\s+{cls._NUM}\b", q_lower) or \
+            re.search(rf"\b{cls._NUM}\s+(?:people|persons|members|individuals|family members)\b", q_lower)
+        if explicit:
+            return max(1, min(cls._to_int(explicit.group(1)), 20))
+
+        count = 1
+        if re.search(r"\b(spouse|partner|wife|husband|common[- ]law)\b", q_lower):
+            count += 1
+        kids = re.search(rf"\b{cls._NUM}\s+(?:kids?|children|child|dependents?|dependants?|sons?|daughters?)\b", q_lower)
+        if kids:
+            count += cls._to_int(kids.group(1))
+        else:
+            count += len(re.findall(r"\b(child|kid|son|daughter|baby|dependent|dependant)\b", q_lower))
+        return min(count, 20)
+
     def extract_query_financial_params(self, query: str) -> Optional[ProofOfFundsResult]:
         """Detect and calculate financial proof of funds if query mentions family/dependents."""
         q_lower = query.lower()
         if not any(w in q_lower for w in ["fund", "cost", "financial", "living", "money", "cad", "dollar", "expense", "bank"]):
             return None
 
-        # Detect family size or dependents
-        family_count = 1
-        # Check patterns like "family of 3", "3 people", "spouse and child", "with my wife and 2 kids"
-        match_family_num = re.search(r'\b(?:family of|for|with)\s+(\d+)\s*(?:people|persons|members)?\b', q_lower)
-        if match_family_num:
-            family_count = int(match_family_num.group(1))
-        elif any(w in q_lower for w in ["with spouse and child", "wife and kid", "husband and child", "2 dependents", "family of 3"]):
-            family_count = 3
-        elif any(w in q_lower for w in ["with spouse", "with wife", "with husband", "and spouse", "for 2", "for two", "2 people", "two people", "with 1 dependent", "with child"]):
-            family_count = 2
+        family_count = self.extract_family_size(q_lower)
 
         # Detect tuition mentions (e.g., "tuition is 15000", "$20,000 tuition")
         tuition_cad = 0.0
@@ -372,15 +492,45 @@ class RuleEngine:
         elif is_minor:
             study_level = "Primary / Secondary (K-12)"
 
+        public_dli: Optional[bool] = None
+        if re.search(r"\bprivate\b", q_lower):
+            public_dli = False
+        elif re.search(r"\bpublic\b", q_lower):
+            public_dli = True
+
         return self.evaluate_pal_requirement(
             study_level=study_level,
             is_extension=is_extension,
             is_minor=is_minor,
+            public_dli=public_dli,
         )
 
     # ==========================================================================
     # Authoritative Rule Extraction for Context Injection
     # ==========================================================================
+
+    _APPROVAL_GUARANTEE_RE = re.compile(
+        r"\b(guarantee[ds]?|definitely|for sure|certainly|100\s*%|surely)\b.{0,60}\b(approv\w*|accept\w*|get (?:the|my|a) (?:visa|permit))"
+        r"|\b(will|would)\s+(?:i|my|it|the)\b.{0,60}\b(?:definitely|surely|certainly)?\s*(?:be\s+)?(approved|accepted|granted)\b"
+        r"|\b(chances?|odds|likelihood)\b.{0,40}\b(approv\w*|success|refus\w*)"
+        r"|\b(approv\w*|accept\w*)\b.{0,30}\bguarantee[ds]?\b",
+        re.IGNORECASE,
+    )
+
+    def approval_guarantee_fact(self, query: str) -> Optional[str]:
+        """
+        Deterministic compliance fact for questions seeking certainty about approval.
+        Appended to any other rule facts so the model always addresses it (it sometimes skipped it).
+        """
+        if not query or not self._APPROVAL_GUARANTEE_RE.search(query):
+            return None
+        return (
+            "OFFICIAL COMPLIANCE FACT - NO GUARANTEED OUTCOMES:\n"
+            "- No amount of funds or documents guarantees approval. Each application is assessed by an IRCC officer, "
+            "who decides based on the whole application (including ties to home country, purpose of study and admissibility).\n"
+            "- Meeting the minimum requirements makes an applicant eligible to apply; it is not a promise of approval.\n"
+            "- State clearly in the answer that approval cannot be guaranteed."
+        )
 
     def try_rule_answer(
         self, 
@@ -401,11 +551,23 @@ class RuleEngine:
         # 1. Dynamic Proof of Funds (with family/dependents or specific numbers)
         pof_calc = self.extract_query_financial_params(query)
         if pof_calc and (pof_calc.family_count > 1 or pof_calc.tuition_cad > 0):
+            current = self.calculate_proof_of_funds(
+                family_members_count=pof_calc.family_count,
+                tuition_cad=pof_calc.tuition_cad,
+                transport_cad=pof_calc.transport_cad,
+            )
             return (
                 f"OFFICIAL IRCC REGULATORY FACTS — STATUTORY PROOF OF FUNDS CALCULATION:\n"
-                f"- Governing Authority: {pof_calc.authority_statute}\n"
+                f"- Governing Authority: {current.authority_statute} (verified {current.last_verified})\n"
+                f"- Source: {current.source_url}\n"
                 f"- Applicant & Dependents: {pof_calc.family_count} individuals\n"
-                f"{pof_calc.breakdown}\n"
+                f"- Requirement for applications submitted on or after {current.effective_from}: CAD ${current.total_required_cad:,.2f} "
+                f"(Living expenses: CAD ${current.base_living_cad + current.additional_dependents_cad:,.2f}"
+                + (f" [Primary: CAD ${current.base_living_cad:,.2f} + Dependents: CAD ${current.additional_dependents_cad:,.2f}]" if pof_calc.family_count > 1 else "")
+                + (f" + First-Year Tuition: CAD ${pof_calc.tuition_cad:,.2f}" if pof_calc.tuition_cad > 0 else "")
+                + f")\n"
+                f"{current.breakdown}\n"
+                f"- Applications submitted before {current.effective_from} were assessed against an earlier, lower schedule.\n"
                 f"- Acceptable Evidence: Bank statements (last 4 months), GIC certificate, loan approval, or educational funding."
             )
 
@@ -413,7 +575,8 @@ class RuleEngine:
         lang_calc = self.extract_query_language_params(query)
         if lang_calc:
             return (
-                f"OFFICIAL IRCC REGULATORY FACTS — CANADIAN LANGUAGE BENCHMARK (CLB) CONVERSION:\n"
+                f"OFFICIAL IRCC REGULATORY FACTS — CANADIAN LANGUAGE BENCHMARK (CLB) CONVERSION (verified 2026-10-01):\n"
+                f"- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/documents/language-requirements.html\n"
                 f"{lang_calc.summary}\n"
                 f"- Statutory Requirement: FSW requires minimum CLB 7 across all 4 language abilities."
             )
@@ -422,18 +585,37 @@ class RuleEngine:
         pal_calc = self.extract_query_pal_params(query)
         if pal_calc:
             return (
-                f"OFFICIAL IRCC REGULATORY FACTS — PROVINCIAL ATTESTATION LETTER (PAL) MANDATE:\n"
+                f"OFFICIAL IRCC REGULATORY FACTS — PROVINCIAL ATTESTATION LETTER (PAL) MANDATE (as of Jan 1, 2025; verified 2026-10-01):\n"
+                f"- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/provincial-attestation-letter.html\n"
                 f"- Requirement: {'MANDATORY' if pal_calc.is_required else 'EXEMPT'}\n"
                 f"- Category: {pal_calc.study_level}\n"
                 f"- Reason: {pal_calc.reason}\n"
                 f"- Rule Authority: IRCC International Student Intake Cap Operational Guidelines."
             )
 
-        # 4. Express Entry & Skilled Tech / Software Engineer Eligibility
-        if any(w in query_lower for w in ["express entry", "fsw", "federal skilled worker", "pr", "permanent residence"]) or \
-           (any(w in query_lower for w in ["software engineer", "developer", "programmer", "python", "tech"]) and any(w in query_lower for w in ["apply", "eligible", "eligibility", "canada", "entry"])):
+        # 3b. Processing times: never answer with a number (they change regularly); point to IRCC's live tool
+        if re.search(
+            r"\bprocessing\s+times?\b"
+            r"|\bhow\s+long\s+(?:does|will|would)\s+(?:it|my|the|an?)\b.{0,40}\b(?:take|process|approved?|decision)\b",
+            query_lower,
+        ):
+            rule = self.rules_data.get("processing_times", {})
             return (
-                "OFFICIAL IRCC REGULATORY FACTS — EXPRESS ENTRY & STEM TECH PATHWAYS:\n"
+                f"OFFICIAL IRCC REGULATORY FACTS - APPLICATION PROCESSING TIMES (verified {rule.get('last_verified', '')}):\n"
+                f"- Source: {rule.get('source_url', '')}\n"
+                "- Pendu's official sources do NOT include current processing times. "
+                "Do not state or estimate any number of days, weeks or months.\n"
+                "- IRCC processing times change regularly and vary by application type and by the country you apply from.\n"
+                "- The applicant should check the current time for their exact application with IRCC's official tool: "
+                f"{rule.get('source_url', '')}"
+            )
+
+        # 4. Express Entry & Skilled Tech / Software Engineer Eligibility
+        if re.search(r'\b(?:express entry|fsw|federal skilled worker|pr|permanent residence)\b', query_lower) or \
+           (re.search(r'\b(?:software engineer|developer|programmer|python|tech)\b', query_lower) and re.search(r'\b(?:apply|eligible|eligibility|canada|entry)\b', query_lower)):
+            return (
+                "OFFICIAL IRCC REGULATORY FACTS — EXPRESS ENTRY & STEM TECH PATHWAYS (as of June 28, 2023; verified 2026-10-01):\n"
+                "- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/submit-profile/rounds-invitations/category-based-selection.html\n"
                 "- NOC Classification: Software Engineers and Designers are classified under NOC 21231 (TEER 1). "
                 "Software Developers and Programmers are classified under NOC 21232 (TEER 1). Both belong to high-skilled TEER 1.\n"
                 "- Work Experience Requirement: Under the Federal Skilled Worker Program (FSWP), applicants must possess at least "
@@ -455,13 +637,15 @@ class RuleEngine:
             "how many hours", "work while studying", "work on study permit", "student work"
         ]):
             return (
-                "OFFICIAL IRCC REGULATORY FACTS — INTERNATIONAL STUDENT WORK REGULATIONS:\n"
+                "OFFICIAL IRCC REGULATORY FACTS — INTERNATIONAL STUDENT WORK REGULATIONS (as of November 8, 2024; verified 2026-10-12):\n"
+                "- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/work-off-campus.html\n"
                 "- Off-Campus Work Authorization: International students holding a valid Canadian study permit are authorized to work off-campus "
                 "without a separate work permit if they meet all eligibility criteria.\n"
                 "- Allowed Working Hours:\n"
-                "  * Regular Academic Sessions: Eligible full-time students are permitted to work up to 20 hours per week off-campus during regular semesters.\n"
-                "  * Scheduled Academic Breaks: Students are permitted to work full-time (up to 40 hours per week) during regularly scheduled academic breaks "
-                "(such as winter break, summer vacation, and reading weeks) if they hold full-time status before and after the break.\n"
+                "  * Regular Academic Sessions: Eligible full-time students are permitted to work up to 24 hours per week off-campus during regular semesters "
+                "(effective November 8, 2024, increased from the previous 20 hours per week limit).\n"
+                "  * Scheduled Academic Breaks: Students can work unlimited hours off campus during breaks scheduled by their DLI "
+                "(such as winter break, summer vacation, and reading weeks) if they are full-time students before and after the break.\n"
                 "- Mandatory Eligibility Criteria:\n"
                 "  1. Must be enrolled as a full-time student at a Designated Learning Institution (DLI).\n"
                 "  2. Must be enrolled in a post-secondary academic, vocational, or professional training program that is at least 6 months in duration leading to a degree, diploma, or certificate.\n"
@@ -477,13 +661,16 @@ class RuleEngine:
             "graduate from", "master's degree", "masters degree", "university of toronto"
         ]):
             return (
-                "OFFICIAL IRCC REGULATORY FACTS — POST-GRADUATION WORK PERMIT (PGWP):\n"
+                "OFFICIAL IRCC REGULATORY FACTS — POST-GRADUATION WORK PERMIT (PGWP) (as of November 1, 2024; verified 2026-10-01):\n"
+                "- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/after-graduation/eligibility.html\n"
                 "- Program & Institution Eligibility: Graduates from eligible programs at recognized Designated Learning Institutions (DLIs), "
                 "including the University of Toronto, qualify for a Post-Graduation Work Permit (PGWP).\n"
+                "- Language & Field of Study Requirements (effective Nov 1, 2024):\n"
+                "  * Language Benchmark: University degree graduates (Bachelor's, Master's, PhD) must demonstrate minimum CLB 7 in English or French. College diploma graduates must demonstrate minimum CLB 5.\n"
+                "  * Field of Study: University degree graduates remain eligible across all fields of study. College diploma graduates must have completed a program in a designated labour shortage field (STEM, healthcare, agriculture, trade, transport).\n"
                 "- Duration of the PGWP:\n"
-                "  * Programs 2 years or longer: Automatically eligible for a full 3-year PGWP.\n"
-                "  * Master's Degree Special Policy: Under updated IRCC regulations, graduates of Master's degree programs are eligible for a 3-year PGWP "
-                "even if their program duration was between 8 months and 2 years, acknowledging that master's graduates are high-demand candidates.\n"
+                "  * Programs 2 years or longer: Eligible for a full 3-year PGWP.\n"
+                "  * Master's Degree Special Policy: Under IRCC regulations, graduates of Master's degree programs of 8 months or longer qualify for a full 3-year PGWP, acknowledging that master's graduates are high-demand candidates.\n"
                 "  * For a 2-year Master's degree at University of Toronto: The applicant qualifies for the maximum 3-year PGWP.\n"
                 "- Nature of Work Permit: The PGWP is an open work permit. It does not require a Labour Market Impact Assessment (LMIA) or a specific job offer, "
                 "and allows the holder to work for any eligible Canadian employer in any location.\n"
@@ -495,14 +682,17 @@ class RuleEngine:
         # 7. Canada Student Visa Financial Requirements (Default / General)
         if any(w in query_lower for w in ["financial", "funds", "cost", "bank", "gic", "tuition", "living expense", "money", "fee", "sds"]) or \
            (country == "canada" and visa_type == "student" and intent == "financial"):
+            section = self._pof_section()
+            schedule = self.get_pof_schedule()
+            single = int(schedule["rates_by_family_size"][1])
             return (
-                "OFFICIAL IRCC REGULATORY FACTS — STUDY PERMIT FINANCIAL REQUIREMENTS:\n"
-                "- Cost of Living Requirement: The minimum proof of funds requirement for living expenses is CAD $20,635 per year for a single applicant studying in any Canadian province outside Quebec. "
-                "(This threshold was updated by IRCC in 2024 to reflect realistic cost of living benchmarks).\n"
-                "- First-Year Tuition: In addition to the CAD $20,635 living expenses, the applicant must demonstrate sufficient accessible funds to pay the entire first year of tuition fees.\n"
+                f"OFFICIAL IRCC REGULATORY FACTS — STUDY PERMIT FINANCIAL REQUIREMENTS (schedule effective {schedule['effective_from']}; verified {section.get('last_verified', '')}):\n"
+                f"- Source: {section['source_url']}\n"
+                f"- Cost of Living Requirement: The minimum proof of funds for living expenses outside Quebec is CAD ${single:,} per year for a single applicant "
+                f"(applications submitted on or after {schedule['effective_from']}; higher amounts apply for each accompanying family member).\n"
+                f"- First-Year Tuition: In addition to living expenses (CAD ${single:,}), the applicant must demonstrate sufficient accessible funds to pay the entire first year of tuition fees.\n"
                 "- Transportation & Settlement: Must demonstrate sufficient funds to cover round-trip transportation to Canada for the applicant and any accompanying family members.\n"
-                "- Student Direct Stream (SDS) / GIC Requirement: Applicants applying through expedited streams (such as SDS) must purchase a Guaranteed Investment Certificate (GIC) of at least CAD $20,635 "
-                "from a CDIC-insured participating Canadian financial institution and provide proof of full upfront tuition payment for the first year.\n"
+                "- Student Direct Stream (SDS) Status: TERMINATED. IRCC officially closed the Student Direct Stream (SDS) and Nigeria Student Express (NSE) on November 8, 2024. All international students must apply through the standard study permit stream.\n"
                 "- Acceptable Proof of Financial Support: Bank statements for the past 4 months, proof of a Canadian bank account, GIC certificate, loan approval letter, proof of scholarship/funding, or proof of paid tuition and housing.\n"
                 "- Regulatory Authority: IRCC Proof of Financial Support Guidelines for International Students."
             )
@@ -511,12 +701,14 @@ class RuleEngine:
         if any(w in query_lower for w in ["checklist", "document", "pal", "attestation", "loa", "dli", "require", "paperwork"]) or \
            (country == "canada" and visa_type == "student" and intent == "checklist"):
             return (
-                "OFFICIAL IRCC REGULATORY FACTS — CANADIAN STUDY PERMIT CHECKLIST:\n"
+                "OFFICIAL IRCC REGULATORY FACTS — CANADIAN STUDY PERMIT CHECKLIST (verified 2026-10-12):\n"
+                "- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/get-documents.html\n"
                 "- Letter of Acceptance (LOA): Official unconditional acceptance letter from a Designated Learning Institution (DLI) containing the school's DLI number.\n"
                 "- Provincial Attestation Letter (PAL): A mandatory Provincial Attestation Letter (PAL) or Territorial Attestation Letter (TAL) from the provincial government where the school is located "
-                "(required for most post-secondary study permit applications).\n"
+                "(required for most post-secondary study permit applications; from January 1, 2026, master's and doctoral programs at a public DLI are exempt, "
+                "and exempt applicants must show proof of the exemption).\n"
                 "- Valid Travel Document: A valid passport with remaining validity covering the intended duration of studies.\n"
-                "- Proof of Financial Support: Proof of funds covering CAD $20,635 living expenses plus first-year tuition (bank statements, GIC, payment receipts).\n"
+                f"- Proof of Financial Support: Proof of funds covering CAD ${self.current_single_applicant_funds():,} living expenses (single applicant) plus first-year tuition (bank statements, GIC, payment receipts).\n"
                 "- Statement of Purpose (SOP): A clear explanation of academic intent, course choice, post-graduation career goals, and ties ensuring temporary resident compliance.\n"
                 "- Upfront Medical Exam & Police Certificates: If residing in designated countries or required for program clinical placements.\n"
                 "- Regulatory Authority: IRCC Study Permit Document Checklist & PAL Guidelines."
@@ -525,7 +717,8 @@ class RuleEngine:
         # 9. General Canada Visitor / Tourist Requirements
         if any(w in query_lower for w in ["tourist", "visitor", "travel", "visit canada", "eta", "trv"]) or visa_type == "tourist":
             return (
-                "OFFICIAL IRCC REGULATORY FACTS — CANADA VISITOR VISA & ETA:\n"
+                "OFFICIAL IRCC REGULATORY FACTS — CANADA VISITOR VISA & ETA (as of 2024/2026; verified 2026-10-01):\n"
+                "- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/about-visitor-visa.html\n"
                 "- Entry Document: Foreign nationals require either a Temporary Resident Visa (TRV) or an Electronic Travel Authorization (eTA), depending on their country of citizenship.\n"
                 "- Maximum Authorized Stay: Up to 6 months per entry from the date of admission, unless a CBSA border services officer specifies a different date.\n"
                 "- Mandatory Requirements: Must prove sufficient financial funds for the visit, valid passport, clear criminal/security record, medical admissibility, "

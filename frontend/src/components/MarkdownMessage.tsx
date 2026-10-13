@@ -55,14 +55,24 @@ function renderInlineFormatting(text: string): React.ReactNode[] {
             );
         }
 
-        // Link: [title](url)
+        // Link: [title](url) - Strict protocol whitelist to eliminate XSS (R11)
         const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
         if (linkMatch) {
             const [, title, href] = linkMatch;
+            const trimmedHref = href.trim();
+            const isSafeHref = /^https:\/\/[^\s]+$/i.test(trimmedHref) ||
+                /^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(trimmedHref) ||
+                // In-app paths only: a single leading "/" (not protocol-relative "//host")
+                /^\/(?!\/)[a-zA-Z0-9_\-./?=&%#]*$/.test(trimmedHref);
+
+            if (!isSafeHref) {
+                return <span key={index} className="font-medium text-slate-700 dark:text-slate-300">{title}</span>;
+            }
+
             return (
                 <a
                     key={index}
-                    href={href}
+                    href={trimmedHref}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary hover:underline font-medium inline-flex items-center gap-0.5"

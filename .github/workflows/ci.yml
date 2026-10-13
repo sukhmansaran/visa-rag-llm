@@ -76,6 +76,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Verify .env.example loads in Settings
+        run: |
+          python -c "from app.core.config import Settings; Settings(_env_file='.env.example'); print('.env.example verified successfully.')"
+
+      - name: Audit Python dependencies for known vulnerabilities
+        # chromadb advisories CVE-2026-45830/45831/45833 affect Chroma *server* auth/tenancy only;
+        # this app embeds Chroma in-process (PersistentClient), so they are explicitly accepted here.
+        run: |
+          pip-audit -r requirements.txt --progress-spinner off \
+            --ignore-vuln PYSEC-2026-3813 \
+            --ignore-vuln PYSEC-2026-3814 \
+            --ignore-vuln PYSEC-2026-3815
+
       - name: Run code hygiene checks (flake8 syntax gate)
         run: |
           flake8 app alembic tests --count --select=E9,F63,F7,F82 --show-source --statistics
@@ -201,7 +214,6 @@ jobs:
 
     env:
       NEXT_TELEMETRY_DISABLED: "1"
-      NODE_ENV: production
 
     steps:
       - name: Checkout repository
@@ -221,6 +233,9 @@ jobs:
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Audit production dependencies for known vulnerabilities
+        run: pnpm audit --prod --audit-level high
 
       - name: Run frontend lint
         run: pnpm run lint

@@ -1,5 +1,6 @@
 """Integrated tour package endpoints - combines visa, destinations, costs, and itinerary."""
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -15,6 +16,8 @@ from app.models.tourist_visa_info import TouristVisaInfo
 from app.models.tourist_destination import TouristDestination
 from app.models.travel_cost import TravelCost
 from app.services.itinerary_generator import generate_itinerary
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tour-packages", tags=["tour-packages"])
 
@@ -75,7 +78,7 @@ async def create_complete_tour_package(
     Everything in one cohesive package!
     """
     
-    print(f"[TOUR PACKAGE] Creating package for {request.country}, {request.duration_days} days")
+    logger.info(f"[TOUR PACKAGE] Creating package for {request.country}, {request.duration_days} days")
     
     # 1. Get Visa Information
     visa_info_dict = None
@@ -160,7 +163,7 @@ async def create_complete_tour_package(
     per_person_cost = total_cost / request.travelers if request.travelers > 0 else total_cost
     
     # 4. Generate AI Itinerary
-    print(f"[TOUR PACKAGE] Generating AI itinerary...")
+    logger.info(f"[TOUR PACKAGE] Generating AI itinerary...")
     itinerary_result = await generate_itinerary(
         db=db,
         country=request.country,
@@ -194,7 +197,7 @@ async def create_complete_tour_package(
     await db.commit()
     await db.refresh(travel_itinerary)
     
-    print(f"[TOUR PACKAGE] ✓ Complete package created with ID {travel_itinerary.id}")
+    logger.info(f"[TOUR PACKAGE] Complete package created with ID {travel_itinerary.id}")
     
     # 6. Return Complete Package
     return TourPackageResponse(

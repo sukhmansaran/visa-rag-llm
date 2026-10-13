@@ -34,8 +34,14 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # Shutdown
+    # Shutdown: close loop-bound clients before the event loop goes away
     logger.info("Shutting down...")
+    from app.core.middleware import close_rate_limit_redis
+    from app.core.token_store import refresh_token_store
+    from app.services.llm import llm_service
+    await close_rate_limit_redis()
+    await refresh_token_store.aclose()
+    await llm_service.close()
     await close_db()
     logger.info("Database connections closed")
 
@@ -54,13 +60,14 @@ app = FastAPI(
 app.add_middleware(ErrorHandlerMiddleware)
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(RequestIDMiddleware)
-app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
+if settings.RATE_LIMIT_ENABLED:
+    app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:[0-9]+)?",
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:[0-9]+)?" if settings.CORS_ALLOW_LOCALHOST_REGEX else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

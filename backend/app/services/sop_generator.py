@@ -2,10 +2,13 @@
 SOP generation service using LLM and user profile.
 """
 
+import logging
 from typing import Optional, Dict, Any
 from app.models.profile import Profile
 from app.services.llm import llm_service  # Ollama-backed LLM service
 from app.services.retrieval import retrieval_service
+
+logger = logging.getLogger(__name__)
 
 
 # SOP Templates by country/region — Canada-only focus (other countries commented out)
@@ -179,7 +182,7 @@ async def _retrieve_program_context(university: str, program: str) -> str:
         return ""
     except Exception as e:
         # If retrieval fails, continue without context (common if OpenAI key not configured)
-        print(f"[SOP] Note: Could not retrieve program context (vector search disabled): {str(e)[:100]}")
+        logger.info(f"[SOP] Note: Could not retrieve program context (vector search disabled): {str(e)[:100]}")
         return ""
 
 

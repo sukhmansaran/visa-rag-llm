@@ -4,9 +4,16 @@ Vector store service supporting Chroma (local) and Pinecone (production).
 
 from typing import List, Dict, Any, Optional
 from abc import ABC, abstractmethod
+import asyncio
 import uuid
 
 from app.core.config import settings
+
+
+def _invalidate_answer_cache() -> None:
+    """Drop cached answers in this process after the knowledge base changes (B16)."""
+    from app.services.cache_service import intent_cache
+    intent_cache.clear()
 
 
 class VectorStore(ABC):
@@ -50,23 +57,40 @@ class VectorStore(ABC):
         """Delete all chunks from a specific source."""
         pass
 
+    async def content_version(self) -> str:
+        """
+        Cheap fingerprint of the knowledge-base contents, used in answer-cache keys (B16)
+        so cached answers stop matching once ingestion (in any process) changes the store.
+        """
+        return "static"
+
 
 class ChromaVectorStore(VectorStore):
-    """Chroma vector store implementation for local development."""
+    """Chroma vector store implementation with persistent disk storage."""
     
-    def __init__(self):
+    def __init__(self, persist_directory: Optional[str] = None):
         import chromadb
+        from pathlib import Path
+        
+        persist_dir = persist_directory or settings.CHROMA_PERSIST_DIRECTORY
+        Path(persist_dir).mkdir(parents=True, exist_ok=True)
+        
         from chromadb.config import Settings as ChromaSettings
+
+        # Telemetry off: don't send usage analytics to Chroma (privacy), and its client is
+        # incompatible with the installed posthog version, which spammed stderr on every start.
+        self.client = chromadb.PersistentClient(
+            path=str(persist_dir),
+            settings=ChromaSettings(anonymized_telemetry=False),
+        )
         
-        self.client = chromadb.Client(ChromaSettings(
-            persist_directory=settings.CHROMA_PERSIST_DIRECTORY,
-            anonymized_telemetry=False,
-        ))
-        
-        # Get or create collection
+        # Get or create collection with cosine distance metric
         self.collection = self.client.get_or_create_collection(
             name="visa_chatbot",
-            metadata={"description": "Visa and university information chunks"}
+            metadata={
+                "description": "Visa and university information chunks",
+                "hnsw:space": "cosine",
+            }
         )
     
     async def upsert_chunks(self, chunks: List[Dict[str, Any]]) -> List[str]:
@@ -83,15 +107,21 @@ class ChromaVectorStore(VectorStore):
             documents.append(chunk['text'])
             metadatas.append(chunk['metadata'])
         
-        # Chroma requires synchronous call
-        self.collection.add(
+        # Offload synchronous Chroma operation to thread
+        await asyncio.to_thread(
+            self.collection.add,
             ids=ids,
             embeddings=embeddings,
             documents=documents,
             metadatas=metadatas,
         )
+        _invalidate_answer_cache()
         
         return ids
+
+    async def content_version(self) -> str:
+        count = await asyncio.to_thread(self.collection.count)
+        return f"chroma-{count}"
     
     async def search(
         self,
@@ -99,7 +129,7 @@ class ChromaVectorStore(VectorStore):
         filters: Optional[Dict[str, Any]] = None,
         top_k: int = 10,
     ) -> List[Dict[str, Any]]:
-        """Search Chroma for similar chunks."""
+        """Search Chroma for similar chunks using cosine similarity."""
         
         # Build where filter - ChromaDB requires $and for multiple conditions
         where_filter = None
@@ -110,34 +140,42 @@ class ChromaVectorStore(VectorStore):
             else:
                 where_filter = {"$and": conditions}
         
-        results = self.collection.query(
+        results = await asyncio.to_thread(
+            self.collection.query,
             query_embeddings=[query_embedding],
             n_results=top_k,
             where=where_filter,
         )
         
-        # Format results
+        # Format results: in cosine space, Chroma distance is 1 - cosine_sim
+        # Convert distance to similarity score in [0.0, 1.0] where 1.0 is exact match
         formatted = []
         if results['ids'] and results['ids'][0]:
             for i, chunk_id in enumerate(results['ids'][0]):
+                raw_dist = results['distances'][0][i] if results.get('distances') else 1.0
+                similarity = max(0.0, min(1.0, 1.0 - raw_dist))
                 formatted.append({
                     'id': chunk_id,
                     'text': results['documents'][0][i],
                     'metadata': results['metadatas'][0][i],
-                    'score': results['distances'][0][i] if results.get('distances') else 0.0,
+                    'score': round(similarity, 4),
                 })
         
         return formatted
     
     async def delete_by_source(self, source_id: int) -> None:
         """Delete chunks by source_id metadata."""
-        # Query for all chunks with this source_id
-        results = self.collection.get(
+        results = await asyncio.to_thread(
+            self.collection.get,
             where={"source_id": source_id}
         )
         
         if results['ids']:
-            self.collection.delete(ids=results['ids'])
+            await asyncio.to_thread(
+                self.collection.delete,
+                ids=results['ids']
+            )
+            _invalidate_answer_cache()
 
 
 class PineconeVectorStore(VectorStore):

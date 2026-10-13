@@ -14,7 +14,7 @@ Validates:
 import pytest
 from httpx import AsyncClient
 from datetime import timedelta
-from jose import jwt
+import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -61,8 +61,8 @@ async def _register_and_login(client: AsyncClient, email: str, password: str = "
 # ==============================================================================
 
 @pytest.mark.asyncio
-async def test_auth_missing_token_returns_403(client: AsyncClient):
-    """Missing Authorization header must return 403 Forbidden under HTTPBearer."""
+async def test_auth_missing_token_returns_401(client: AsyncClient):
+    """Missing Authorization header must return 401 Unauthorized under HTTPBearer."""
     endpoints = [
         ("GET", "/api/v1/auth/me"),
         ("GET", "/api/v1/profile"),
@@ -81,7 +81,7 @@ async def test_auth_missing_token_returns_403(client: AsyncClient):
             resp = await client.post(path, json={})
         elif method == "PUT":
             resp = await client.put(path, json={})
-        assert resp.status_code == 403, f"Expected 403 for {method} {path}, got {resp.status_code}"
+        assert resp.status_code == 401, f"Expected 401 for {method} {path}, got {resp.status_code}"
 
 
 @pytest.mark.asyncio

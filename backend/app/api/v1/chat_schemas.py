@@ -1,14 +1,14 @@
-from typing import List, Dict, Any
-from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, Field
 
 
 class ChatMessage(BaseModel):
     """Chat message schema."""
-    query: str
-    country: str | None = None
-    university: str | None = None
-    sessionId: str | None = None
-    chat_history: List[Dict[str, str]] | None = None
+    query: str = Field(..., min_length=1, max_length=2000)
+    country: Optional[str] = Field(default=None, max_length=100)
+    university: Optional[str] = Field(default=None, max_length=200)
+    sessionId: Optional[str] = Field(default=None, max_length=64)
+    # Chat history is never accepted from the client (R8); it is loaded from the DB by session.
 
 
 class SourceCitation(BaseModel):

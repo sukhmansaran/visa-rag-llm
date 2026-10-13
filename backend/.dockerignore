@@ -1,0 +1,44 @@
+# Keep secrets, local data and dev artifacts out of the image build context
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local environments & caches
+.venv/
+venv/
+env/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+# Runtime data (mounted as volumes, never baked in)
+chroma_data/
+uploads/
+logs/
+*.log
+*.db
+*.sqlite3
+celerybeat-schedule*
+
+# Tests & dev-only files
+tests/
+scripts/test_*.py
+scripts/*.sh
+*.bat
+docs/
+
+# VCS / editor
+.git/
+.gitignore
+.vscode/
+.idea/

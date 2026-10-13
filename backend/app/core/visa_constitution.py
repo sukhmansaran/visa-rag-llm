@@ -54,8 +54,9 @@ REFUSAL_MESSAGES: Dict[ViolationType, str] = {
         "and immigration questions."
     ),
     ViolationType.MALICIOUS_REQUEST: (
-        "I cannot assist with fabricating documentation, evading immigration requirements, "
-        "or violating official immigration laws. I can only provide guidance based on official legal procedures."
+        "I can't help with that. I don't assist with harmful or illegal activities, including fabricating "
+        "documentation, misrepresenting information to immigration authorities, or evading immigration "
+        "requirements. I can only provide guidance based on official legal procedures."
     ),
     ViolationType.INSUFFICIENT_EVIDENCE: (
         "I could not find sufficient authoritative information in official immigration records "

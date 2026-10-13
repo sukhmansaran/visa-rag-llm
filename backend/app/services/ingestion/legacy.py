@@ -2,6 +2,7 @@
 Legacy Ingestion Service (preserved for backward compatibility with tasks/workers).
 """
 
+import logging
 from typing import Dict, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -10,6 +11,8 @@ import app.services.ingestion as ingestion_pkg
 from app.models.source import Source
 from app.models.document import Document
 from app.models.vector_chunk import VectorChunk
+
+logger = logging.getLogger(__name__)
 
 
 class IngestionService:
@@ -64,19 +67,11 @@ class IngestionService:
         await db.commit()
         await db.refresh(document)
         
-        # Step 2a: Factual Summary
-        from app.services.llm import llm_service
-        try:
-            text_to_summarize = scraped_data['extracted_text'][:30000]
-            summary_text = await llm_service.factual_summarize(text_to_summarize)
-            print(f"[INGESTION] Factual summary generated: {len(summary_text)} chars")
-        except Exception as e:
-            print(f"[INGESTION] Error during factual summarization: {e}")
-            summary_text = scraped_data['extracted_text']
-
-        # Step 3: Chunk
+        # Step 3: Chunk the VERBATIM official text.
+        # (Previously each page was squeezed into a <=150-word LLM summary and only that was indexed:
+        # most facts were lost, and any small-model error was stored and cited as Tier-1 official text.)
         chunks = ingestion_pkg.chunk_document(
-            text=summary_text,
+            text=scraped_data['extracted_text'],
             url=source.url,
             title=scraped_data['title'],
             scraped_at=scraped_data['scraped_at'],
@@ -100,6 +95,8 @@ class IngestionService:
             if source.country:
                 chunk['metadata']['country'] = source.country
             chunk['metadata']['source_type'] = source.source_type
+            chunk['metadata']['authority_tier'] = source.authority_tier
+            chunk['metadata']['source_name'] = source.name
         
         # Step 5: Store in vector DB
         vector_ids = await ingestion_pkg.vector_store.upsert_chunks(chunks)

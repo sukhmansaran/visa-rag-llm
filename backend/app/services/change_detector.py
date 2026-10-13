@@ -2,6 +2,7 @@
 Change detection service for monitoring source updates.
 """
 
+import logging
 from typing import Optional, List
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,8 @@ from app.models.change import Change
 from app.models.watchlist import Watchlist
 from app.services.scraper import scrape_with_retry
 from app.services.llm import llm_service
+
+logger = logging.getLogger(__name__)
 
 
 class ChangeDetector:
@@ -53,7 +56,7 @@ class ChangeDetector:
         try:
             scraped_data = await scrape_with_retry(source.url)
         except Exception as e:
-            print(f"Error scraping {source.url}: {e}")
+            logger.warning(f"Error scraping {source.url}: {e}")
             return None
         
         new_hash = scraped_data['content_hash']
@@ -203,7 +206,7 @@ Summary:"""
             return summary
         
         except Exception as e:
-            print(f"Error generating diff summary: {e}")
+            logger.warning(f"Error generating diff summary: {e}")
             return f"Content updated on {source_name}. Please review the changes."
     
     def _determine_severity(self, diff_summary: str, source_type: str) -> str:

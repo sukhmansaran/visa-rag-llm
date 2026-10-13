@@ -8,6 +8,7 @@ from decimal import Decimal
 from pydantic import BaseModel
 
 from app.core.database import get_db
+from app.core.security import get_current_admin_user
 from app.models.travel_cost import TravelCost
 from app.api.v1.tourist_visa_schemas import (
     TravelCostResponse,
@@ -142,7 +143,8 @@ async def get_cost_breakdown(
 @router.post("/", response_model=TravelCostResponse)
 async def create_travel_cost(
     cost: TravelCostCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    admin_user = Depends(get_current_admin_user),
 ):
     """Create travel cost data (admin only)."""
     db_cost = TravelCost(**cost.model_dump())

@@ -1,5 +1,6 @@
 """Unit tests for ThrottleManager."""
 
+import asyncio
 import pytest
 import pytest_asyncio
 import fakeredis.aioredis
@@ -58,6 +59,8 @@ class TestAcquire:
         # Set a very high rate so second request succeeds quickly
         await redis_client.set(f"throttle:{DOMAIN}:rate", "1000.0")
         assert await throttle.acquire(DOMAIN) is True
+        # Ensure clock elapsed time > 0 across all timer resolutions
+        await asyncio.sleep(0.005)
         # With 1000 rps, even a tiny elapsed time should refill enough
         assert await throttle.acquire(DOMAIN) is True
 

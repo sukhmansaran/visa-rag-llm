@@ -1,12 +1,32 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, EmailStr, field_serializer
+import re
+
+from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
+
+
+PASSWORD_MIN_LENGTH = 10
+PASSWORD_MAX_LENGTH = 128
 
 
 class SignupRequest(BaseModel):
-    """Signup request schema."""
+    """Signup request schema with a minimum password policy (A4)."""
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        return v.strip().lower()
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if not re.search(r"[A-Za-z]", v) or not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one letter and one number")
+        if len(set(v)) < 4:
+            raise ValueError("Password is too repetitive")
+        return v
 
 
 class LoginRequest(BaseModel):

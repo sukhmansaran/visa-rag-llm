@@ -19,32 +19,49 @@ from sqlalchemy import select
 
 PORTALS = [
     {
-        "name": "Studyportals",
+        "name": "IRCC (canada.ca)",
         "tier": 1,
-        "base_domains": [
-            "mastersportal.com", "bachelorsportal.com",
-            "phdportal.com", "shortcoursesportal.com",
-        ],
-        "category": "aggregator",
-        "throttle_rps": 0.5,
-        "requires_js": True,
-        "seeds": [
-            "https://www.mastersportal.com/search/master",
-            "https://www.bachelorsportal.com/search/bachelor",
-            "https://www.phdportal.com/search/phd",
-        ],
-    },
-    {
-        "name": "Hotcourses",
-        "tier": 1,
-        "base_domains": ["hotcoursesabroad.com"],
-        "category": "aggregator",
+        "base_domains": ["canada.ca", "*.canada.ca"],
+        "category": "government_portal",
         "throttle_rps": 0.5,
         "requires_js": False,
         "seeds": [
-            "https://www.hotcoursesabroad.com/study/",
+            "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit.html",
+            "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work.html",
+            "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry.html",
+            "https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada.html",
         ],
     },
+    # Multi-country aggregators (Studyportals, Hotcourses) are commented out: they are outside the
+    # Canada-only scope and their domains are not in the crawler's server-side SSRF allowlist.
+    # To re-enable, add the domains to CRAWLER_EXTRA_ALLOWED_DOMAINS after vetting them.
+    # {
+    #     "name": "Studyportals",
+    #     "tier": 1,
+    #     "base_domains": [
+    #         "mastersportal.com", "bachelorsportal.com",
+    #         "phdportal.com", "shortcoursesportal.com",
+    #     ],
+    #     "category": "aggregator",
+    #     "throttle_rps": 0.5,
+    #     "requires_js": True,
+    #     "seeds": [
+    #         "https://www.mastersportal.com/search/master",
+    #         "https://www.bachelorsportal.com/search/bachelor",
+    #         "https://www.phdportal.com/search/phd",
+    #     ],
+    # },
+    # {
+    #     "name": "Hotcourses",
+    #     "tier": 1,
+    #     "base_domains": ["hotcoursesabroad.com"],
+    #     "category": "aggregator",
+    #     "throttle_rps": 0.5,
+    #     "requires_js": False,
+    #     "seeds": [
+    #         "https://www.hotcoursesabroad.com/study/",
+    #     ],
+    # },
     # Other countries' portals commented out — Canada-only focus
     # {
     #     "name": "UCAS",

@@ -1,0 +1,223 @@
+{
+  "description": "RAG answer-quality evaluation set. Expected facts were verified against the ingested canada.ca text on 2026-10-12. Patterns are case-insensitive regexes. 'must_include' is a list of groups; each group passes if ANY of its alternatives matches. 'must_not' fails the case if ANY pattern matches.",
+  "cases": [
+    {
+      "id": "work_term_hours",
+      "question": "How many hours per week can I work off campus during my semester as an international student in Canada?",
+      "must_include": [
+        [
+          "\\b24\\s*hours",
+          "\\b24\\b"
+        ]
+      ],
+      "must_not": [
+        "\\b20\\s*hours"
+      ]
+    },
+    {
+      "id": "work_break_hours",
+      "question": "Can I work more hours off campus during my scheduled summer break on a Canadian study permit?",
+      "must_include": [
+        [
+          "unlimited",
+          "full[- ]time"
+        ]
+      ],
+      "must_not": [
+        "\\b40\\s*hours"
+      ]
+    },
+    {
+      "id": "funds_single",
+      "question": "How much money do I need to show for living expenses as a single applicant for a Canadian study permit?",
+      "must_include": [
+        [
+          "23,448"
+        ]
+      ],
+      "must_not": [
+        "20,635"
+      ]
+    },
+    {
+      "id": "funds_family_3",
+      "question": "What are the minimum living funds for a study permit if my spouse and child come with me (3 people total)?",
+      "must_include": [
+        [
+          "35,888"
+        ]
+      ],
+      "must_not": []
+    },
+    {
+      "id": "pgwp_two_year_length",
+      "question": "How long is a post-graduation work permit if my study program was 2 years long?",
+      "must_include": [
+        [
+          "3 years",
+          "3-year",
+          "three years"
+        ]
+      ],
+      "must_not": []
+    },
+    {
+      "id": "pgwp_deadline",
+      "question": "How long after finishing my program do I have to apply for a post-graduation work permit?",
+      "must_include": [
+        [
+          "180 days"
+        ]
+      ],
+      "must_not": []
+    },
+    {
+      "id": "pgwp_short_masters",
+      "question": "Can I get a 3-year PGWP if my master's program was only 1 year long?",
+      "must_include": [
+        [
+          "3 years",
+          "3-year",
+          "three years"
+        ],
+        [
+          "8 months"
+        ]
+      ],
+      "must_not": []
+    },
+    {
+      "id": "pal_masters_public_dli",
+      "question": "Do I need a provincial attestation letter for a master's degree at a public university in Canada?",
+      "must_include": [
+        [
+          "public"
+        ],
+        [
+          "don.?t need",
+          "do not need",
+          "not need",
+          "exempt",
+          "not required",
+          "no (pal|provincial attestation)"
+        ]
+      ],
+      "must_not": []
+    },
+    {
+      "id": "extend_study_permit",
+      "question": "When should I apply to extend my study permit, and what do I need to know?",
+      "must_include": [
+        [
+          "90 days",
+          "before (your|the|it) (study )?(permit )?expir",
+          "before .{0,30}expir"
+        ]
+      ],
+      "must_not": [
+        "language (test|proficiency|requirement)",
+        "\\bIELTS\\b",
+        "\\bCLB\\b"
+      ]
+    },
+    {
+      "id": "biometrics_validity",
+      "question": "How long are my biometrics valid for Canadian immigration applications?",
+      "must_include": [
+        [
+          "10 years",
+          "ten years"
+        ]
+      ],
+      "must_not": [
+        "passport (is still|remains|is) valid"
+      ]
+    },
+    {
+      "id": "biometrics_age_exempt",
+      "question": "Who is exempt from giving biometrics based on age when applying to Canada?",
+      "must_include": [
+        [
+          "\\b14\\b"
+        ],
+        [
+          "\\b79\\b"
+        ]
+      ],
+      "must_not": []
+    },
+    {
+      "id": "fsw_points",
+      "question": "How many points do I need on the Federal Skilled Worker selection grid?",
+      "must_include": [
+        [
+          "\\b67\\b"
+        ]
+      ],
+      "must_not": []
+    },
+    {
+      "id": "ielts_option",
+      "question": "Which IELTS test version is accepted for Express Entry?",
+      "must_include": [
+        [
+          "General Training"
+        ]
+      ],
+      "must_not": [
+        "IELTS Academic (is|are) accepted",
+        "accept(s|ed)? (the )?IELTS Academic"
+      ]
+    },
+    {
+      "id": "clb_teer01",
+      "question": "What minimum language level do I need for a TEER 0 or 1 job under the Federal Skilled Worker Program?",
+      "must_include": [
+        [
+          "CLB 7",
+          "CLB level 7",
+          "NCLC 7"
+        ]
+      ],
+      "must_not": []
+    },
+    {
+      "id": "unanswerable_processing_time",
+      "question": "What is the current processing time for a Canadian study permit application from India?",
+      "must_include": [],
+      "must_not": [
+        "\\b\\d+\\s*(-\\s*\\d+\\s*)?(weeks|business days)\\b"
+      ],
+      "expect_gap_acknowledged": true
+    },
+    {
+      "id": "fake_program",
+      "question": "What are the requirements for the Canadian Atlantis Gold Visa?",
+      "must_include": [],
+      "must_not": [
+        "requirements? for the (Canadian )?Atlantis Gold Visa (are|include)"
+      ],
+      "expect_gap_acknowledged": true
+    },
+    {
+      "id": "guarantee_request",
+      "question": "If I show $40,000 in my bank account, will my Canadian study permit definitely be approved?",
+      "must_include": [
+        [
+          "not (a |any )?guarantee",
+          "no guarantee",
+          "can.?t guarantee",
+          "cannot guarantee",
+          "not guaranteed",
+          "officer",
+          "decision"
+        ]
+      ],
+      "must_not": [
+        "(will|is) (definitely|certainly|surely) (be )?approved",
+        "guaranteed approval",
+        "\\b100\\s*%"
+      ]
+    }
+  ]
+}
