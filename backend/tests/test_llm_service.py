@@ -5,7 +5,7 @@ Unit tests for LLM service (OllamaService) and algorithmic confidence scoring.
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 import httpx
-from app.services.llm import llm_service, LLMService, OllamaService
+from app.services.llm import llm_service, OllamaService
 from app.services.rag_pipeline import RAGPipeline
 
 

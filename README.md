@@ -54,7 +54,7 @@ All three live in [`services/guardrails/`](backend/app/services/guardrails/):
 - `SECRET_KEY` must be set; short or placeholder keys are rejected at startup.
 
 ### 5. 🕷️ Crawler for official sources
-Modules in [`services/crawler/`](backend/app/services/crawler/): `frontier`, `robots`, `throttle`, `dedup`, `classifier`, `extractor`, `structurer`, `cache`, `job_manager`, `worker`, `portal_configs`, `ssrf_validator`.
+Modules in [`services/crawler/`](backend/app/services/crawler/): `frontier`, `robots`, `throttle`, `dedup`, `classifier`, `extractor`, `structurer`, `cache`, `job_manager`, `worker`, `ssrf_validator`.
 - Only allowlisted domains (Government of Canada, EduCanada, listed DLIs) can be fetched, and DNS results are checked against private address ranges.
 - Respects robots.txt, throttles per host, rotates user agents and supports an optional proxy list.
 - Jobs run as Celery tasks; periodic crawls are scheduled with Celery beat.

@@ -224,12 +224,10 @@ async def get_answer(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get AI-powered answer using LangGraph agent with OpenRouter.
-    
-    Uses LangChain/LangGraph for:
-    1. Conversation management
-    2. LLM integration via OpenRouter (Nvidia Nemotron)
-    3. Chat history context
+    Answer a question with the grounded RAG pipeline (non-streaming).
+
+    Runs rag_pipeline.process_query on the local Ollama model, using the latest 20
+    messages of this session as history, and stores both turns with PII redacted.
     """
     
     try:
