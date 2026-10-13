@@ -341,3 +341,165 @@ async def test_pipeline_runs_end_to_end_on_the_fake_llm(fake_llm, monkeypatch):
 def test_llm_call_stats_tokens_per_second_needs_both_values():
     assert LLMCallStats(role="r", model="m", mode="chat", output_tokens=10).tokens_per_second is None
     assert LLMCallStats(role="r", model="m", mode="chat", output_tokens=10, generation_s=2.0).tokens_per_second == 5.0
+
+
+# ---------------------------------------------------------------- failover to the backup model (M0.4b)
+
+def model_router(behaviour: dict, sent: list):
+    """MockTransport handler: per-model behaviour ('ok', an HTTP status, 'timeout' or 'empty')."""
+    def handler(request):
+        payload = json.loads(request.content)
+        sent.append(payload["model"])
+        action = behaviour[payload["model"]]
+        if action == "timeout":
+            raise httpx.ReadTimeout("slow", request=request)
+        if action == "refused":
+            raise httpx.ConnectError("down", request=request)
+        if action == "empty":
+            return httpx.Response(200, json=chat_reply(""))
+        if isinstance(action, int):
+            return httpx.Response(action, json={})
+        if payload.get("stream"):
+            return httpx.Response(200, text=json.dumps({"message": {"content": f"from {payload['model']}"}, "done": True}))
+        content = json.dumps({"sub_questions": ["q"], "needs_rules": False}) if payload.get("format") else f"from {payload['model']}"
+        return httpx.Response(200, json=chat_reply(content))
+    return handler
+
+
+@pytest.fixture
+def with_fallback(monkeypatch):
+    monkeypatch.setattr(settings, "OLLAMA_MODEL", "primary")
+    monkeypatch.setattr(settings, "LLM_FALLBACK_MODEL", "backup")
+    monkeypatch.setattr(settings, "LLM_MODEL_ANSWER", None)
+    monkeypatch.setattr(settings, "LLM_MODEL_PLANNER", None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["timeout", 500, 503, 404, "empty"])
+async def test_failover_on_primary_failure(with_fallback, failure):
+    sent = []
+    service = make_service(model_router({"primary": failure, "backup": "ok"}, sent))
+    service.model = "primary"
+    with record_llm_calls() as calls:
+        assert await service.generate_answer("sys", "q") == "from backup"
+    assert sent == ["primary", "backup"]
+    assert [(c.model, c.ok, c.failover_from) for c in calls] == [("primary", False, None), ("backup", True, "primary")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["refused", 400])
+async def test_no_failover_when_a_backup_cannot_help(with_fallback, failure):
+    """Ollama unreachable (same server for both models) or a bad request: fail, don't swap."""
+    sent = []
+    service = make_service(model_router({"primary": failure, "backup": "ok"}, sent))
+    service.model = "primary"
+    with pytest.raises(AIServiceUnavailableError):
+        await service.generate_answer("sys", "q")
+    assert sent == ["primary"]
+
+
+@pytest.mark.asyncio
+async def test_no_failover_without_a_configured_backup(monkeypatch):
+    monkeypatch.setattr(settings, "LLM_FALLBACK_MODEL", None)
+    sent = []
+    service = make_service(model_router({settings.OLLAMA_MODEL: 503}, sent))
+    with pytest.raises(AIServiceUnavailableError):
+        await service.generate_answer("sys", "q")
+    assert len(sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_backup_failure_is_not_retried_again(with_fallback):
+    sent = []
+    service = make_service(model_router({"primary": 503, "backup": 503}, sent))
+    service.model = "primary"
+    with pytest.raises(AIServiceUnavailableError):
+        await service.generate_answer("sys", "q")
+    assert sent == ["primary", "backup"]
+
+
+@pytest.mark.asyncio
+async def test_one_swap_per_request_then_backup_sticks(with_fallback):
+    from app.services.llm import llm_request_scope
+
+    sent = []
+    service = make_service(model_router({"primary": 503, "backup": "ok"}, sent))
+    service.model = "primary"
+    with llm_request_scope() as scope:
+        await service.generate_answer("sys", "first")
+        await service.generate_answer("sys", "second")   # goes straight to the backup: no swap back
+        await service.structured_call(SubQuestions, "sys", "third")
+    assert scope["failed_over"] is True
+    assert sent == ["primary", "backup", "backup", "backup"]
+
+
+@pytest.mark.asyncio
+async def test_without_a_request_scope_each_call_tries_the_primary_first(with_fallback):
+    sent = []
+    service = make_service(model_router({"primary": 503, "backup": "ok"}, sent))
+    service.model = "primary"
+    await service.generate_answer("sys", "first")
+    await service.generate_answer("sys", "second")
+    assert sent == ["primary", "backup", "primary", "backup"]
+
+
+@pytest.mark.asyncio
+async def test_stream_fails_over_before_the_first_chunk(with_fallback):
+    sent = []
+    service = make_service(model_router({"primary": 503, "backup": "ok"}, sent))
+    service.model = "primary"
+    with record_llm_calls() as calls:
+        chunks = [c async for c in service.generate_answer_stream("sys", "q")]
+    assert "".join(chunks) == "from backup"
+    assert [(c.model, c.failover_from) for c in calls] == [("primary", None), ("backup", "primary")]
+
+
+@pytest.mark.asyncio
+async def test_stream_does_not_fail_over_after_text_was_sent(with_fallback):
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content)["model"])
+
+        async def body():
+            yield (json.dumps({"message": {"content": "partial "}, "done": False}) + "\n").encode()
+            raise httpx.ReadTimeout("stalled", request=request)
+
+        return httpx.Response(200, content=body())
+
+    service = make_service(handler)
+    service.model = "primary"
+    received = []
+    with pytest.raises(AIServiceUnavailableError):
+        async for chunk in service.generate_answer_stream("sys", "q"):
+            received.append(chunk)
+    assert received == ["partial "]
+    assert sent == ["primary"]
+
+
+@pytest.mark.asyncio
+async def test_structured_call_fails_over(with_fallback):
+    sent = []
+    service = make_service(model_router({"primary": "timeout", "backup": "ok"}, sent))
+    service.model = "primary"
+    with record_llm_calls() as calls:
+        result = await service.structured_call(SubQuestions, "sys", "q")
+    assert result.sub_questions == ["q"]
+    assert sent == ["primary", "backup"]
+    assert calls[-1].failover_from == "primary"
+
+
+@pytest.mark.asyncio
+async def test_cpu_only_models_are_sent_with_num_gpu_zero(monkeypatch):
+    monkeypatch.setattr(settings, "LLM_CPU_ONLY_MODELS", ["monitor"])
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=chat_reply(json.dumps({"sub_questions": ["q"], "needs_rules": False})))
+
+    service = make_service(handler)
+    await service.generate_answer("sys", "q", model="monitor")
+    await service.structured_call(SubQuestions, "sys", "q", model="monitor")
+    await service.generate_answer("sys", "q", model="primary")
+    assert [p["options"].get("num_gpu") for p in sent] == [0, 0, None]
