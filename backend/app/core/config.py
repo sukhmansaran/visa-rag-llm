@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     LLM_MODEL_PLANNER: Optional[str] = None    # question analysis / decomposition
     LLM_MODEL_ANSWER: Optional[str] = None     # grounded answer writing
     LLM_MODEL_VERIFIER: Optional[str] = None   # claim checks against sources
+    # Backup model (M0.4b): answers instead when the primary times out, errors (5xx/404) or replies empty.
+    # At most one swap per request; empty = no failover.
+    LLM_FALLBACK_MODEL: Optional[str] = None
+    # Models run on CPU only (num_gpu=0). On a small GPU (MX330, 2 GB) Ollama evicts one model to fit another
+    # into VRAM, costing ~30 s per primary<->monitor switch; keeping the monitor off the GPU lets both stay loaded.
+    LLM_CPU_ONLY_MODELS: List[str] = []
     # A CPU serves one generation at a time well; extra calls wait in a queue (per process).
     LLM_MAX_CONCURRENT_CALLS: int = 1
     LLM_QUEUE_TIMEOUT_SECONDS: float = 300.0   # give up waiting for a free slot after this
@@ -124,7 +130,7 @@ class Settings(BaseSettings):
     # Vetted extra crawl domains (exact or "*.domain" patterns) on top of the built-in official allowlist
     CRAWLER_EXTRA_ALLOWED_DOMAINS: List[str] = []
     
-    @validator("CORS_ORIGINS", "TRUSTED_PROXY_IPS", "CRAWLER_EXTRA_ALLOWED_DOMAINS", pre=True)
+    @validator("CORS_ORIGINS", "TRUSTED_PROXY_IPS", "CRAWLER_EXTRA_ALLOWED_DOMAINS", "LLM_CPU_ONLY_MODELS", pre=True)
     def parse_cors_origins(cls, v):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",")]

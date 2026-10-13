@@ -14,7 +14,7 @@ import contextvars
 import json
 import logging
 import time
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import aclosing, asynccontextmanager, contextmanager
 from dataclasses import asdict, dataclass
 from typing import Any, AsyncGenerator, Dict, Iterator, List, Optional, Type, TypeVar
 
@@ -51,6 +51,7 @@ class LLMCallStats:
     queue_wait_s: float = 0.0          # waiting for a free slot before the call started
     wall_s: float = 0.0                # client-side time including the HTTP round trip
     attempts: int = 1
+    failover_from: Optional[str] = None  # set when this call is the backup model replacing a failed primary
 
     @property
     def tokens_per_second(self) -> Optional[float]:
@@ -91,6 +92,36 @@ def record_llm_calls() -> Iterator[List[LLMCallStats]]:
         _call_log.reset(token)
 
 
+_request_scope: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar("llm_request_scope", default=None)
+
+
+@contextmanager
+def llm_request_scope() -> Iterator[Dict[str, Any]]:
+    """
+    One user request. Inside it, failover to the backup model happens at most once and then sticks:
+    later calls in the same request go straight to the backup instead of swapping models back and forth.
+    Without a scope, each call may fail over on its own.
+    """
+    scope: Dict[str, Any] = {"failed_over": False}
+    token = _request_scope.set(scope)
+    try:
+        yield scope
+    finally:
+        _request_scope.reset(token)
+
+
+# Failures a different model can fix. Not: Ollama unreachable (same server) or queue timeout (busy, not broken).
+_FAILOVER_REASONS = {"timeout", "empty_response"}
+
+
+def _is_failover_error(error: AIServiceUnavailableError) -> bool:
+    details = error.details or {}
+    if details.get("reason") in _FAILOVER_REASONS:
+        return True
+    status = details.get("status_code")
+    return isinstance(status, int) and (status >= 500 or status == 404)
+
+
 class OllamaService:
     """
     LLM gateway backed by a local Ollama instance.
@@ -128,6 +159,29 @@ class OllamaService:
             "verifier": settings.LLM_MODEL_VERIFIER,
         }.get(role)
         return configured or self.model
+
+    @staticmethod
+    def _effective_model(model: str) -> str:
+        """After a failover in this request, keep using the backup model (one swap per request)."""
+        scope = _request_scope.get()
+        fallback = settings.LLM_FALLBACK_MODEL
+        if scope is not None and scope["failed_over"] and fallback:
+            return fallback
+        return model
+
+    @staticmethod
+    def _failover_target(model: str, error: AIServiceUnavailableError) -> Optional[str]:
+        """The backup model to retry with, or None when failover does not apply."""
+        fallback = settings.LLM_FALLBACK_MODEL
+        if not fallback or fallback == model or not _is_failover_error(error):
+            return None
+        scope = _request_scope.get()
+        if scope is not None:
+            if scope["failed_over"]:
+                return None
+            scope["failed_over"] = True
+        logger.warning(f"[OLLAMA] {model} failed ({error.details}); failing over to {fallback}")
+        return fallback
 
     @asynccontextmanager
     async def _slot(self, stats: LLMCallStats):
@@ -214,6 +268,8 @@ class OllamaService:
         }
         if json_schema is not None:
             payload["format"] = json_schema
+        if model in settings.LLM_CPU_ONLY_MODELS:
+            payload["options"]["num_gpu"] = 0  # stay off the GPU so it does not evict the primary model
         return payload
 
     # ------------------------------------------------------------------ calls
@@ -246,7 +302,7 @@ class OllamaService:
                 content = data.get("message", {}).get("content", "")
 
                 if not content:
-                    raise AIServiceUnavailableError("Ollama returned an empty response.")
+                    raise AIServiceUnavailableError("Ollama returned an empty response.", details={"reason": "empty_response"})
                 return content
 
         except (httpx.ConnectError, httpx.NetworkError) as e:
@@ -297,12 +353,23 @@ class OllamaService:
         Returns:
             Generated text response
         """
-        model = model or self.model_for(role)
+        model = self._effective_model(model or self.model_for(role))
         messages = self._build_messages(system_prompt, user_prompt, context, chat_history)
-        payload = self._payload(model, messages, stream=False, temperature=temperature, max_tokens=max_tokens)
 
         logger.info(f"[OLLAMA] Sending request - model: {model}, history_turns: {len(chat_history or [])}, max_tokens: {max_tokens}")
-        content = await self._chat_once(payload, LLMCallStats(role=role, model=model, mode="chat"))
+        try:
+            content = await self._chat_once(
+                self._payload(model, messages, stream=False, temperature=temperature, max_tokens=max_tokens),
+                LLMCallStats(role=role, model=model, mode="chat"),
+            )
+        except AIServiceUnavailableError as error:
+            fallback = self._failover_target(model, error)
+            if fallback is None:
+                raise
+            content = await self._chat_once(
+                self._payload(fallback, messages, stream=False, temperature=temperature, max_tokens=max_tokens),
+                LLMCallStats(role=role, model=fallback, mode="chat", failover_from=model),
+            )
         logger.info(f"[OLLAMA] Response generated ({len(content)} chars)")
         return content
 
@@ -324,13 +391,34 @@ class OllamaService:
         Yields:
             Text chunks as they are generated
         """
-        model = model or self.model_for(role)
+        model = self._effective_model(model or self.model_for(role))
         messages = self._build_messages(system_prompt, user_prompt, context, chat_history)
-        payload = self._payload(model, messages, stream=True, temperature=temperature, max_tokens=max_tokens)
-        stats = LLMCallStats(role=role, model=model, mode="stream")
-
         logger.info(f"[OLLAMA STREAM] Starting stream - model: {model}, history_turns: {len(chat_history or [])}")
 
+        yielded = False
+        try:
+            # aclosing: if the consumer stops early, close the inner stream now so its queue slot is freed
+            async with aclosing(self._stream_once(
+                self._payload(model, messages, stream=True, temperature=temperature, max_tokens=max_tokens),
+                LLMCallStats(role=role, model=model, mode="stream"),
+            )) as stream:
+                async for chunk in stream:
+                    yielded = True
+                    yield chunk
+        except AIServiceUnavailableError as error:
+            # Fail over only before the first chunk: the user must never see two models' text stitched together
+            fallback = None if yielded else self._failover_target(model, error)
+            if fallback is None:
+                raise
+            async with aclosing(self._stream_once(
+                self._payload(fallback, messages, stream=True, temperature=temperature, max_tokens=max_tokens),
+                LLMCallStats(role=role, model=fallback, mode="stream", failover_from=model),
+            )) as stream:
+                async for chunk in stream:
+                    yield chunk
+
+    async def _stream_once(self, payload: Dict[str, Any], stats: LLMCallStats) -> AsyncGenerator[str, None]:
+        """One streaming /api/chat call: queue, stream, account. The slot is held until the stream ends."""
         started = time.perf_counter()
         completed = False
         try:
@@ -346,7 +434,10 @@ class OllamaService:
 
                     if response.status_code != 200:
                         logger.error(f"[OLLAMA STREAM] Error {response.status_code}")
-                        raise AIServiceUnavailableError(f"Ollama error ({response.status_code}): Streaming service temporarily unavailable.")
+                        raise AIServiceUnavailableError(
+                            f"Ollama error ({response.status_code}): Streaming service temporarily unavailable.",
+                            details={"status_code": response.status_code},
+                        )
 
                     logger.info("[OLLAMA STREAM] Connected, receiving stream...")
 
@@ -381,7 +472,7 @@ class OllamaService:
                 details={"reason": "timeout"},
             )
         except AIServiceUnavailableError as e:
-            stats.ok, stats.error = False, e.details.get("reason") or "unavailable"
+            stats.ok, stats.error = False, e.details.get("reason") or str(e.details.get("status_code") or "unavailable")
             raise
         finally:
             if stats.ok and not completed:
@@ -406,16 +497,28 @@ class OllamaService:
         If the reply does not validate, the model is shown the validation error once and asked again.
         Raises LLMStructuredOutputError when every attempt fails; AIServiceUnavailableError propagates.
         """
-        model = model or self.model_for(role)
+        model = self._effective_model(model or self.model_for(role))
         messages = self._build_messages(system_prompt, user_prompt, context)
         json_schema = schema.model_json_schema()
         last_error = ""
+        failed_over_from: Optional[str] = None
 
         for attempt in range(1, max_attempts + 1):
-            stats = LLMCallStats(role=role, model=model, mode="structured", attempts=attempt)
+            stats = LLMCallStats(role=role, model=model, mode="structured", attempts=attempt, failover_from=failed_over_from)
             payload = self._payload(model, messages, stream=False, temperature=temperature,
                                     max_tokens=max_tokens, json_schema=json_schema)
-            raw = await self._chat_once(payload, stats)
+            try:
+                raw = await self._chat_once(payload, stats)
+            except AIServiceUnavailableError as error:
+                fallback = self._failover_target(model, error)
+                if fallback is None:
+                    raise
+                # The backup model takes over this attempt and any later ones
+                failed_over_from, model = model, fallback
+                stats = LLMCallStats(role=role, model=model, mode="structured", attempts=attempt, failover_from=failed_over_from)
+                payload = self._payload(model, messages, stream=False, temperature=temperature,
+                                        max_tokens=max_tokens, json_schema=json_schema)
+                raw = await self._chat_once(payload, stats)
             try:
                 return schema.model_validate_json(raw)
             except ValidationError as e:
