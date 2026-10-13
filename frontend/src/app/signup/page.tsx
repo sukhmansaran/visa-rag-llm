@@ -97,7 +97,7 @@ function SignupPageForm() {
 
                     <div>
                         <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
-                            Password (min. 8 characters)
+                            Password (min. 10 characters, letters and numbers)
                         </label>
                         <input
                             type="password"
