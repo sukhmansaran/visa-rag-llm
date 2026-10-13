@@ -31,6 +31,12 @@ beat_schedule = {
         'schedule': crontab(minute=0, hour=4),  # Daily at 4 AM
     },
     
+    # Delete request traces past their retention period daily (M0.5, D7: 30 days)
+    'purge-old-traces': {
+        'task': 'app.workers.periodic_tasks.purge_old_traces_task',
+        'schedule': crontab(minute=30, hour=3),  # Daily at 3:30 AM
+    },
+
     # Clean up old logs weekly
     'cleanup-old-logs': {
         'task': 'app.workers.periodic_tasks.cleanup_old_logs_task',

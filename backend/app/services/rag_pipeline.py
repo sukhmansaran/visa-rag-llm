@@ -24,6 +24,7 @@ from app.services.guardrails.input_guardrail import input_guardrail
 from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
+from app.services.tracing import trace_step
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +147,10 @@ class RAGPipeline:
             return metrics
 
         # 0. Deterministic Input Guardrail Firewall Check
-        guardrail_res = input_guardrail.evaluate(query, chat_history=chat_history)
+        with trace_step("input_guardrail") as step:
+            guardrail_res = input_guardrail.evaluate(query, chat_history=chat_history)
+            step.update(allowed=guardrail_res.allowed,
+                        violation=guardrail_res.violation.value if guardrail_res.violation else None)
         if not guardrail_res.allowed:
             metrics["source"] = "guardrail_refusal"
             refusal = guardrail_res.refusal_message or "Request blocked by safety guardrail."
@@ -160,20 +164,26 @@ class RAGPipeline:
             return
 
         # 1. Intent Normalization
-        intent_data = await intent_parser.parse_intent(query)
-        country = intent_data.get("country", context_metadata.get("country", "unknown") if context_metadata else "unknown")
-        visa_type = intent_data.get("visa_type", "Student")
-        intent = intent_data.get("intent", "general")
+        with trace_step("intent") as step:
+            intent_data = await intent_parser.parse_intent(query)
+            country = intent_data.get("country", context_metadata.get("country", "unknown") if context_metadata else "unknown")
+            visa_type = intent_data.get("visa_type", "Student")
+            intent = intent_data.get("intent", "general")
+            step.update(intent=intent, country=country, visa_type=visa_type)
 
         # 2. Extract Authoritative Rule Engine Facts
-        rule_facts = rule_engine.try_rule_answer(intent, country, visa_type, query=query)
-        guarantee_fact = rule_engine.approval_guarantee_fact(query)
-        if guarantee_fact:
-            rule_facts = (rule_facts + "\n\n" + guarantee_fact) if rule_facts else guarantee_fact
+        with trace_step("rules") as step:
+            rule_facts = rule_engine.try_rule_answer(intent, country, visa_type, query=query)
+            guarantee_fact = rule_engine.approval_guarantee_fact(query)
+            if guarantee_fact:
+                rule_facts = (rule_facts + "\n\n" + guarantee_fact) if rule_facts else guarantee_fact
+            step.update(rule_facts=bool(rule_facts), guarantee_fact=bool(guarantee_fact))
         rules_version = await self._answer_cache_version()
 
         # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)
-        cached_response = intent_cache.get(country, visa_type, intent, version=rules_version, query=query)
+        with trace_step("cache") as step:
+            cached_response = intent_cache.get(country, visa_type, intent, version=rules_version, query=query)
+            step.update(hit=bool(cached_response), used=bool(cached_response and not chat_history))
         if cached_response and not chat_history:
             metrics["source"] = "cache"
             yield {"type": "chunk", "content": cached_response}
@@ -182,34 +192,47 @@ class RAGPipeline:
 
         # 4. Structured Database & Tourist Context Check (A8 fallback session)
         tourist_context = ""
-        if db:
-            tourist_context = await get_tourist_context(db, query, country)
-        else:
-            try:
-                from app.core.database import AsyncSessionLocal
-                async with AsyncSessionLocal() as session:
-                    tourist_context = await get_tourist_context(session, query, country)
-            except Exception as e:
-                logger.warning(f"[RAG_PIPELINE] Tourist context DB error: {e}")
+        with trace_step("tourist_db") as step:
+            if db:
+                tourist_context = await get_tourist_context(db, query, country)
+            else:
+                try:
+                    from app.core.database import AsyncSessionLocal
+                    async with AsyncSessionLocal() as session:
+                        tourist_context = await get_tourist_context(session, query, country)
+                except Exception as e:
+                    logger.warning(f"[RAG_PIPELINE] Tourist context DB error: {e}")
+                    step["db_error"] = type(e).__name__
+            step["found"] = bool(tourist_context)
 
         # 5. Strict Vector Retrieval
         chunks = []
-        try:
-            chunks = await retrieval_service.retrieve(
-                query=query,
-                country=country,
-                visa_type=visa_type,
-                intent=intent,
-                top_k=settings.RAG_TOP_K,
-            )
-        except Exception as e:
-            logger.warning(f"[RAG_PIPELINE] Retrieval error: {e}")
-            chunks = []
+        with trace_step("retrieval", top_k=settings.RAG_TOP_K) as step:
+            try:
+                chunks = await retrieval_service.retrieve(
+                    query=query,
+                    country=country,
+                    visa_type=visa_type,
+                    intent=intent,
+                    top_k=settings.RAG_TOP_K,
+                )
+            except Exception as e:
+                logger.warning(f"[RAG_PIPELINE] Retrieval error: {e}")
+                step["retrieval_error"] = type(e).__name__
+                chunks = []
+            step["chunks"] = [
+                {"url": (c.get("metadata") or {}).get("url") or c.get("url"),
+                 "score": round(float(c.get("score") or 0.0), 4), "tier": c.get("authority_tier")}
+                for c in chunks
+            ]
         metrics["retrieval_chunks"] = len(chunks)
 
         # 6. Evidence gate (RAG-only policy: no verified evidence, no model call)
-        has_evidence = bool(chunks) or bool(tourist_context) or bool(rule_facts)
-        conf_eval = self.calculate_algorithmic_confidence(chunks, has_tourist_db=bool(tourist_context or rule_facts))
+        with trace_step("evidence_gate") as step:
+            has_evidence = bool(chunks) or bool(tourist_context) or bool(rule_facts)
+            conf_eval = self.calculate_algorithmic_confidence(chunks, has_tourist_db=bool(tourist_context or rule_facts))
+            step.update(has_evidence=has_evidence, confidence=conf_eval["score"], level=conf_eval["level"],
+                        passed=has_evidence and conf_eval["level"] != "INSUFFICIENT")
         metrics["confidence"] = conf_eval["score"]
         metrics["confidence_level"] = conf_eval["level"]
 
@@ -235,11 +258,15 @@ class RAGPipeline:
         metrics["llm_called"] = True
 
         if not stream:
-            answer = await llm_service.generate_answer(**generation_args)
-            answer = normalize_markdown_output(answer)
+            with trace_step("generation", mode="whole") as step:
+                answer = await llm_service.generate_answer(**generation_args)
+                answer = normalize_markdown_output(answer)
+                step["chars"] = len(answer)
 
             # Output Guardrail & Leakage Shield Validation
-            val_res = output_guardrail.validate_output(answer)
+            with trace_step("output_guardrail") as step:
+                val_res = output_guardrail.validate_output(answer)
+                step.update(valid=val_res.is_valid, violations=[v.value for v in val_res.violations])
             if not val_res.is_valid:
                 answer = val_res.sanitized_output
                 metrics["output_guardrail_remediated"] = True
@@ -248,7 +275,9 @@ class RAGPipeline:
                 metrics["output_guardrail_remediated"] = False
 
             # Legal & High-Risk Disclaimer Evaluation (Milestone 3 - Task 3.3)
-            disclaimer_eval = legal_disclaimer_engine.evaluate(query, answer)
+            with trace_step("disclaimer") as step:
+                disclaimer_eval = legal_disclaimer_engine.evaluate(query, answer)
+                step.update(high_risk=disclaimer_eval.is_high_risk, categories=list(disclaimer_eval.risk_categories or []))
             if disclaimer_eval.is_high_risk:
                 answer = disclaimer_eval.annotated_text
                 metrics["high_risk_topic_detected"] = True
@@ -273,19 +302,21 @@ class RAGPipeline:
         try:
             raw_token_stream = llm_service.generate_answer_stream(**generation_args)
 
-            async for event in output_guardrail.validate_stream(raw_token_stream):
-                event_type = event.get("type")
-                if event_type == "guardrail_blocked":
-                    stream_blocked = True
-                    stream_violations = event.get("violations", [])
-                    yield event
-                elif event_type == "chunk":
-                    content = event.get("content", "")
-                    if event.get("replaced"):
-                        full_response = content.strip()
-                    else:
-                        full_response += content
-                    yield event
+            with trace_step("generation", mode="stream") as step:
+                async for event in output_guardrail.validate_stream(raw_token_stream):
+                    event_type = event.get("type")
+                    if event_type == "guardrail_blocked":
+                        stream_blocked = True
+                        stream_violations = event.get("violations", [])
+                        yield event
+                    elif event_type == "chunk":
+                        content = event.get("content", "")
+                        if event.get("replaced"):
+                            full_response = content.strip()
+                        else:
+                            full_response += content
+                        yield event
+                step.update(chars=len(full_response), output_blocked=stream_blocked, violations=stream_violations)
 
             self._record_usage(metrics, user_prompt, combined_context, full_response)
 
@@ -296,7 +327,9 @@ class RAGPipeline:
                 metrics["output_guardrail_remediated"] = False
 
                 # Legal & High-Risk Disclaimer Evaluation (Milestone 3 - Task 3.3)
-                disclaimer_eval = legal_disclaimer_engine.evaluate(query, full_response)
+                with trace_step("disclaimer") as step:
+                    disclaimer_eval = legal_disclaimer_engine.evaluate(query, full_response)
+                    step.update(high_risk=disclaimer_eval.is_high_risk, categories=list(disclaimer_eval.risk_categories or []))
                 if disclaimer_eval.is_high_risk and disclaimer_eval.disclaimer_text:
                     full_response = disclaimer_eval.annotated_text
                     metrics["high_risk_topic_detected"] = True

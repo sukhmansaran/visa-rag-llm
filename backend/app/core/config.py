@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     LLM_MAX_CONCURRENT_CALLS: int = 1
     LLM_QUEUE_TIMEOUT_SECONDS: float = 300.0   # give up waiting for a free slot after this
 
+    # Request traces (M0.5): one PII-redacted record per chat request, deleted after the retention period (D7)
+    TRACES_ENABLED: bool = True
+    TRACE_RETENTION_DAYS: int = 30
+
     # RAG generation budget
     RAG_TOP_K: int = 4                    # chunks retrieved per question
     RAG_CONTEXT_CHARS: int = 4000         # max source text given to the model (~1,000 tokens)

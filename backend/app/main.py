@@ -16,7 +16,7 @@ from app.api.v1 import (
     auth, health, chat, ingest, profile, documents, 
     watchlist_api, notifications, payments, reviews, devices, files,
     tourist_visa, travel, travel_costs, travel_packages, tour_packages,
-    applications, visa_risk, subscription, crawler
+    applications, visa_risk, subscription, crawler, admin_traces
 )
 
 # Setup logging
@@ -101,6 +101,7 @@ app.include_router(subscription.router, prefix=settings.API_V1_PREFIX)
 
 # Crawler Pipeline
 app.include_router(crawler.router, prefix=settings.API_V1_PREFIX)
+app.include_router(admin_traces.router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/")
