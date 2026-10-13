@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from pydantic_settings import BaseSettings
 from pydantic import validator, Field
 import os
@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     OLLAMA_NUM_CTX: int = 4096
     # Ask thinking-capable models to skip hidden reasoning (a CPU can't afford it). Some builds ignore this.
     OLLAMA_THINK: bool = False
+
+    # LLM gateway (M0.4). Per-role models; empty = OLLAMA_MODEL.
+    LLM_MODEL_PLANNER: Optional[str] = None    # question analysis / decomposition
+    LLM_MODEL_ANSWER: Optional[str] = None     # grounded answer writing
+    LLM_MODEL_VERIFIER: Optional[str] = None   # claim checks against sources
+    # A CPU serves one generation at a time well; extra calls wait in a queue (per process).
+    LLM_MAX_CONCURRENT_CALLS: int = 1
+    LLM_QUEUE_TIMEOUT_SECONDS: float = 300.0   # give up waiting for a free slot after this
 
     # RAG generation budget
     RAG_TOP_K: int = 4                    # chunks retrieved per question

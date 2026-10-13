@@ -159,6 +159,7 @@ class LLMStructurer:
                     user_prompt=text,
                     temperature=0.1,
                     max_tokens=2000,
+                    role="extraction",
                 )
                 parsed = self._parse_json_response(response)
                 if parsed and self._validate_schema(parsed, schema_type):
