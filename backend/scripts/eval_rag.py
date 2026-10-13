@@ -13,6 +13,7 @@ Usage (from backend/):
   .venv\\Scripts\\python.exe scripts\\eval_rag.py --models llama3.2:3b,phi4-mini
   .venv\\Scripts\\python.exe scripts\\eval_rag.py --models llama3.2:3b --baseline      # old prompt + budgets
   .venv\\Scripts\\python.exe scripts\\eval_rag.py --models qwen3:4b --limit 5
+  .venv\\Scripts\\python.exe scripts\\eval_rag.py --models llama3.2:3b --stream        # streaming path
 Results are written to logs/eval_<model>_<mode>_<timestamp>.json
 """
 
@@ -81,7 +82,16 @@ def score(case: dict, answer: str, context: str, llm_called: bool) -> dict:
             "ungrounded_numbers": ungrounded, "placeholder_citation": placeholder}
 
 
-async def run_model(model: str, cases: list, baseline: bool) -> dict:
+async def _ask_streaming(question: str) -> dict:
+    """Run the streaming pipeline and fold its events into process_query's result shape."""
+    done = {}
+    async for event in rag_module.rag_pipeline.process_query_stream(query=question, context_metadata={"country": "Canada"}):
+        if event.get("type") == "done":
+            done = event
+    return {"answer": done.get("full_response", ""), "sources": done.get("sources", []), "metrics": done.get("metrics", {})}
+
+
+async def run_model(model: str, cases: list, baseline: bool, stream: bool = False) -> dict:
     llm_service.model = model
     if baseline:
         rag_module.GROUNDED_SYSTEM_PROMPT = _baseline_prompt()
@@ -89,12 +99,18 @@ async def run_model(model: str, cases: list, baseline: bool) -> dict:
 
     captured = {}
     original = llm_service.generate_answer
+    original_stream = llm_service.generate_answer_stream
 
     async def capture(*args, **kwargs):
         captured["context"] = kwargs.get("context", "")
         return await original(*args, **kwargs)
 
+    def capture_stream(*args, **kwargs):
+        captured["context"] = kwargs.get("context", "")
+        return original_stream(*args, **kwargs)
+
     llm_service.generate_answer = capture
+    llm_service.generate_answer_stream = capture_stream
 
     # Warm-up so model loading time isn't counted against the first question
     await original(system_prompt="Reply with OK.", user_prompt="OK", temperature=0.0, max_tokens=3)
@@ -104,7 +120,10 @@ async def run_model(model: str, cases: list, baseline: bool) -> dict:
         intent_cache.clear()
         captured.clear()
         t0 = time.perf_counter()
-        r = await rag_module.rag_pipeline.process_query(query=case["question"], context_metadata={"country": "Canada"})
+        if stream:
+            r = await _ask_streaming(case["question"])
+        else:
+            r = await rag_module.rag_pipeline.process_query(query=case["question"], context_metadata={"country": "Canada"})
         latency = time.perf_counter() - t0
         metrics = r["metrics"]
         s = score(case, r["answer"], captured.get("context", ""), metrics.get("llm_called", False))
@@ -123,9 +142,10 @@ async def run_model(model: str, cases: list, baseline: bool) -> dict:
         print(f"  {status} {latency:6.1f}s  {case['id']:<30} {' '.join(extra)}", flush=True)
 
     llm_service.generate_answer = original
+    llm_service.generate_answer_stream = original_stream
     n = len(results)
     summary = {
-        "model": model, "mode": "baseline" if baseline else "current", "cases": n,
+        "model": model, "mode": _mode_name(baseline, stream), "cases": n,
         "passed": sum(r["passed"] for r in results),
         "facts_ok": sum(not r["missing"] for r in results),
         "forbidden_hits": sum(bool(r["forbidden"]) for r in results),
@@ -136,12 +156,17 @@ async def run_model(model: str, cases: list, baseline: bool) -> dict:
     return {"summary": summary, "results": results}
 
 
+def _mode_name(baseline: bool, stream: bool) -> str:
+    return ("baseline" if baseline else "current") + ("_stream" if stream else "")
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", required=True)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--only", default="", help="comma-separated case ids")
     ap.add_argument("--baseline", action="store_true", help="old prompt + old context/answer budgets")
+    ap.add_argument("--stream", action="store_true", help="evaluate the streaming path (process_query_stream)")
     args = ap.parse_args()
 
     cases = json.loads(EVAL_SET.read_text(encoding="utf-8"))["cases"]
@@ -154,9 +179,9 @@ async def main():
     out_dir = BACKEND / "logs"
     out_dir.mkdir(exist_ok=True)
     for model in args.models.split(","):
-        mode = "baseline" if args.baseline else "current"
+        mode = _mode_name(args.baseline, args.stream)
         print(f"\n=== {model} ({mode}) - {len(cases)} cases ===", flush=True)
-        report = await run_model(model.strip(), cases, args.baseline)
+        report = await run_model(model.strip(), cases, args.baseline, args.stream)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = out_dir / f"eval_{model.replace(':', '-')}_{mode}_{stamp}.json"
         path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")

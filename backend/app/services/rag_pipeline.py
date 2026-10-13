@@ -1,12 +1,13 @@
 """
 Unified RAG Pipeline orchestrator.
-Executes the authoritative flow: Guardrail -> Intent -> Cache -> Rule Engine -> Tourist DB -> Strict Retrieval -> Grounded Generation.
+Executes the authoritative flow: Guardrail -> Intent -> Rule Engine -> Cache -> Tourist DB -> Strict Retrieval
+-> Evidence gate -> Grounded Generation -> Output guardrail -> Legal disclaimer.
+One implementation (RAGPipeline._events) serves both the streaming and the non-streaming endpoint.
 Enforces the RAG-Only policy: Zero ungrounded hallucinations, zero raw LLM fallbacks.
 """
 
 import logging
 import time
-import json
 import re
 from typing import Dict, Any, Optional, List, AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -80,7 +81,55 @@ class RAGPipeline:
         chat_history: Optional[List[Dict[str, Any]]] = None,
         db: Optional[AsyncSession] = None,
     ) -> Dict[str, Any]:
-        """Synchronous query processor with RAG-only enforcement."""
+        """Non-streaming answer: runs the shared pipeline and folds its events into one result.
+
+        Model errors propagate, so the endpoint can map AIServiceUnavailableError to HTTP 503.
+        """
+        blocked: Optional[Dict[str, Any]] = None
+        done: Dict[str, Any] = {}
+        async for event in self._events(query, context_metadata, chat_history, db, stream=False):
+            if event["type"] == "guardrail_blocked":
+                blocked = event
+            elif event["type"] == "done":
+                done = event
+
+        result: Dict[str, Any] = {
+            "answer": done["full_response"],
+            "sources": done.get("sources", []),
+            "metrics": done["metrics"],
+            "guardrail_blocked": blocked is not None,
+        }
+        if blocked is not None:
+            result["violation"] = blocked["violation"]
+        return result
+
+    async def process_query_stream(
+        self,
+        query: str,
+        context_metadata: Optional[Dict[str, Any]] = None,
+        chat_history: Optional[List[Dict[str, Any]]] = None,
+        db: Optional[AsyncSession] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Streaming answer: yields the shared pipeline's events for SSE, with early guardrail interception."""
+        async for event in self._events(query, context_metadata, chat_history, db, stream=True):
+            yield event
+
+    async def _events(
+        self,
+        query: str,
+        context_metadata: Optional[Dict[str, Any]],
+        chat_history: Optional[List[Dict[str, Any]]],
+        db: Optional[AsyncSession],
+        stream: bool,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        The one implementation of the chat pipeline (M0.3).
+
+        Yields events: {"type": "guardrail_blocked"}, {"type": "chunk"} (one or more) and a final
+        {"type": "done", "full_response", "sources", "metrics"}. Only answer generation differs by mode:
+        stream=True streams tokens through the sentence-level output validator; stream=False makes one
+        model call and validates the whole answer.
+        """
         start_time = time.perf_counter()
         metrics: Dict[str, Any] = {
             "tokens_in": 0,
@@ -92,18 +141,23 @@ class RAGPipeline:
             "source": "none",
         }
 
+        def finished_metrics() -> Dict[str, Any]:
+            metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
+            return metrics
+
         # 0. Deterministic Input Guardrail Firewall Check
         guardrail_res = input_guardrail.evaluate(query, chat_history=chat_history)
         if not guardrail_res.allowed:
-            metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             metrics["source"] = "guardrail_refusal"
-            return {
-                "answer": guardrail_res.refusal_message or "Request blocked by safety guardrail.",
-                "sources": [],
-                "metrics": metrics,
+            refusal = guardrail_res.refusal_message or "Request blocked by safety guardrail."
+            yield {
+                "type": "guardrail_blocked",
                 "violation": guardrail_res.violation.value if guardrail_res.violation else None,
-                "guardrail_blocked": True,
+                "reason": guardrail_res.reason,
             }
+            yield {"type": "chunk", "content": refusal}
+            yield {"type": "done", "full_response": refusal, "metrics": finished_metrics()}
+            return
 
         # 1. Intent Normalization
         intent_data = await intent_parser.parse_intent(query)
@@ -121,9 +175,10 @@ class RAGPipeline:
         # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)
         cached_response = intent_cache.get(country, visa_type, intent, version=rules_version, query=query)
         if cached_response and not chat_history:
-            metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             metrics["source"] = "cache"
-            return {"answer": cached_response, "sources": [], "metrics": metrics, "guardrail_blocked": False}
+            yield {"type": "chunk", "content": cached_response}
+            yield {"type": "done", "full_response": cached_response, "sources": [], "metrics": finished_metrics()}
+            return
 
         # 4. Structured Database & Tourist Context Check (A8 fallback session)
         tourist_context = ""
@@ -152,50 +207,34 @@ class RAGPipeline:
             chunks = []
         metrics["retrieval_chunks"] = len(chunks)
 
-        # 6. Grounded Generation (RAG-Only — Zero ungrounded fallback)
+        # 6. Evidence gate (RAG-only policy: no verified evidence, no model call)
         has_evidence = bool(chunks) or bool(tourist_context) or bool(rule_facts)
         conf_eval = self.calculate_algorithmic_confidence(chunks, has_tourist_db=bool(tourist_context or rule_facts))
         metrics["confidence"] = conf_eval["score"]
         metrics["confidence_level"] = conf_eval["level"]
 
-        sources: List[Dict[str, Any]] = []
+        if not has_evidence or conf_eval["level"] == "INSUFFICIENT":
+            metrics["source"] = "no_evidence_refusal" if not has_evidence else "insufficient_confidence_refusal"
+            metrics["llm_called"] = False
+            yield {"type": "chunk", "content": UNVERIFIED_EVIDENCE_REFUSAL}
+            yield {"type": "done", "full_response": UNVERIFIED_EVIDENCE_REFUSAL, "sources": [], "metrics": finished_metrics()}
+            return
 
-        if has_evidence and conf_eval["level"] != "INSUFFICIENT":
-            context_blocks = []
-            if rule_facts:
-                context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
+        # 7. Grounded Generation
+        combined_context, sources = self._build_grounded_context(rule_facts, chunks, tourist_context)
+        user_prompt = f"User Question: {query}"
+        generation_args = dict(
+            system_prompt=GROUNDED_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            context=combined_context,
+            chat_history=chat_history,
+            temperature=settings.RAG_TEMPERATURE,  # 0 = deterministic; same question, same answer
+            max_tokens=settings.RAG_MAX_ANSWER_TOKENS,
+        )
+        metrics["llm_called"] = True
 
-            if chunks:
-                chunk_context = retrieval_service.prepare_context(chunks, max_context_length=settings.RAG_CONTEXT_CHARS)
-                if chunk_context:
-                    context_blocks.append(chunk_context)
-
-            if tourist_context:
-                context_blocks.append(f"Official Tourist Database Records:\n{tourist_context}")
-
-            # Only cite sources that were actually included in the LLM context (A11)
-            cited_chunks = [c for c in chunks if c.get("_included_in_context")] if chunks else []
-            sources = self.build_citations(cited_chunks, tourist_context)
-            if rule_facts and not sources:
-                sources = [{
-                    "url": "https://www.canada.ca/en/immigration-refugees-citizenship.html",
-                    "title": "Official IRCC Regulatory Framework",
-                    "snippet": rule_facts[:200],
-                    "scraped_at": "",
-                }]
-
-            combined_context = "\n\n".join(context_blocks)
-            user_prompt = f"User Question: {query}"
-
-            metrics["llm_called"] = True
-            answer = await llm_service.generate_answer(
-                system_prompt=GROUNDED_SYSTEM_PROMPT,
-                user_prompt=user_prompt,
-                context=combined_context,
-                chat_history=chat_history,
-                temperature=settings.RAG_TEMPERATURE,  # 0 = deterministic; same question, same answer
-                max_tokens=settings.RAG_MAX_ANSWER_TOKENS,
-            )
+        if not stream:
+            answer = await llm_service.generate_answer(**generation_args)
             answer = normalize_markdown_output(answer)
 
             # Output Guardrail & Leakage Shield Validation
@@ -217,22 +256,109 @@ class RAGPipeline:
                 metrics["high_risk_topic_detected"] = False
                 metrics["risk_categories"] = []
 
-            metrics["tokens_in"] = (len(GROUNDED_SYSTEM_PROMPT) + len(user_prompt) + len(combined_context)) // 4
-            metrics["tokens_out"] = len(answer) // 4
-            metrics["cost_usd"] = (metrics["tokens_in"] + metrics["tokens_out"]) * 0.0000001
-            metrics["source"] = "llm_rag"
+            self._record_usage(metrics, user_prompt, combined_context, answer)
 
             # Cache grounded result only if validation passed without leakage
             if val_res.is_valid:
                 intent_cache.set(country, visa_type, intent, answer, version=rules_version, query=query)
-        else:
-            # RAG-ONLY POLICY: Reject answer when no verified sources or confidence is INSUFFICIENT
-            answer = UNVERIFIED_EVIDENCE_REFUSAL
-            metrics["source"] = "no_evidence_refusal" if not has_evidence else "insufficient_confidence_refusal"
-            metrics["llm_called"] = False
 
-        metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
-        return {"answer": answer, "sources": sources, "metrics": metrics, "guardrail_blocked": False}
+            yield {"type": "chunk", "content": answer}
+            yield {"type": "done", "full_response": answer, "sources": sources, "metrics": finished_metrics()}
+            return
+
+        full_response = ""
+        stream_blocked = False
+        stream_violations = []
+        try:
+            raw_token_stream = llm_service.generate_answer_stream(**generation_args)
+
+            async for event in output_guardrail.validate_stream(raw_token_stream):
+                event_type = event.get("type")
+                if event_type == "guardrail_blocked":
+                    stream_blocked = True
+                    stream_violations = event.get("violations", [])
+                    yield event
+                elif event_type == "chunk":
+                    content = event.get("content", "")
+                    if event.get("replaced"):
+                        full_response = content.strip()
+                    else:
+                        full_response += content
+                    yield event
+
+            self._record_usage(metrics, user_prompt, combined_context, full_response)
+
+            if stream_blocked:
+                metrics["output_guardrail_remediated"] = True
+                metrics["output_violations"] = stream_violations
+            else:
+                metrics["output_guardrail_remediated"] = False
+
+                # Legal & High-Risk Disclaimer Evaluation (Milestone 3 - Task 3.3)
+                disclaimer_eval = legal_disclaimer_engine.evaluate(query, full_response)
+                if disclaimer_eval.is_high_risk and disclaimer_eval.disclaimer_text:
+                    full_response = disclaimer_eval.annotated_text
+                    metrics["high_risk_topic_detected"] = True
+                    metrics["risk_categories"] = disclaimer_eval.risk_categories
+                    yield {"type": "chunk", "content": disclaimer_eval.disclaimer_text}
+                else:
+                    metrics["high_risk_topic_detected"] = False
+                    metrics["risk_categories"] = []
+
+                normalized_full = normalize_markdown_output(full_response)
+                intent_cache.set(country, visa_type, intent, normalized_full, version=rules_version, query=query)
+        except Exception as e:
+            logger.error(f"[RAG_PIPELINE] LLM stream error: {e}", exc_info=True)
+            err_msg = "An error occurred while generating the answer from official sources."
+            full_response += err_msg
+            yield {"type": "chunk", "content": err_msg}
+
+        yield {
+            "type": "done",
+            "full_response": normalize_markdown_output(full_response),
+            "sources": sources,
+            "metrics": finished_metrics(),
+        }
+
+    def _build_grounded_context(
+        self,
+        rule_facts: str,
+        chunks: List[Dict[str, Any]],
+        tourist_context: str,
+    ) -> tuple[str, List[Dict[str, Any]]]:
+        """Assemble the model context (rule facts, retrieved chunks, tourist records) and the citations for it."""
+        context_blocks = []
+        if rule_facts:
+            context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
+
+        if chunks:
+            chunk_context = retrieval_service.prepare_context(chunks, max_context_length=settings.RAG_CONTEXT_CHARS)
+            if chunk_context:
+                context_blocks.append(chunk_context)
+
+        if tourist_context:
+            context_blocks.append(f"Official Tourist Database Records:\n{tourist_context}")
+
+        # Only cite sources that were actually included in the LLM context (A11)
+        cited_chunks = [c for c in chunks if c.get("_included_in_context")] if chunks else []
+        sources = self.build_citations(cited_chunks, tourist_context)
+        if rule_facts and not sources:
+            sources = [{
+                "url": "https://www.canada.ca/en/immigration-refugees-citizenship.html",
+                "title": "Official IRCC Regulatory Framework",
+                "snippet": rule_facts[:200],
+                "scraped_at": "",
+            }]
+
+        return "\n\n".join(context_blocks), sources
+
+    @staticmethod
+    def _record_usage(metrics: Dict[str, Any], user_prompt: str, context: str, answer: str) -> None:
+        """Rough token/cost estimate (characters / 4); real Ollama counts arrive with the request trace (M0.5)."""
+        metrics["tokens_in"] = (len(GROUNDED_SYSTEM_PROMPT) + len(user_prompt) + len(context)) // 4
+        metrics["tokens_out"] = len(answer) // 4
+        metrics["cost_usd"] = (metrics["tokens_in"] + metrics["tokens_out"]) * 0.0000001
+        metrics["source"] = "llm_rag"
 
     @staticmethod
     def build_citations(
@@ -344,194 +470,6 @@ class RAGPipeline:
             "authority": round(authority, 4),
             "freshness": round(freshness, 4),
         }
-
-    async def process_query_stream(
-        self,
-        query: str,
-        context_metadata: Optional[Dict[str, Any]] = None,
-        chat_history: Optional[List[Dict[str, Any]]] = None,
-        db: Optional[AsyncSession] = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Streaming query processor yielding SSE chunks with early guardrail interception."""
-        start_time = time.perf_counter()
-        metrics: Dict[str, Any] = {
-            "tokens_in": 0,
-            "tokens_out": 0,
-            "retrieval_chunks": 0,
-            "llm_called": False,
-            "cost_usd": 0.0,
-            "latency_ms": 0,
-            "source": "none",
-        }
-
-        # 0. Deterministic Input Guardrail Firewall Check
-        guardrail_res = input_guardrail.evaluate(query, chat_history=chat_history)
-        if not guardrail_res.allowed:
-            metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
-            metrics["source"] = "guardrail_refusal"
-            refusal = guardrail_res.refusal_message or "Request blocked by safety guardrail."
-            yield {
-                "type": "guardrail_blocked",
-                "violation": guardrail_res.violation.value if guardrail_res.violation else None,
-                "reason": guardrail_res.reason,
-            }
-            yield {"type": "chunk", "content": refusal}
-            yield {"type": "done", "full_response": refusal, "metrics": metrics}
-            return
-
-        # 1. Intent Normalization
-        intent_data = await intent_parser.parse_intent(query)
-        country = intent_data.get("country", context_metadata.get("country", "unknown") if context_metadata else "unknown")
-        visa_type = intent_data.get("visa_type", "Student")
-        intent = intent_data.get("intent", "general")
-
-        # 2. Extract Authoritative Rule Engine Facts
-        rule_facts = rule_engine.try_rule_answer(intent, country, visa_type, query=query)
-        guarantee_fact = rule_engine.approval_guarantee_fact(query)
-        if guarantee_fact:
-            rule_facts = (rule_facts + "\n\n" + guarantee_fact) if rule_facts else guarantee_fact
-        rules_version = await self._answer_cache_version()
-
-        # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)
-        cached_response = intent_cache.get(country, visa_type, intent, version=rules_version, query=query)
-        if cached_response and not chat_history:
-            metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
-            metrics["source"] = "cache"
-            yield {"type": "chunk", "content": cached_response}
-            yield {"type": "done", "full_response": cached_response, "sources": [], "metrics": metrics}
-            return
-
-        # 4. Structured Database & Tourist Context Check (A8 fallback session)
-        tourist_context = ""
-        if db:
-            tourist_context = await get_tourist_context(db, query, country)
-        else:
-            try:
-                from app.core.database import AsyncSessionLocal
-                async with AsyncSessionLocal() as session:
-                    tourist_context = await get_tourist_context(session, query, country)
-            except Exception as e:
-                logger.warning(f"[RAG_PIPELINE] Tourist context DB error in stream: {e}")
-
-        # 5. Strict Vector Retrieval
-        chunks = []
-        try:
-            chunks = await retrieval_service.retrieve(
-                query=query,
-                country=country,
-                visa_type=visa_type,
-                intent=intent,
-                top_k=settings.RAG_TOP_K,
-            )
-        except Exception as e:
-            logger.warning(f"[RAG_PIPELINE] Retrieval error: {e}")
-            chunks = []
-        metrics["retrieval_chunks"] = len(chunks)
-
-        # 6. Grounded Generation (RAG-Only)
-        has_evidence = bool(chunks) or bool(tourist_context) or bool(rule_facts)
-        conf_eval = self.calculate_algorithmic_confidence(chunks, has_tourist_db=bool(tourist_context or rule_facts))
-        metrics["confidence"] = conf_eval["score"]
-        metrics["confidence_level"] = conf_eval["level"]
-
-        if has_evidence and conf_eval["level"] != "INSUFFICIENT":
-            context_blocks = []
-            if rule_facts:
-                context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
-
-            if chunks:
-                chunk_context = retrieval_service.prepare_context(chunks, max_context_length=settings.RAG_CONTEXT_CHARS)
-                if chunk_context:
-                    context_blocks.append(chunk_context)
-
-            if tourist_context:
-                context_blocks.append(f"Official Tourist Database Records:\n{tourist_context}")
-
-            # Only cite sources that were actually included in the LLM context (A11)
-            cited_chunks = [c for c in chunks if c.get("_included_in_context")] if chunks else []
-            sources = self.build_citations(cited_chunks, tourist_context)
-            if rule_facts and not sources:
-                sources = [{
-                    "url": "https://www.canada.ca/en/immigration-refugees-citizenship.html",
-                    "title": "Official IRCC Regulatory Framework",
-                    "snippet": rule_facts[:200],
-                    "scraped_at": "",
-                }]
-
-            combined_context = "\n\n".join(context_blocks)
-            user_prompt = f"User Question: {query}"
-
-            metrics["llm_called"] = True
-            full_response = ""
-            stream_blocked = False
-            stream_violations = []
-
-            try:
-                raw_token_stream = llm_service.generate_answer_stream(
-                    system_prompt=GROUNDED_SYSTEM_PROMPT,
-                    user_prompt=user_prompt,
-                    context=combined_context,
-                    chat_history=chat_history,
-                    temperature=settings.RAG_TEMPERATURE,  # 0 = deterministic; same question, same answer
-                    max_tokens=settings.RAG_MAX_ANSWER_TOKENS,
-                )
-
-                async for event in output_guardrail.validate_stream(raw_token_stream):
-                    event_type = event.get("type")
-                    if event_type == "guardrail_blocked":
-                        stream_blocked = True
-                        stream_violations = event.get("violations", [])
-                        yield event
-                    elif event_type == "chunk":
-                        content = event.get("content", "")
-                        if event.get("replaced"):
-                            full_response = content.strip()
-                        else:
-                            full_response += content
-                        yield event
-
-                metrics["tokens_in"] = (len(GROUNDED_SYSTEM_PROMPT) + len(user_prompt) + len(combined_context)) // 4
-                metrics["tokens_out"] = len(full_response) // 4
-                metrics["cost_usd"] = (metrics["tokens_in"] + metrics["tokens_out"]) * 0.0000001
-                metrics["source"] = "llm_rag"
-
-                if stream_blocked:
-                    metrics["output_guardrail_remediated"] = True
-                    metrics["output_violations"] = stream_violations
-                else:
-                    metrics["output_guardrail_remediated"] = False
-
-                    # Legal & High-Risk Disclaimer Evaluation (Milestone 3 - Task 3.3)
-                    disclaimer_eval = legal_disclaimer_engine.evaluate(query, full_response)
-                    if disclaimer_eval.is_high_risk and disclaimer_eval.disclaimer_text:
-                        full_response = disclaimer_eval.annotated_text
-                        metrics["high_risk_topic_detected"] = True
-                        metrics["risk_categories"] = disclaimer_eval.risk_categories
-                        yield {"type": "chunk", "content": disclaimer_eval.disclaimer_text}
-                    else:
-                        metrics["high_risk_topic_detected"] = False
-                        metrics["risk_categories"] = []
-
-                    normalized_full = normalize_markdown_output(full_response)
-                    intent_cache.set(country, visa_type, intent, normalized_full, version=rules_version, query=query)
-            except Exception as e:
-                logger.error(f"[RAG_PIPELINE] LLM stream error: {e}", exc_info=True)
-                err_msg = "An error occurred while generating the answer from official sources."
-                full_response += err_msg
-                yield {"type": "chunk", "content": err_msg}
-
-            metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
-            normalized_final = normalize_markdown_output(full_response)
-            yield {"type": "done", "full_response": normalized_final, "sources": sources, "metrics": metrics}
-
-        else:
-            # RAG-ONLY POLICY: No verified chunks found or insufficient confidence
-            metrics["source"] = "no_evidence_refusal" if not has_evidence else "insufficient_confidence_refusal"
-            metrics["llm_called"] = False
-            metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
-            yield {"type": "chunk", "content": UNVERIFIED_EVIDENCE_REFUSAL}
-            yield {"type": "done", "full_response": UNVERIFIED_EVIDENCE_REFUSAL, "sources": [], "metrics": metrics}
-
 
 
 # Global instance
