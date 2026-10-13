@@ -13,7 +13,7 @@ Modules:
     worker      - CrawlerWorker: page fetching with retry and UA rotation
     classifier  - PageClassifier: keyword-based relevance classification
     extractor   - ContentExtractor: dual-engine text extraction
-    structurer  - LLMStructurer: Gemini-based field structuring
+    structurer  - LLMStructurer: local-LLM field structuring
     job_manager - CrawlJobManager: crawl job orchestration
     dedup       - Deduplicator: content hash deduplication
     cache       - ResponseCache: Redis-backed response caching

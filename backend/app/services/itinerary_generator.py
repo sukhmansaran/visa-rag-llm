@@ -1,4 +1,4 @@
-"""AI-powered travel itinerary generator using Gemini."""
+"""AI-powered travel itinerary generator using the local LLM."""
 
 import logging
 from typing import Dict, List, Any
@@ -22,7 +22,7 @@ async def generate_itinerary(
     cities: List[str] = None,
 ) -> Dict[str, Any]:
     """
-    Generate AI-powered travel itinerary using Gemini.
+    Generate AI-powered travel itinerary using the local LLM.
     
     Args:
         db: Database session
@@ -147,7 +147,7 @@ Create a realistic, enjoyable itinerary that:
 Return ONLY valid JSON, no additional text."""
     
     try:
-        # Generate itinerary using Gemini
+        # Generate itinerary using the local LLM
         response = await llm_service.generate_answer(
             system_prompt=system_prompt,
             user_prompt=user_prompt,

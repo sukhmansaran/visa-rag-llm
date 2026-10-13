@@ -1,4 +1,4 @@
-# Local development stack.
+# Local development stack. NOT TESTED recently; the supported setup is local (see README.md).
 # - Ollama runs on the host (`ollama serve`); containers reach it via host.docker.internal.
 # - Postgres/Redis ports are bound to 127.0.0.1 only, so they aren't reachable from your network.
 # - Requires backend/.env with a real SECRET_KEY (see .env.example).

@@ -256,7 +256,3 @@ class OllamaService:
 # Global singleton
 llm_service = OllamaService()
 
-# Backward-compat alias — any code that imported gemini_service or LLMService gets OllamaService
-gemini_service = llm_service
-LLMService = OllamaService
-

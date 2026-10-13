@@ -1,7 +1,7 @@
 """
 LLM Structurer for the Crawler Pipeline.
 
-Uses the existing GeminiService to extract structured visa/program fields
+Uses the local LLM (Ollama, app.services.llm) to extract structured visa/program fields
 from clean text content. Supports batch processing, schema validation,
 and controlled vocabulary normalization.
 """
@@ -80,12 +80,12 @@ _DEGREE_LEVEL_MAP: dict[str, str] = {
 class LLMStructurer:
     """Extracts structured visa/program data from text using the local LLM."""
 
-    def __init__(self, gemini_service=None):
-        if gemini_service is None:
+    def __init__(self, llm=None):
+        if llm is None:
             from app.services.llm import llm_service as default_svc
-            self.gemini = default_svc
+            self.llm = default_svc
         else:
-            self.gemini = gemini_service
+            self.llm = llm
 
     async def extract_visa_fields(self, text: str) -> Optional[dict]:
         """Extract visa/immigration structured fields from text."""
@@ -151,10 +151,10 @@ class LLMStructurer:
     async def _extract_with_retry(
         self, text: str, system_prompt: str, schema_type: str, max_retries: int = 2
     ) -> Optional[dict]:
-        """Call Gemini and validate output, retrying on schema failure."""
+        """Call the local LLM and validate output, retrying on schema failure."""
         for attempt in range(max_retries + 1):
             try:
-                response = await self.gemini.generate_answer(
+                response = await self.llm.generate_answer(
                     system_prompt=system_prompt,
                     user_prompt=text,
                     temperature=0.1,

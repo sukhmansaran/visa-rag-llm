@@ -1,242 +1,195 @@
 # Visa RAG LLM (Pendu) 🍁
 
-> An enterprise-grade AI immigration intelligence platform and automated guidance assistant focused on Canadian immigration (IRCC), student permits, study-to-work transitions, and tourist travel.
+> A local-first assistant for Canadian immigration (IRCC) questions: study permits, proof of funds, work rights, post-graduation pathways and visitor visas. Answers are grounded in official canada.ca pages, and hard rules (fund amounts, exemptions, score conversions) come from code, not from the language model.
 
-Built with a high-performance **FastAPI** backend, **Next.js 15** App Router interface, deterministic **statutory rule engine**, bi-directional **security firewalls**, autonomous **crawler pipeline**, and automated **CI/CD infrastructure**.
+Everything runs on your own machine: a **FastAPI** backend, a **Next.js 15** frontend, a small local model through **Ollama** (`llama3.2:3b`), **ChromaDB** for retrieval, **PostgreSQL** and **Redis**. No user data is sent to a third-party AI service.
 
-[![CI Status](https://img.shields.io/badge/CI%2FCD-Passing-brightgreen?logo=github-actions)](.github/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-pytest-brightgreen)](backend/tests/)
-[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue?logo=python)](backend/)
+[![CI](https://github.com/sukhmansaran/visa-rag-llm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sukhmansaran/visa-rag-llm/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)](backend/)
 [![Node](https://img.shields.io/badge/Node-20.x-green?logo=node.js)](frontend/)
-[![Next.js](https://img.shields.io/badge/Next.js-14.x-black?logo=next.js)](frontend/)
+[![Next.js](https://img.shields.io/badge/Next.js-15.5-black?logo=next.js)](frontend/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue?logo=postgresql)](backend/alembic/)
 [![License](https://img.shields.io/badge/License-AGPL%20v3-orange)](LICENSE)
 
----
-
-## 🌟 Key Features & Engineering Innovations
-
-### 1. 🛡️ Deterministic Rule Primacy
-Statutory requirements under Canadian immigration regulations are evaluated deterministically in Python code—completely bypassing probabilistic LLM hallucinations:
-- **Proof of Funds Calculator:** Encodes 2024 IRCC cost-of-living updates ($20,635 base + tuition + family dependents) with currency conversion.
-- **Language Conversion Engine:** Maps IELTS General/Academic, CELPIP-General, and PTE Core scores to Canadian Language Benchmark (CLB 4–10).
-- **Provincial Attestation Letter (PAL):** Evaluates exemption eligibility (Master's/PhD, primary/secondary school, in-Canada extensions).
-
-### 2. 🧱 Bi-Directional Security Firewalls
-- **Deterministic Input Guardrail:** Detects prompt injections, code generation requests, role-play jailbreaks (DAN), and out-of-scope non-visa topics pre-retrieval ($<15$ms response time, 0 LLM tokens).
-- **Sentence-Buffered Streaming Output Shield:** Validates generated text sentence-by-sentence in real-time, blocking internal prompt leaks, system delimiters, filesystem paths, credentials, and unwarranted legal guarantees.
-- **Statutory Legal Disclaimer Engine:** Appends context-aware non-legal advice disclaimers compliant with Canadian immigration regulatory guidelines.
-
-### 3. 🔒 Privacy & Secure File Ingestion
-- **Recursive PII Redaction:** Scrubs passports, IRCC Client ID/UCIs, Canadian SINs, phone numbers, emails, and bearer auth tokens across all server logs.
-- **Salted SHA-256 Telemetry:** Hashes user IDs before persisting structured audit log events.
-- **Magic-Byte Document Ingestion:** Verifies file signatures (PDF `%PDF-`, JPEG `\xFF\xD8\xFF`, PNG `\x89PNG`), enforces 10MB limits, strips EXIF/IPTC/PDF metadata, and neutralizes prompt injections inside uploaded resumes and bank statements.
-
-### 4. 🕷️ Autonomous Crawler Pipeline & Anti-Bot Subsystem
-- Scrapes official government web sources (`canada.ca`, `cic.gc.ca`) with robots.txt compliance.
-- Employs token bucket rate limiting (`throttle_manager.py`), rotating TLS browser fingerprints, and proxy pools to prevent crawler blacklisting.
-- Database revisions 009 (`crawler_pipeline`) and 010 (`crawler_anti_bot`) track jobs, seeds, page logs, and change events.
-
-### 5. 🗄️ Database Lifecycle Safeguards & Disposable Isolation
-- **Development Database Protection:** Tests never modify the development database (`visa_chatbot`): migration tests snapshot its revision and tables and fail if anything changes. Upgrade it deliberately with `alembic upgrade head` (currently at `010`).
-- **`init_db()` Allowlist:** `DATABASE_AUTO_CREATE_TABLES` defaults to `False`. Table auto-creation via `SQLModel.metadata.create_all()` is blocked unless the database is explicitly listed in `DISPOSABLE_DATABASE_ALLOWLIST`.
-- **Disposable Lifecycle Runner:** Automated tests dynamically spawn and drop disposable databases (`visa_chatbot_disposable_migration_test`) for full 001 $\to$ 010 upgrade and downgrade testing.
-
-### 6. ⚙️ Dual-Job Continuous Integration (CI/CD)
-- GitHub Actions pipeline (`.github/workflows/ci.yml`) runs concurrent `backend` and `frontend` jobs.
-- Uses AWS ECR Public PostgreSQL 16 mirror (`public.ecr.aws/docker/library/postgres:16`) for unthrottled runner performance.
-- Pins all third-party actions by immutable commit SHAs.
+> **Status:** working local MVP, not production-ready. It gives general information, not legal advice; always confirm with IRCC or a licensed consultant.
 
 ---
 
-## 🔬 Engineering Detail
+## 🌟 What it does
 
-The parts that took the longest, and that a feature list hides.
+### 1. 🛡️ Rules in code, not in the model
+Requirements with exact numbers are computed by a deterministic rule engine ([`rule_engine.py`](backend/app/services/rule_engine.py)) that reads dated, source-linked rules from [`ircc_rules.yaml`](backend/app/data/ircc_rules.yaml). The computed facts are handed to the model as binding facts; the model only phrases the answer.
+- **Proof of funds:** IRCC's cost-of-living amounts are stored as dated schedules (for example the schedule effective 2026-09-01), so the right amount is chosen for an application date and family size.
+- **Language scores:** converts IELTS, CELPIP and PTE scores to Canadian Language Benchmark (CLB) levels.
+- **Provincial Attestation Letter (PAL):** checks the exemptions, including the 2026 exemption for master's and doctoral students at public DLIs.
+- **Processing times and work rights:** answered from the same rules file; questions that ask for an approval guarantee get an explicit "no one can guarantee approval" fact.
 
-### Retrieval: authority-weighted reranking
+Every rules section records its source URL and when it was last checked; a test fails when a section goes stale.
 
-Not every source deserves equal trust in an immigration answer. `RetrievalService` assigns each chunk an **authority tier** and reranks on it:
+### 2. 🔎 Grounded answers with citations
+- Official pages are fetched, cleaned to their main text and stored as chunks in ChromaDB (cosine similarity).
+- [`RetrievalService`](backend/app/services/retrieval.py) reranks chunks by **authority tier**, so an IRCC page outranks a forum post that matches the same words:
 
 | Tier | Source | Weight |
 |---|---|---|
-| 1 | Official government — canada.ca, cic.gc.ca, IRCC | 1.0 |
+| 1 | Official government (canada.ca, IRCC) | 1.0 |
 | 2 | DLI universities and colleges | 0.8 |
 | 3 | Recognized organizations, provincial programs | 0.6 |
-| 4 | Third-party blogs, forums, unverified | 0.3 |
+| 4 | Third-party and unverified | 0.3 |
 
-Tiers are read from chunk metadata where present and otherwise inferred from the source domain. A forum post and an IRCC page can both match the same query; only one of them gets to drive the answer.
+- The model is told to answer only from the retrieved text and to cite it as `[Source 1]`, `[Source 2]`…; when the sources don't cover a question it says so instead of guessing. If nothing relevant is found at all, the model is not called and the user gets a plain "no verified source" reply.
+- Answers are cached, and the cache is invalidated when the rules or the knowledge base change.
 
-### Grounding and confidence
+### 3. 🧱 Guardrails on both sides of the model
+All three live in [`services/guardrails/`](backend/app/services/guardrails/):
+- **Input** (`InputGuardrail`): blocks prompt injection (including persona and multilingual attempts), harmful requests (document fraud, lying to officers), and off-topic questions before retrieval, with no model call.
+- **Output** (`OutputGuardrail`, `StreamingOutputValidator`): checks for code, secrets, system-prompt leaks, file paths and promised immigration outcomes. In streaming mode, text is checked as it arrives, so a violation is stopped before it reaches the user.
+- **Legal disclaimer:** added to answers on high-risk topics (refusals, misrepresentation, inadmissibility, enforcement, appeals).
 
-- `build_citations` ties each claim in a response back to the chunks that supported it
-- `calculate_algorithmic_confidence` scores an answer rather than asserting it
-- `sanitize_chunk_text` and `prepare_context` control what reaches the model, and in what form
+### 4. 🔒 Security and privacy
+- JWT auth with refresh-token rotation: each refresh token works once, and logout revokes it.
+- Rate limiting per verified user, and per IP on login, signup and refresh. `X-Forwarded-For` is only trusted from configured proxies.
+- PII (emails, phone numbers, passport numbers, SIN, UCI, bearer tokens) is redacted from logs and from stored chat messages; user IDs in logs are HMAC-hashed.
+- File uploads: magic-byte checks (PDF, JPEG, PNG), a 10 MB limit, metadata stripping, and prompt-injection screening of document text.
+- `SECRET_KEY` must be set; short or placeholder keys are rejected at startup.
 
-### Guardrails — three modules, ~44 KB
+### 5. 🕷️ Crawler for official sources
+Modules in [`services/crawler/`](backend/app/services/crawler/): `frontier`, `robots`, `throttle`, `dedup`, `classifier`, `extractor`, `structurer`, `cache`, `job_manager`, `worker`, `ssrf_validator`.
+- Only allowlisted domains (Government of Canada, EduCanada, listed DLIs) can be fetched, and DNS results are checked against private address ranges.
+- Respects robots.txt, throttles per host, rotates user agents and supports an optional proxy list.
+- Jobs run as Celery tasks; periodic crawls are scheduled with Celery beat.
 
-**Input.** `InputGuardrail.evaluate()` enforces scope before a query reaches retrieval at all, with distinct handling for in-scope visa inquiries and for contextual follow-ups that only make sense given chat history.
+### 6. 🗄️ Database safety
+- Alembic migrations `001`–`010` (the last two add schema integrity constraints and immutable document versioning).
+- Tests never touch the development database: they use allowlisted test databases only, and the migration tests snapshot the dev database and fail if it changes.
+- Automatic table creation is off by default and refused for any database outside the allowlist.
 
-**Output.** `OutputGuardrail.validate_output()` runs five independent checks before any response is returned:
-
-| Check | Catches |
-|---|---|
-| `_check_code` | code blocks leaking into user-facing answers |
-| `_check_secrets` | credentials or keys appearing in generated text |
-| `_check_prompt_leak` | system prompt disclosure |
-| `_check_path_leak` | internal filesystem paths |
-| `_check_legal_guarantee` | language that promises an immigration outcome |
-
-Violations are typed via `OutputViolationType` and recorded as security events.
-
-**Streaming.** `StreamingOutputValidator` validates partial output while it is still arriving, with `_check_early_triggers` catching a violation before the user sees it. Validating a finished response is straightforward; validating one token by token mid-stream is the harder problem, and the one a streaming UI actually has.
-
-**Legal disclaimer.** Its own module — an immigration tool that reads as legal advice is a liability whatever the model intended.
-
-### Crawler — 13 modules
-
-`frontier` · `robots` · `throttle` · `dedup` · `classifier` · `extractor` · `structurer` · `cache` · `job_manager` · `worker` · `portal_configs`
-
-Politeness and correctness are first-class rather than afterthoughts: robots.txt compliance, per-host throttling, URL frontier management, content deduplication, and page classification ahead of extraction. Change detection sits on top and flags when a policy source has genuinely changed.
-
-### Test suite — 36 files
-
-Coverage is weighted toward what is hard to get right rather than what is easy to assert:
-
-- **Guardrails and grounding** — `test_citation_delimitation`, `test_output_guardrail`, `test_streaming_output_guardrail`, `test_input_guardrail`, `test_legal_disclaimer`
-- **Retrieval** — `test_rag_integration`, `test_retrieval_service`, `test_authority_tiering`, `test_deduplicator`, `test_embeddings_service`
-- **Crawling** — `test_crawl_frontier`, `test_crawler_worker`, `test_robots_checker`, `test_throttle_manager`, `test_page_classifier`
-- **Ingestion** — `test_ingestion_orchestrator`, `test_ingestion_pipeline`, `test_unified_pipeline`, `test_official_fetcher_and_normalizer`
-- **Security** — `test_logging_pii_redaction`, `test_file_upload_security`, `test_user_isolation_and_security`, `test_database_init_safety`
-- **End to end** — `test_live_llm_e2e`, `test_migration_010_disposable`
+### 7. 📏 Measured, not assumed
+- [`scripts/eval_rag.py`](backend/scripts/eval_rag.py) runs a fixed set of 17 questions through the full pipeline and scores answers for required facts, forbidden claims and invented numbers. On `llama3.2:3b` it passes 16 of 17, with no forbidden claims or invented numbers.
+- GitHub Actions runs about 720 backend tests on every pull request, along with a dependency vulnerability audit, a lint/syntax gate and a frontend lint, build and audit. Tests that need a live Ollama model are skipped in CI and run locally.
 
 ---
 
-## 🛠️ Tech Stack
+## 🛠️ Tech stack
 
 | Layer | Technologies |
 |---|---|
-| **Frontend** | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS, Lucide Icons, pnpm 9.15.9 |
-| **Backend** | FastAPI, Python 3.11 / 3.12, Uvicorn, SQLModel ORM, Alembic |
-| **Databases & Cache** | PostgreSQL 16, Redis 7, Celery asynchronous task queue |
-| **Vector Search & AI** | ChromaDB (embedded, persistent), Ollama (`llama3.2:3b`, `nomic-embed-text`) |
-| **Crawler** | Playwright, BeautifulSoup4, Token-bucket rate limiting |
-| **CI/CD & DevOps** | GitHub Actions, Docker, Docker Compose, AWS ECR Public mirrors |
+| **Frontend** | Next.js 15.5 (App Router), React 19, TypeScript, Tailwind CSS, Lucide icons, pnpm 9.15.9 |
+| **Backend** | Python 3.12, FastAPI, Uvicorn, SQLModel, Alembic, PyJWT |
+| **Data** | PostgreSQL 16, Redis (Memurai on Windows), Celery 5 |
+| **AI** | Ollama (`llama3.2:3b` for answers, `nomic-embed-text` for embeddings), ChromaDB 0.5 (embedded) |
+| **Crawler** | Playwright, httpx, BeautifulSoup4 |
+| **CI** | GitHub Actions (backend and frontend jobs, actions pinned by commit SHA) |
+
+### Frontend pages
+| Page | State |
+|---|---|
+| Chat, Visa risk, Onboarding, Login, Signup | Connected to the backend |
+| Dashboard, Applications, Destinations, SOP writer | UI only, showing static sample data |
 
 ---
 
-## 📂 Project Structure
+## 📂 Project structure
 
 ```
 ├── backend/
 │   ├── app/
-│   │   ├── api/v1/         # Modular REST endpoints (chat, risk, crawler, files, auth)
-│   │   ├── core/           # Config, database, security, input/output guardrails, logging
-│   │   ├── models/         # SQLModel database schemas (user, crawler, visa, doc)
-│   │   └── services/       # Unified RAG, rule engine, LLM orchestrator, crawler worker
-│   ├── alembic/            # Database migrations (001 through 010)
-│   ├── tests/              # Automated unit, integration, guardrail, and red-team tests
-│   └── Dockerfile          # Backend containerization
+│   │   ├── api/v1/          # REST endpoints (auth, chat, visa risk, documents, crawler, ingest, ...)
+│   │   ├── core/            # Config, database, security, middleware, logging, token store
+│   │   ├── data/            # ircc_rules.yaml (dated, source-linked rules)
+│   │   ├── models/          # SQLModel tables
+│   │   ├── services/        # rag_pipeline, retrieval, rule_engine, llm, vector_store,
+│   │   │                    # guardrails/, crawler/, ingestion/
+│   │   └── workers/         # Celery app, tasks and schedules
+│   ├── alembic/             # Migrations 001–010
+│   ├── scripts/             # Source seeding, RAG evaluation, Celery start scripts
+│   └── tests/               # pytest suite
 ├── frontend/
-│   ├── src/
-│   │   ├── app/            # Next.js App Router (dashboard, chat, visa-risk, sop, destinations)
-│   │   └── components/     # Reusable UI components & layouts
-│   ├── package.json        # Frontend dependencies (pnpm 9.15.9)
-│   └── next.config.mjs     # Remote image patterns & Next.js config
-├── docs/                   # Authoritative architecture & database documentation
-├── project_plan/           # Milestones, audit logs, incident post-mortems, roadmaps
-└── .github/workflows/      # Automated CI/CD workflow definitions
+│   └── src/
+│       ├── app/             # Next.js pages
+│       ├── components/      # Shared UI
+│       └── lib/             # Auth helpers
+└── .github/workflows/       # CI
 ```
+
+The `Dockerfile` and `docker-compose.yml` in `backend/` have not been tested recently; the supported setup is the local one below.
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick start (Windows, local)
 
 ### Prerequisites
-- PostgreSQL 16 running locally
-- Redis on `127.0.0.1:6379` — on Windows use [Memurai](https://www.memurai.com/) (Redis-compatible service)
-- Node.js 20 & `pnpm` (`npm install -g pnpm@9.15.9`)
 - Python 3.12
-- [Ollama](https://ollama.ai/) running locally with models:
-  ```bash
+- PostgreSQL 16, with two databases: `visa_chatbot` (development) and `visa_chatbot_test` (tests)
+- Redis on `127.0.0.1:6379`. On Windows, use [Memurai](https://www.memurai.com/).
+- Node.js 20 and pnpm (`npm install -g pnpm@9.15.9`)
+- [Ollama](https://ollama.com/) running, with the models pulled:
+  ```powershell
   ollama pull llama3.2:3b
   ollama pull nomic-embed-text
   ```
 
-### Running Locally
+### 1. Backend
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+Copy-Item .env.example .env
+# Set SECRET_KEY in .env (at least 32 characters; placeholders are rejected). Generate one with:
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+# Also set DATABASE_URL in .env to your visa_chatbot database.
+alembic upgrade head
+uvicorn app.main:app --reload --port 8000
+```
+The API runs at `http://localhost:8000`, with Swagger UI at `/docs`.
 
-1. **Backend Setup:**
-   ```powershell
-   cd backend
-   python -m venv .venv
-   .\.venv\Scripts\activate
-   pip install -r requirements.txt
-   Copy-Item .env.example .env
-   # REQUIRED: set SECRET_KEY in .env (min 32 chars; placeholders are rejected at startup)
-   python -c "import secrets; print(secrets.token_urlsafe(48))"
-   alembic upgrade head
-   uvicorn app.main:app --reload --port 8000
-   ```
-   API runs at: `http://localhost:8000` (Swagger UI at `/docs`)
+### 2. Knowledge base
+The chatbot answers from the pages you ingest. Register the official sources, then fetch, chunk and embed them (needs Ollama running and Playwright's Chromium):
+```powershell
+cd backend
+playwright install chromium
+python scripts/seed_sources.py          # registers the curated canada.ca and university pages
+python scripts/run_initial_ingestion.py # fetches them and stores the chunks in ChromaDB
+```
+Without ingested sources, rule-based questions still work, but other answers will say the sources don't cover the question.
 
-2. **Frontend Setup:**
-   ```powershell
-   cd ../frontend
-   pnpm install
-   pnpm dev
-   ```
-   Web interface runs at: `http://localhost:3000`
+### 3. Frontend
+```powershell
+cd frontend
+pnpm install
+pnpm dev
+```
+The web app runs at `http://localhost:3000`.
 
-3. **Background workers (ingestion, crawling, scheduled jobs)** — each in its own terminal:
-   ```powershell
-   cd backend
-   .\scripts\start_celery_worker.ps1   # executes jobs (uses --pool=solo; Windows has no prefork)
-   .\scripts\start_celery_beat.ps1     # schedules periodic jobs; run exactly one
-   ```
-   The API works without workers, but ingestion/crawl endpoints and scheduled jobs need them.
+### 4. Background workers
+Run each in its own terminal:
+```powershell
+cd backend
+.\scripts\start_celery_worker.ps1   # runs jobs (uses --pool=solo; Windows has no prefork)
+.\scripts\start_celery_beat.ps1     # schedules periodic jobs; run exactly one
+```
+Chat works without workers; ingestion, crawling and scheduled jobs need them.
 
 ---
 
-## 🧪 Running Automated Tests
+## 🧪 Tests
 
-### Backend Test Suite
 ```powershell
 cd backend
-pytest
+pytest                                   # full suite; live-model tests skip if Ollama is not running
+pytest tests/test_migration_010_disposable.py -v   # migration up/down on a throwaway database
+python scripts/eval_rag.py               # answer-quality evaluation (needs Ollama and an ingested knowledge base)
 ```
 
-### Run Migration Lifecycle Tests (Disposable Database)
 ```powershell
-pytest tests/test_migration_010_disposable.py -v
-```
-
-### Run Frontend Lint & Build
-```powershell
-cd ../frontend
+cd frontend
 pnpm run lint
 pnpm run build
 ```
 
 ---
 
-## 📚 Complete Project Documentation Index
-
-For exhaustive context, refer to the dedicated markdown documents:
-
-| Documentation File | Description & Contents |
-|---|---|
-| [PROJECT_STATUS.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/PROJECT_STATUS.md) | Executive status, system architecture, test metrics, and current readiness matrix. |
-| [backend/README.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/backend/README.md) | Backend engineering manual, API catalog, directory layout, and security controls. |
-| [docs/ARCHITECTURE.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/docs/ARCHITECTURE.md) | Authoritative multi-tier system architecture and dataflow diagrams. |
-| [docs/DATABASE_LIFECYCLE_AND_SAFEGUARDS.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/docs/DATABASE_LIFECYCLE_AND_SAFEGUARDS.md) | Migrations 001–010, dev DB protection, `init_db()` allowlist, and disposable DB testing. |
-| [docs/RAG_COST_OPTIMIZATION.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/docs/RAG_COST_OPTIMIZATION.md) | Mathematical analysis of token reductions and cost savings via deterministic rule bypass. |
-| [project_plan/AUDIT_LOG.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/project_plan/AUDIT_LOG.md) | Granular chronological audit log of all completed engineering tasks and verification evidence. |
-| [project_plan/detailed_tasks.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/project_plan/detailed_tasks.md) | Granular task checklists across all Milestones (1–6) and engineering phases. |
-| [project_plan/CI_CD_INCIDENT_REPORT.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/project_plan/CI_CD_INCIDENT_REPORT.md) | Post-mortem analysis of all 6 CI/CD errors (Action pins, Docker Hub 429, ESLint, devDeps, timing race). |
-| [project_plan/ROADMAP_AND_REMAINING_WORK.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/project_plan/ROADMAP_AND_REMAINING_WORK.md) | Detailed operational plan for remaining work: Milestone 5, Milestone 6, OWASP IDOR, and production gate. |
-| [GITHUB_UPLOAD_WARNINGS.md](file:///d:/projects/llm%20chatbot/llm%20chatbot/pendu/GITHUB_UPLOAD_WARNINGS.md) | Security advisory regarding historical Git commit sanitization prior to public repository upload. |
-
----
-
 ## 📄 License
 
-This project is licensed under the terms of the [GNU Affero General Public License v3.0](LICENSE).
+Licensed under the [GNU Affero General Public License v3.0](LICENSE).

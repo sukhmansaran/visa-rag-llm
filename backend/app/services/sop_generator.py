@@ -128,14 +128,14 @@ async def generate_sop(
     system_prompt = _build_system_prompt(template)
     user_prompt = _build_user_prompt(profile_context, context, template, university, program)
     
-    # Generate using Google Gemini
+    # Generate using the local LLM (Ollama)
     # Note: local Ollama model — keep max_tokens reasonable to avoid slow responses
     sop_content = await llm_service.generate_answer(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         context="",  # Context already in user_prompt
         temperature=0.7,  # More creative for SOP writing
-        max_tokens=8000,  # High limit to account for thinking tokens in Gemini 2.5
+        max_tokens=8000,
     )
     
     return sop_content

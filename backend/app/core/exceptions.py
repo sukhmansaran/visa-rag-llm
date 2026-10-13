@@ -96,7 +96,7 @@ class ConfigurationError(AppException):
 
 
 class LLMServiceError(ExternalServiceError):
-    """Raised when LLM service (Gemini/OpenAI) fails."""
+    """Raised when the LLM service (local Ollama) fails."""
     
     def __init__(self, message: str, status_code: Optional[int] = None, details: Optional[Dict[str, Any]] = None):
         service_details = details or {}
