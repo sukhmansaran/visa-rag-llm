@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     LLM_MAX_CONCURRENT_CALLS: int = 1
     LLM_QUEUE_TIMEOUT_SECONDS: float = 300.0   # give up waiting for a free slot after this
 
+    # Celery redelivery (M0.6a). A task whose worker died stays "unacked" in Redis; after this many seconds it is
+    # put back on its queue. Must exceed the longest task (answer budget D3 = 5 min), or a task still running
+    # would be delivered twice. On Windows (--pool=solo) kombu never restores by itself: see app/workers/maintenance.py.
+    CELERY_VISIBILITY_TIMEOUT_SECONDS: int = 900
+
     # Request traces (M0.5): one PII-redacted record per chat request, deleted after the retention period (D7)
     TRACES_ENABLED: bool = True
     TRACE_RETENTION_DAYS: int = 30

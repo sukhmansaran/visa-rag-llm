@@ -31,6 +31,12 @@ beat_schedule = {
         'schedule': crontab(minute=0, hour=4),  # Daily at 4 AM
     },
     
+    # Put back tasks left unacked by a crashed worker (M0.6a; kombu doesn't on Windows --pool=solo)
+    'restore-unacked-messages': {
+        'task': 'app.workers.maintenance.restore_unacked_task',
+        'schedule': 60.0,  # every minute
+    },
+
     # Delete request traces past their retention period daily (M0.5, D7: 30 days)
     'purge-old-traces': {
         'task': 'app.workers.periodic_tasks.purge_old_traces_task',
@@ -78,6 +84,7 @@ task_routes = {
     'app.workers.crawler_tasks.*': {'queue': 'crawler'},
     'app.workers.tasks.*': {'queue': 'default'},
     'app.workers.periodic_tasks.*': {'queue': 'default'},
+    'app.workers.maintenance.*': {'queue': 'default'},
 }
 
 
