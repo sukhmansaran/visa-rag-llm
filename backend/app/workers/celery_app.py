@@ -12,6 +12,7 @@ celery_app = Celery(
         "app.workers.tasks",
         "app.workers.periodic_tasks",
         "app.workers.crawler_tasks",
+        "app.workers.maintenance",
     ],
 )
 
@@ -31,6 +32,9 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,
+    # How long an unacked task may stay with a worker before it counts as lost and is redelivered.
+    # Restoring is done by app/workers/maintenance.py (kombu does not do it on Windows --pool=solo).
+    broker_transport_options={"visibility_timeout": settings.CELERY_VISIBILITY_TIMEOUT_SECONDS},
 )
 
 # Import beat schedule from config
