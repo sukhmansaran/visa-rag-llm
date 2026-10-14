@@ -19,6 +19,6 @@ Set-Location $backend
 
 & "$backend\.venv\Scripts\python.exe" -m celery -A app.workers.celery_app worker `
     --pool=solo `
-    --queues=default,ingestion,changes,crawler `
+    --queues=default,answers,ingestion,changes,crawler `
     --hostname="$Name@%h" `
     --loglevel=$LogLevel

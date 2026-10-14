@@ -19,7 +19,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 import anyio
 from sqlalchemy import delete
@@ -61,6 +61,7 @@ class TraceRecorder:
         self.answer = ""
         self.error: Optional[str] = None
         self.finished = False
+        self.on_step: Optional[Callable[[Dict[str, Any]], None]] = None  # e.g. live progress for answer jobs
         self._started = time.perf_counter()
         self._saved = False
 
@@ -75,7 +76,13 @@ class TraceRecorder:
             record["error"] = type(e).__name__
             raise
         finally:
-            self.steps.append({"name": name, "ms": round((time.perf_counter() - started) * 1000, 1), **record})
+            entry = {"name": name, "ms": round((time.perf_counter() - started) * 1000, 1), **record}
+            self.steps.append(entry)
+            if self.on_step is not None:
+                try:
+                    self.on_step(entry)
+                except Exception:
+                    logger.warning(f"[TRACE] on_step callback failed for step {name}", exc_info=True)
 
     def finish(self, answer: str = "", source: Optional[str] = None, status: Optional[str] = None,
                error: Optional[str] = None) -> None:
