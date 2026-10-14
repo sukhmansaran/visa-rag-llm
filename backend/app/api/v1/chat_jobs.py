@@ -29,7 +29,8 @@ from app.services import answer_jobs as jobs
 logger = get_logger(__name__)
 router = APIRouter(tags=["Chat jobs"])
 
-SSE_HEADERS = {"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+# no-transform: stops compressing proxies (incl. Next.js `next start`) from buffering the whole stream (M0.6d)
+SSE_HEADERS = {"Cache-Control": "no-cache, no-transform", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
 
 
 async def _owned_job(job_id: str, user: User) -> Dict[str, str]:

@@ -5,6 +5,7 @@ import { Send, BookOpen, ChevronDown, ChevronUp, Database, Zap, Clock, ExternalL
 import Link from "next/link";
 import { MarkdownMessage } from "@/components/MarkdownMessage";
 import { getToken, isAuthenticated } from "@/lib/auth";
+import { cancelJob, describeStep, followJob, JobEvent, JobRequestError, startAnswerJob } from "@/lib/jobStream";
 
 
 interface Message {
@@ -14,6 +15,23 @@ interface Message {
     sources?: any[];
     streaming?: boolean;
     guardrail_blocked?: boolean;
+    progress?: string;          // current step label while the answer job runs
+    steps?: number[];           // step numbers received (diagnostic jobs), for end-to-end checks
+    status?: "running" | "done" | "error" | "cancelled";
+}
+
+const JOB_PARAM = "job";
+
+function setJobInUrl(jobId: string | null) {
+    const url = new URL(window.location.href);
+    if (jobId) url.searchParams.set(JOB_PARAM, jobId);
+    else url.searchParams.delete(JOB_PARAM);
+    window.history.replaceState(null, "", url.pathname + url.search);
+}
+
+function errorText(reason: string | undefined): string {
+    if (reason === "time_budget") return "\n\n⚠️ The answer took longer than the 5-minute limit and was stopped.";
+    return "\n\n⚠️ The answer could not be completed. Please try again.";
 }
 
 export default function ChatPage() {
@@ -38,173 +56,147 @@ export default function ChatPage() {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
+    const jobIdRef = useRef<string | null>(null);
+    const [connection, setConnection] = useState<"connected" | "reconnecting">("connected");
+
+    const updateLastAssistant = (update: (message: Message) => Message) => {
+        setMessages(prev => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            if (last?.role === "assistant") updated[updated.length - 1] = update(last);
+            return updated;
+        });
+    };
+
+    const handleJobEvent = (event: JobEvent) => {
+        const data = event.data || {};
+        switch (event.type) {
+            case "step":
+                updateLastAssistant(m => ({
+                    ...m,
+                    progress: describeStep(data),
+                    steps: typeof data.n === "number" ? [...(m.steps || []), data.n] : m.steps,
+                }));
+                break;
+            case "chunk":
+                updateLastAssistant(m => ({ ...m, content: m.content + (data.content || ""), streaming: true }));
+                break;
+            case "guardrail_blocked":
+                updateLastAssistant(m => ({ ...m, guardrail_blocked: true }));
+                break;
+            case "done":
+                updateLastAssistant(m => ({
+                    ...m,
+                    content: data.full_response || m.content,
+                    sources: data.sources || [],
+                    metrics: data.metrics || {},
+                    streaming: false,
+                    progress: undefined,
+                    status: "done",
+                }));
+                break;
+            case "error":
+                updateLastAssistant(m => ({
+                    ...m,
+                    content: (data.partial || m.content) + errorText(data.reason),
+                    streaming: false,
+                    progress: undefined,
+                    status: "error",
+                }));
+                break;
+            case "cancelled":
+                updateLastAssistant(m => ({
+                    ...m,
+                    content: (data.partial || m.content) || "Stopped.",
+                    streaming: false,
+                    progress: undefined,
+                    status: "cancelled",
+                }));
+                break;
+        }
+    };
+
+    /** Follow a job until it ends; reconnects automatically. Used for new questions and after a reload. */
+    const runJob = async (jobId: string) => {
+        abortControllerRef.current?.abort();
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        jobIdRef.current = jobId;
+        setLoading(true);
+        try {
+            await followJob(jobId, handleJobEvent, { signal: controller.signal, onConnection: setConnection });
+        } catch (error: any) {
+            if (error?.name === "AbortError") return;
+            const message = error instanceof JobRequestError && (error.status === 401 || error.status === 403)
+                ? "Your session has expired. Please [sign in again](/login?redirect=/chat)."
+                : `⚠️ ${error?.message || "The answer could not be loaded."}`;
+            updateLastAssistant(m => ({ ...m, content: message, streaming: false, progress: undefined, status: "error" }));
+        } finally {
+            if (jobIdRef.current === jobId) {
+                jobIdRef.current = null;
+                setLoading(false);
+                setConnection("connected");
+                setJobInUrl(null);
+            }
+        }
+    };
+
+    // After a reload, re-attach to the answer that was running (its id is kept in the URL)
+    useEffect(() => {
+        const jobId = new URL(window.location.href).searchParams.get(JOB_PARAM);
+        if (!jobId || !getToken()) return;
+        setMessages(prev => [...prev, { role: "assistant", content: "", streaming: true, status: "running" }]);
+        runJob(jobId);
+        return () => abortControllerRef.current?.abort();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const handleStop = async () => {
+        const jobId = jobIdRef.current;
+        if (jobId) {
+            await cancelJob(jobId); // the job stops on the server; the "cancelled" event ends the stream
+            updateLastAssistant(m => ({ ...m, progress: "Stopping…" }));
+        } else {
+            abortControllerRef.current?.abort();
+            setLoading(false);
+        }
+    };
+
     const handleSend = async (e?: React.FormEvent, overrideText?: string) => {
         if (e) e.preventDefault();
         const textToSend = (overrideText !== undefined ? overrideText : query).trim();
         if (!textToSend || loading) return;
 
-        const userMessage: Message = { role: "user", content: textToSend };
-        setMessages(prev => [...prev, userMessage]);
+        setMessages(prev => [...prev, { role: "user", content: textToSend }]);
         setQuery("");
-        setLoading(true);
 
-        // Add an empty assistant message that we'll stream into
-        setMessages(prev => [...prev, {
-            role: "assistant",
-            content: "",
-            streaming: true,
-        }]);
-
-        // Cancel any previous request
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
+        // Conversation history is loaded server-side from the session (sessionId); never sent by the client
+        if (!getToken()) {
+            setMessages(prev => [...prev, {
+                role: "assistant",
+                content: "Authentication is required to query official records. Please [sign in](/login?redirect=/chat) or [create a free account](/signup?redirect=/chat).",
+                streaming: false,
+            }]);
+            return;
         }
-        abortControllerRef.current = new AbortController();
 
+        setMessages(prev => [...prev, { role: "assistant", content: "", streaming: true, status: "running", progress: "Starting" }]);
+        setLoading(true);
         try {
-            // Conversation history is loaded server-side from the session (sessionId); never sent by the client
-            const token = getToken();
-            if (!token) {
-                setMessages(prev => [
-                    ...prev.slice(0, -1),
-                    {
-                        role: "assistant",
-                        content: "Authentication is required to query official records. Please [sign in](/login?redirect=/chat) or [create a free account](/signup?redirect=/chat).",
-                        streaming: false,
-                    }
-                ]);
-                setLoading(false);
-                return;
-            }
-
-            const response = await fetch("/api/v1/chat/answer/stream", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                    query: textToSend,
-                    country: profile?.country || "Canada",
-                    university: profile?.university || null,
-                    sessionId: sessionId,
-                }),
-                signal: abortControllerRef.current.signal,
+            const job = await startAnswerJob({
+                query: textToSend,
+                country: profile?.country || "Canada",
+                university: profile?.university || null,
+                sessionId: sessionId,
             });
-
-            if (response.status === 401 || response.status === 403) {
-                throw new Error("Your session has expired. Please [sign in again](/login?redirect=/chat).");
-            }
-
-            if (!response.ok) {
-                throw new Error(`Server returned HTTP ${response.status} (${response.statusText})`);
-            }
-
-            if (!response.body) {
-                throw new Error("No response stream body returned by server");
-            }
-
-            // Read the SSE stream
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() ?? "";
-
-                for (const line of lines) {
-                    if (!line.startsWith("data: ")) continue;
-                    const jsonStr = line.slice(6).trim();
-                    if (!jsonStr) continue;
-
-                    try {
-                        const event = JSON.parse(jsonStr);
-
-                        if (event.type === "session") {
-                            setSessionId(event.session_id);
-                        } else if (event.type === "guardrail_blocked") {
-                            setMessages(prev => {
-                                const updated = [...prev];
-                                const last = updated[updated.length - 1];
-                                if (last?.role === "assistant") {
-                                    updated[updated.length - 1] = {
-                                        ...last,
-                                        guardrail_blocked: true,
-                                    };
-                                }
-                                return updated;
-                            });
-                        } else if (event.type === "chunk") {
-                            // Append chunk to the streaming message
-                            setMessages(prev => {
-                                const updated = [...prev];
-                                const last = updated[updated.length - 1];
-                                if (last?.role === "assistant") {
-                                    updated[updated.length - 1] = {
-                                        ...last,
-                                        content: last.content + event.content,
-                                        streaming: true,
-                                    };
-                                }
-                                return updated;
-                            });
-                        } else if (event.type === "done") {
-                            // Mark streaming complete with full metadata
-                            setMessages(prev => {
-                                const updated = [...prev];
-                                const last = updated[updated.length - 1];
-                                if (last?.role === "assistant") {
-                                    updated[updated.length - 1] = {
-                                        ...last,
-                                        content: event.full_response || last.content,
-                                        sources: event.sources || [],
-                                        metrics: event.metrics || {},
-                                        streaming: false,
-                                    };
-                                }
-                                return updated;
-                            });
-                        } else if (event.type === "error") {
-                            setMessages(prev => {
-                                const updated = [...prev];
-                                const last = updated[updated.length - 1];
-                                if (last?.role === "assistant") {
-                                    updated[updated.length - 1] = {
-                                        ...last,
-                                        content: `Server Error: ${event.message}`,
-                                        streaming: false,
-                                    };
-                                }
-                                return updated;
-                            });
-                        }
-                    } catch {
-                        // Skip malformed JSON lines
-                    }
-                }
-            }
+            setSessionId(job.session_id);
+            setJobInUrl(job.job_id);
+            await runJob(job.job_id);
         } catch (error: any) {
-            console.error("[CHAT] Request failed:", error);
-            if (error.name === "AbortError") return;
-
-            setMessages(prev => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last?.role === "assistant") {
-                    updated[updated.length - 1] = {
-                        ...last,
-                        content: `⚠️ Could not reach backend: ${error.message || "Failed to fetch"}. Please ensure the backend is running at http://localhost:8000.`,
-                        streaming: false,
-                    };
-                }
-                return updated;
-            });
-        } finally {
+            const message = error instanceof JobRequestError && (error.status === 401 || error.status === 403)
+                ? "Your session has expired. Please [sign in again](/login?redirect=/chat)."
+                : `⚠️ Could not start the answer: ${error?.message || "Failed to fetch"}.`;
+            updateLastAssistant(m => ({ ...m, content: message, streaming: false, progress: undefined, status: "error" }));
             setLoading(false);
         }
     };
@@ -277,7 +269,13 @@ export default function ChatPage() {
                 )}
 
                 {messages.map((msg, i) => (
-                    <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div
+                        key={i}
+                        className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                        data-testid={msg.role === "assistant" ? "assistant-message" : "user-message"}
+                        data-status={msg.status}
+                        data-steps={msg.steps?.join(",")}
+                    >
                         <div className={`max-w-[85%] rounded-2xl p-4 ${msg.role === "user"
                                 ? "bg-primary text-white rounded-br-none"
                                 : "bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-bl-none shadow-sm"
@@ -286,6 +284,18 @@ export default function ChatPage() {
                                 <div className="mb-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                                     <ShieldCheck className="h-3.5 w-3.5" />
                                     <span>🛡️ Guardrail Firewall Intercepted</span>
+                                </div>
+                            )}
+
+                            {msg.role === "assistant" && msg.streaming && msg.progress && (
+                                <div data-testid="job-progress" className="mb-2 flex items-center gap-2 text-xs text-slate-500">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                                    <span>{msg.progress}…</span>
+                                    {connection === "reconnecting" && i === messages.length - 1 && (
+                                        <span data-testid="reconnecting" className="rounded-full bg-amber-500/10 px-2 py-0.5 text-amber-600">
+                                            Reconnecting
+                                        </span>
+                                    )}
                                 </div>
                             )}
 
@@ -392,10 +402,8 @@ export default function ChatPage() {
                     {loading ? (
                         <button
                             type="button"
-                            onClick={() => {
-                                if (abortControllerRef.current) abortControllerRef.current.abort();
-                                setLoading(false);
-                            }}
+                            onClick={handleStop}
+                            data-testid="stop-button"
                             title="Cancel / Stop"
                             className="absolute right-2 top-2 h-10 w-10 flex items-center justify-center rounded-full bg-slate-700 text-white hover:bg-slate-800 transition-transform active:scale-95 cursor-pointer"
                         >

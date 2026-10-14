@@ -123,7 +123,7 @@ async def get_answer_stream(
                 blocked_stream(),
                 media_type="text/event-stream",
                 headers={
-                    "Cache-Control": "no-cache",
+                    "Cache-Control": "no-cache, no-transform",  # no-transform: proxies/Next.js must not gzip-buffer the stream
                     "Connection": "keep-alive",
                     "X-Accel-Buffering": "no",
                 }
@@ -232,7 +232,7 @@ async def get_answer_stream(
             event_stream(),
             media_type="text/event-stream",
             headers={
-                "Cache-Control": "no-cache",
+                "Cache-Control": "no-cache, no-transform",  # no-transform: proxies/Next.js must not gzip-buffer the stream
                 "Connection": "keep-alive",
                 "X-Accel-Buffering": "no",  # Disable nginx buffering
             }

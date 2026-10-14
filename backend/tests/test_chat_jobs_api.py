@@ -104,6 +104,8 @@ async def test_create_run_and_stream_a_job(client, db_session, scripted, queued)
     stream = await client.get(f"/api/v1/chat/jobs/{job_id}/events", headers=headers)
     assert stream.status_code == 200 and stream.headers["content-type"].startswith("text/event-stream")
     assert stream.headers["x-accel-buffering"] == "no"
+    # no-transform: without it Next.js (`next start`) gzips the stream and delivers it all at the end (M0.6d)
+    assert "no-transform" in stream.headers["cache-control"]
     events, _ = parse_sse(stream.text)
     kinds = [k for _, k, _ in events]
     assert kinds[0] == "status" and kinds[-1] == "done" and "step" in kinds and "chunk" in kinds
