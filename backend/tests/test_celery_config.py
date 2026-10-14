@@ -8,7 +8,18 @@ scrapes, change detection, cleanup and the weekly digest never ran.
 
 from app.workers.celery_app import celery_app
 
-WORKER_QUEUES = {"default", "ingestion", "changes", "crawler"}
+def _worker_queues() -> set:
+    """The queues the real worker consumes, read from its start script (the source of truth)."""
+    import re
+    from pathlib import Path
+
+    script = (Path(__file__).resolve().parent.parent / "scripts" / "start_celery_worker.ps1").read_text(encoding="utf-8")
+    match = re.search(r"--queues=([\w,]+)", script)
+    assert match, "start_celery_worker.ps1 must pass --queues"
+    return set(match.group(1).split(","))
+
+
+WORKER_QUEUES = _worker_queues()
 
 
 def _registered_tasks():
