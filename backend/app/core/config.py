@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     # Answer jobs (M0.6b): long answers run as Celery jobs that publish progress events to Redis
     ANSWER_JOB_BUDGET_SECONDS: int = 300   # D3: 5 minutes per answer, then the job stops with error "time_budget"
     ANSWER_JOB_TTL_SECONDS: int = 3600     # job state and events expire from Redis after this
+    SSE_HEARTBEAT_SECONDS: float = 15.0    # idle event streams send a heartbeat so proxies keep them open
 
     # Request traces (M0.5): one PII-redacted record per chat request, deleted after the retention period (D7)
     TRACES_ENABLED: bool = True
