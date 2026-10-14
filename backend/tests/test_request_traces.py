@@ -166,6 +166,7 @@ async def test_stream_endpoint_produces_a_trace(client, db_session, scripted_pip
     events = [json.loads(line[6:]) for line in r.text.splitlines() if line.startswith("data: ")]
     done = events[-1]
     assert done["type"] == "done"
+    assert "no-transform" in r.headers["cache-control"]  # keeps compressing proxies from buffering the stream
 
     rows = await traces(db_session)
     assert [t.trace_id for t in rows] == [done["metrics"]["trace_id"]]
