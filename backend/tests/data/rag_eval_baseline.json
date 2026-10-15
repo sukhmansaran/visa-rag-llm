@@ -3,7 +3,7 @@
   "model": "llama3.2:3b",
   "model_digest": "a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72",
   "prompt_version": "65a65a9948a6",
-  "rules_version": "f72a9d7d6b40",
+  "rules_version": "9b92b5a1f0b5",
   "eval_set_version": 2,
   "runs": 3,
   "summary": {
@@ -12,7 +12,7 @@
     "eval_set_version": 2,
     "cases": 63,
     "runs": 3,
-    "passed": 51,
+    "passed": 52,
     "pass_rate": 0.81,
     "unstable_cases": [
       "extend_study_permit",
@@ -711,9 +711,9 @@
     },
     "distractor_sds": {
       "type": "distractor",
-      "critical": false,
-      "passed": false,
-      "passes": 0,
+      "critical": true,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {
@@ -914,5 +914,17 @@
       "ungrounded": false,
       "rules_values": {}
     }
-  }
+  },
+  "history": [
+    {
+      "date": "2026-10-15",
+      "accepted": [
+        "distractor_sds"
+      ],
+      "model": "llama3.2:3b",
+      "model_digest": "a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72",
+      "prompt_version": "65a65a9948a6",
+      "rules_version": "9b92b5a1f0b5"
+    }
+  ]
 }

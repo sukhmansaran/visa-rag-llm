@@ -83,6 +83,30 @@ def build_baseline(report: dict, versions: dict) -> dict:
     }
 
 
+def accept_cases(baseline: dict, report: dict, versions: dict, today: str) -> List[str]:
+    """
+    Record fixed cases as passing in the baseline without a full re-run. Only cases that passed by majority in a
+    report with 3+ runs are accepted; each acceptance is logged in baseline["history"]. Returns the accepted ids.
+    """
+    if report["summary"]["runs"] < 3:
+        raise SystemExit("Accepting cases needs a report with --runs 3 or more.")
+    accepted = []
+    for r in report["results"]:
+        if r["id"] not in baseline["cases"]:
+            raise SystemExit(f"{r['id']} is not in the baseline; refresh the full baseline to add new cases.")
+        if not r["passed"]:
+            raise SystemExit(f"{r['id']} did not pass by majority ({r['passes']}/{r['runs']}); not accepted.")
+        baseline["cases"][r["id"]].update(passed=True, passes=r["passes"], runs=r["runs"],
+                                          ungrounded=_ungrounded_majority(r),
+                                          rules_values=rule_values(r.get("rules_keys", [])))
+        accepted.append(r["id"])
+    baseline["summary"]["passed"] = sum(c["passed"] for c in baseline["cases"].values())
+    baseline.setdefault("history", []).append({"date": today, "accepted": accepted, **versions})
+    for key in ("model_digest", "prompt_version", "rules_version"):
+        baseline[key] = versions[key]
+    return accepted
+
+
 def compare(baseline: dict, results: List[dict]) -> Dict[str, List[str]]:
     out: Dict[str, List[str]] = {"regressions": [], "new_ungrounded": [], "rule_changes": [], "improvements": [],
                                  "new_cases": [], "unstable": []}
@@ -107,6 +131,17 @@ def compare(baseline: dict, results: List[dict]) -> Dict[str, List[str]]:
 
 
 async def run_gate(args) -> int:
+    if args.accept:
+        if not BASELINE.exists():
+            print("FAIL: no baseline to update.")
+            return 1
+        baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
+        report = json.loads(Path(args.accept).read_text(encoding="utf-8"))
+        accepted = accept_cases(baseline, report, await _versions(baseline["model"]), date.today().isoformat())
+        BASELINE.write_text(json.dumps(baseline, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"Accepted as passing: {', '.join(accepted)} -> baseline now {baseline['summary']['passed']}/{len(baseline['cases'])}")
+        return 0
+
     if args.update_baseline:
         report = json.loads(Path(args.update_baseline).read_text(encoding="utf-8"))
         baseline = build_baseline(report, await _versions(report["summary"]["model"]))
@@ -169,6 +204,7 @@ def main() -> int:
     ap.add_argument("--full", action="store_true", help="all cases, 3 runs each (slow)")
     ap.add_argument("--system-prompt-file", default="")
     ap.add_argument("--update-baseline", default="", help="write the baseline from this full-run report")
+    ap.add_argument("--accept", default="", help="mark the (fixed) cases in this 3+ run report as passing in the baseline")
     return asyncio.run(run_gate(ap.parse_args()))
 
 

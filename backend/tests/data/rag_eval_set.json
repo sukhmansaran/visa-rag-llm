@@ -792,7 +792,7 @@
     {
       "id": "distractor_sds",
       "type": "distractor",
-      "critical": false,
+      "critical": true,
       "question": "How do I apply under the Student Direct Stream to get faster processing?",
       "must_include": [
         [
