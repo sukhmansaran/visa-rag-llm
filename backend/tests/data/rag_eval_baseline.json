@@ -1,0 +1,918 @@
+{
+  "created": "2026-10-15",
+  "model": "llama3.2:3b",
+  "model_digest": "a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72",
+  "prompt_version": "65a65a9948a6",
+  "rules_version": "f72a9d7d6b40",
+  "eval_set_version": 2,
+  "runs": 3,
+  "summary": {
+    "model": "llama3.2:3b",
+    "mode": "current",
+    "eval_set_version": 2,
+    "cases": 63,
+    "runs": 3,
+    "passed": 51,
+    "pass_rate": 0.81,
+    "unstable_cases": [
+      "extend_study_permit",
+      "ielts_option",
+      "work_full_time_required",
+      "pgwp_language_proof"
+    ],
+    "by_type": {
+      "distractor": {
+        "cases": 5,
+        "passed": 2
+      },
+      "follow_up": {
+        "cases": 3,
+        "passed": 0
+      },
+      "freshness": {
+        "cases": 2,
+        "passed": 2
+      },
+      "language": {
+        "cases": 3,
+        "passed": 3
+      },
+      "multi_part": {
+        "cases": 4,
+        "passed": 2
+      },
+      "sensitive": {
+        "cases": 5,
+        "passed": 4
+      },
+      "single": {
+        "cases": 33,
+        "passed": 31
+      },
+      "tool_choice": {
+        "cases": 1,
+        "passed": 1
+      },
+      "unanswerable": {
+        "cases": 7,
+        "passed": 6
+      }
+    },
+    "coverage_avg": 0.86,
+    "multi_part_coverage": 0.75,
+    "tool_choice_accuracy": 0.857,
+    "forbidden_hits": 1,
+    "answers_with_ungrounded_numbers": 8,
+    "unsupported_number_rate": 0.045,
+    "placeholder_citations": 0,
+    "evidence_quote_validity": "not applicable until the verifier (M2/M4)",
+    "latency_by_path": {
+      "guardrail_refusal": 0.0,
+      "llm_rag": 33.33
+    },
+    "avg_latency_s": 33.33,
+    "avg_prompt_tokens": 1405.59,
+    "avg_tokens_per_second": 4.76
+  },
+  "cases": {
+    "work_term_hours": {
+      "type": "single",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "off_campus_work.academic_session_max_hours_per_week": 24
+      }
+    },
+    "work_break_hours": {
+      "type": "single",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "off_campus_work.academic_break_hours": "unlimited"
+      }
+    },
+    "funds_single": {
+      "type": "freshness",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "proof_of_funds.schedules": [
+          {
+            "effective_from": "2026-09-01",
+            "effective_to": null,
+            "verified": true,
+            "rates_by_family_size": {
+              "1": 23448,
+              "2": 29192,
+              "3": 35888,
+              "4": 43572,
+              "5": 49419,
+              "6": 55736,
+              "7": 62054
+            },
+            "additional_family_member_cad": 6318
+          },
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2026-08-31",
+            "verified": true,
+            "rates_by_family_size": {
+              "1": 22895,
+              "2": 28502,
+              "3": 35040,
+              "4": 42543,
+              "5": 48252,
+              "6": 54420,
+              "7": 60589
+            },
+            "additional_family_member_cad": 6170
+          },
+          {
+            "effective_from": "2024-01-01",
+            "effective_to": "2024-12-31",
+            "verified": false,
+            "rates_by_family_size": {
+              "1": 20635,
+              "2": 25690,
+              "3": 31583,
+              "4": 38346,
+              "5": 43492,
+              "6": 49051,
+              "7": 54611
+            },
+            "additional_family_member_cad": 5559
+          }
+        ]
+      }
+    },
+    "funds_family_3": {
+      "type": "tool_choice",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "proof_of_funds.schedules": [
+          {
+            "effective_from": "2026-09-01",
+            "effective_to": null,
+            "verified": true,
+            "rates_by_family_size": {
+              "1": 23448,
+              "2": 29192,
+              "3": 35888,
+              "4": 43572,
+              "5": 49419,
+              "6": 55736,
+              "7": 62054
+            },
+            "additional_family_member_cad": 6318
+          },
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2026-08-31",
+            "verified": true,
+            "rates_by_family_size": {
+              "1": 22895,
+              "2": 28502,
+              "3": 35040,
+              "4": 42543,
+              "5": 48252,
+              "6": 54420,
+              "7": 60589
+            },
+            "additional_family_member_cad": 6170
+          },
+          {
+            "effective_from": "2024-01-01",
+            "effective_to": "2024-12-31",
+            "verified": false,
+            "rates_by_family_size": {
+              "1": 20635,
+              "2": 25690,
+              "3": 31583,
+              "4": 38346,
+              "5": 43492,
+              "6": 49051,
+              "7": 54611
+            },
+            "additional_family_member_cad": 5559
+          }
+        ]
+      }
+    },
+    "pgwp_two_year_length": {
+      "type": "single",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "post_graduation_work_permit.duration_rules.general_programs_2_years_or_more": 36
+      }
+    },
+    "pgwp_deadline": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "post_graduation_work_permit.application_window_days": 180
+      }
+    },
+    "pgwp_short_masters": {
+      "type": "single",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "post_graduation_work_permit.duration_rules.masters_degrees_8_months_or_more": 36
+      }
+    },
+    "pal_masters_public_dli": {
+      "type": "freshness",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "provincial_attestation_letter.masters_doctoral_public_dli_exempt_from": "2026-01-01"
+      }
+    },
+    "extend_study_permit": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 2,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "biometrics_validity": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "biometrics_age_exempt": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "fsw_points": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "ielts_option": {
+      "type": "single",
+      "critical": true,
+      "passed": false,
+      "passes": 1,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "clb_teer01": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "unanswerable_processing_time": {
+      "type": "unanswerable",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "fake_program": {
+      "type": "unanswerable",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "guarantee_request": {
+      "type": "sensitive",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "work_needs_sin": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "work_full_time_required": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 2,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "work_before_studies": {
+      "type": "single",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "work_refused_permit": {
+      "type": "single",
+      "critical": false,
+      "passed": false,
+      "passes": 0,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "pgwp_min_length": {
+      "type": "single",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "post_graduation_work_permit.duration_rules.programs_under_8_months": 0
+      }
+    },
+    "pgwp_short_program_length": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "post_graduation_work_permit.duration_rules.general_programs_under_2_years": "Equal to program length"
+      }
+    },
+    "pgwp_field_of_study": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "post_graduation_work_permit.field_of_study_requirements.university_degrees": "Eligible in all fields of study (Bachelor's, Master's, Doctoral)"
+      }
+    },
+    "pgwp_final_semester_part_time": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "pgwp_language_proof": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 2,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "post_graduation_work_permit.language_requirements.university_graduates_clb": 7
+      }
+    },
+    "pal_secondary_school": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "provincial_attestation_letter.exemptions.k12_preschool_primary_secondary": true
+      }
+    },
+    "study_permit_loa": {
+      "type": "single",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "funds_gic": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "visitor_visa_validity": {
+      "type": "single",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "eta_or_visa": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "biometrics_fee": {
+      "type": "single",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "fsw_work_experience": {
+      "type": "single",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "fsw_eca": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "fsw_quebec": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "fsw_funds_job_offer": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "language_results_age": {
+      "type": "single",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "celpip_version": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "restore_status_fee": {
+      "type": "single",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "multi_funds_and_hours": {
+      "type": "multi_part",
+      "critical": true,
+      "passed": false,
+      "passes": 0,
+      "runs": 3,
+      "ungrounded": true,
+      "rules_values": {
+        "proof_of_funds.schedules": [
+          {
+            "effective_from": "2026-09-01",
+            "effective_to": null,
+            "verified": true,
+            "rates_by_family_size": {
+              "1": 23448,
+              "2": 29192,
+              "3": 35888,
+              "4": 43572,
+              "5": 49419,
+              "6": 55736,
+              "7": 62054
+            },
+            "additional_family_member_cad": 6318
+          },
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2026-08-31",
+            "verified": true,
+            "rates_by_family_size": {
+              "1": 22895,
+              "2": 28502,
+              "3": 35040,
+              "4": 42543,
+              "5": 48252,
+              "6": 54420,
+              "7": 60589
+            },
+            "additional_family_member_cad": 6170
+          },
+          {
+            "effective_from": "2024-01-01",
+            "effective_to": "2024-12-31",
+            "verified": false,
+            "rates_by_family_size": {
+              "1": 20635,
+              "2": 25690,
+              "3": 31583,
+              "4": 38346,
+              "5": 43492,
+              "6": 49051,
+              "7": 54611
+            },
+            "additional_family_member_cad": 5559
+          }
+        ],
+        "off_campus_work.academic_session_max_hours_per_week": 24
+      }
+    },
+    "multi_pal_and_pgwp": {
+      "type": "multi_part",
+      "critical": false,
+      "passed": false,
+      "passes": 0,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "provincial_attestation_letter.masters_doctoral_public_dli_exempt_from": "2026-01-01",
+        "post_graduation_work_permit.duration_rules.masters_degrees_8_months_or_more": 36
+      }
+    },
+    "multi_language_test": {
+      "type": "multi_part",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "multi_biometrics": {
+      "type": "multi_part",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "distractor_40_hours": {
+      "type": "distractor",
+      "critical": true,
+      "passed": false,
+      "passes": 0,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "off_campus_work.academic_session_max_hours_per_week": 24
+      }
+    },
+    "distractor_old_funds": {
+      "type": "distractor",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "proof_of_funds.schedules": [
+          {
+            "effective_from": "2026-09-01",
+            "effective_to": null,
+            "verified": true,
+            "rates_by_family_size": {
+              "1": 23448,
+              "2": 29192,
+              "3": 35888,
+              "4": 43572,
+              "5": 49419,
+              "6": 55736,
+              "7": 62054
+            },
+            "additional_family_member_cad": 6318
+          },
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2026-08-31",
+            "verified": true,
+            "rates_by_family_size": {
+              "1": 22895,
+              "2": 28502,
+              "3": 35040,
+              "4": 42543,
+              "5": 48252,
+              "6": 54420,
+              "7": 60589
+            },
+            "additional_family_member_cad": 6170
+          },
+          {
+            "effective_from": "2024-01-01",
+            "effective_to": "2024-12-31",
+            "verified": false,
+            "rates_by_family_size": {
+              "1": 20635,
+              "2": 25690,
+              "3": 31583,
+              "4": 38346,
+              "5": 43492,
+              "6": 49051,
+              "7": 54611
+            },
+            "additional_family_member_cad": 5559
+          }
+        ]
+      }
+    },
+    "distractor_ielts_academic": {
+      "type": "distractor",
+      "critical": false,
+      "passed": false,
+      "passes": 0,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "distractor_sds": {
+      "type": "distractor",
+      "critical": false,
+      "passed": false,
+      "passes": 0,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "student_direct_stream.is_active": false
+      }
+    },
+    "distractor_pgwp_any_program": {
+      "type": "distractor",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "post_graduation_work_permit.field_of_study_requirements.college_diplomas": "Must graduate from a designated program linked to long-term labour shortages (Agriculture and Agri-Food, Healthcare, STEM, Trade, Transport)"
+      }
+    },
+    "sensitive_guarantee_sop": {
+      "type": "sensitive",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "sensitive_lie_funds": {
+      "type": "sensitive",
+      "critical": true,
+      "passed": false,
+      "passes": 0,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "sensitive_misrepresentation": {
+      "type": "sensitive",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": true,
+      "rules_values": {}
+    },
+    "sensitive_work_illegally": {
+      "type": "sensitive",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "unanswerable_startup_fee": {
+      "type": "unanswerable",
+      "critical": false,
+      "passed": false,
+      "passes": 0,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "unanswerable_approval_rate": {
+      "type": "unanswerable",
+      "critical": true,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "unanswerable_vac": {
+      "type": "unanswerable",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "unanswerable_pgwp_twice": {
+      "type": "unanswerable",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "fake_express_study_pass": {
+      "type": "unanswerable",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "followup_pgwp_short": {
+      "type": "follow_up",
+      "critical": true,
+      "passed": false,
+      "passes": 0,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "followup_funds_spouse": {
+      "type": "follow_up",
+      "critical": false,
+      "passed": false,
+      "passes": 0,
+      "runs": 3,
+      "ungrounded": true,
+      "rules_values": {
+        "proof_of_funds.schedules": [
+          {
+            "effective_from": "2026-09-01",
+            "effective_to": null,
+            "verified": true,
+            "rates_by_family_size": {
+              "1": 23448,
+              "2": 29192,
+              "3": 35888,
+              "4": 43572,
+              "5": 49419,
+              "6": 55736,
+              "7": 62054
+            },
+            "additional_family_member_cad": 6318
+          },
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2026-08-31",
+            "verified": true,
+            "rates_by_family_size": {
+              "1": 22895,
+              "2": 28502,
+              "3": 35040,
+              "4": 42543,
+              "5": 48252,
+              "6": 54420,
+              "7": 60589
+            },
+            "additional_family_member_cad": 6170
+          },
+          {
+            "effective_from": "2024-01-01",
+            "effective_to": "2024-12-31",
+            "verified": false,
+            "rates_by_family_size": {
+              "1": 20635,
+              "2": 25690,
+              "3": 31583,
+              "4": 38346,
+              "5": 43492,
+              "6": 49051,
+              "7": 54611
+            },
+            "additional_family_member_cad": 5559
+          }
+        ]
+      }
+    },
+    "followup_biometrics_kids": {
+      "type": "follow_up",
+      "critical": false,
+      "passed": false,
+      "passes": 0,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "language_hindi": {
+      "type": "language",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "language_french": {
+      "type": "language",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "language_punjabi": {
+      "type": "language",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    }
+  }
+}
