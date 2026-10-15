@@ -1,20 +1,26 @@
 """
-RAG answer-quality evaluation against the live stack (Postgres, Chroma, Ollama).
+RAG answer-quality evaluation (v2, M0.8) against the live stack (Postgres, Chroma, Ollama).
 
-For each model it runs every case in tests/data/rag_eval_set.json through the real
-rag_pipeline.process_query and scores:
-  - facts:      every must_include group matched
-  - forbidden:  no must_not pattern matched
-  - gap:        for unanswerable cases, the answer says the sources don't cover it (or refuses)
-  - ungrounded: numbers in the answer (2+ digits) that do not appear in the context the model saw
-  - latency:    seconds per answer (model warm)
+Runs every case in tests/data/rag_eval_set.json through the real pipeline and scores:
+  - facts / coverage: each must_include part matched (coverage = parts matched / parts; multi_part cases
+                      report it as decomposition coverage until the M1 planner exists)
+  - forbidden:        no must_not pattern matched
+  - gap:              unanswerable cases say the sources don't cover it (or the pipeline refused)
+  - blocked:          cases marked expect_blocked were stopped by the input guardrail
+  - tool choice:      cases with expect_rules used (or didn't use) the rule engine, read from the request trace
+  - ungrounded:       numbers in the answer (2+ digits) that are not in the context the model saw
+  - latency:          per case and per answer path (llm_rag, cache, refusals)
+Ollama is not perfectly repeatable even at temperature 0, so --runs N runs each case N times; a case passes
+by majority and cases whose outcome varies are reported as unstable.
 
 Usage (from backend/):
-  .venv\\Scripts\\python.exe scripts\\eval_rag.py --models llama3.2:3b,phi4-mini
-  .venv\\Scripts\\python.exe scripts\\eval_rag.py --models llama3.2:3b --baseline      # old prompt + budgets
-  .venv\\Scripts\\python.exe scripts\\eval_rag.py --models qwen3:4b --limit 5
+  .venv\\Scripts\\python.exe scripts\\eval_rag.py --models llama3.2:3b                 # all cases, 1 run
+  .venv\\Scripts\\python.exe scripts\\eval_rag.py --models llama3.2:3b --runs 3        # majority of 3
+  .venv\\Scripts\\python.exe scripts\\eval_rag.py --models llama3.2:3b --critical      # quick gate subset
+  .venv\\Scripts\\python.exe scripts\\eval_rag.py --models llama3.2:3b --types distractor,sensitive
   .venv\\Scripts\\python.exe scripts\\eval_rag.py --models llama3.2:3b --stream        # streaming path
-Results are written to logs/eval_<model>_<mode>_<timestamp>.json
+  .venv\\Scripts\\python.exe scripts\\eval_rag.py --models llama3.2:3b --baseline      # old prompt + budgets
+Results are written to logs/eval_<model>_<mode>_<timestamp>.json (or --out).
 """
 
 import argparse
@@ -24,8 +30,10 @@ import re
 import subprocess
 import sys
 import time
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND))
@@ -34,7 +42,8 @@ from app.core.config import settings  # noqa: E402
 from app.core.database import engine  # noqa: E402
 from app.services import rag_pipeline as rag_module  # noqa: E402
 from app.services.cache_service import intent_cache  # noqa: E402
-from app.services.llm import llm_service, record_llm_calls  # noqa: E402
+from app.services.llm import llm_service  # noqa: E402
+from app.services.tracing import TraceRecorder, activate_trace  # noqa: E402
 
 EVAL_SET = BACKEND / "tests" / "data" / "rag_eval_set.json"
 GAP_PATTERNS = [
@@ -44,9 +53,11 @@ GAP_PATTERNS = [
     r"verified official sources", r"\bRCIC\b",
     r"no such", r"does not (mention|exist|appear)", r"doesn.?t (exist|mention|appear)",
     r"not (a|an) (real|recogni[sz]ed|official|existing)",
+    r"do(es)? not (explicitly )?(state|say|address|specify)", r"doesn.?t (explicitly )?(state|say|address|specify)",
 ]
 PLACEHOLDER_CITATION = re.compile(r"\[Source N\]", re.IGNORECASE)
 NUMBER_RE = re.compile(r"\$?\d[\d,]*(?:\.\d+)?")
+FLAGS = re.IGNORECASE | re.DOTALL
 
 
 def _baseline_prompt() -> str:
@@ -68,38 +79,99 @@ def _numbers(text: str) -> set:
     return out
 
 
-def score(case: dict, answer: str, context: str, llm_called: bool) -> dict:
-    flags = re.IGNORECASE | re.DOTALL
-    missing = [group for group in case.get("must_include", []) if not any(re.search(p, answer, flags) for p in group)]
-    forbidden = [p for p in case.get("must_not", []) if re.search(p, answer, flags)]
+def score(case: dict, answer: str, context: str, llm_called: bool, source: Optional[str] = None,
+          rules_used: Optional[bool] = None) -> dict:
+    """Score one answer. Returns pass/fail plus every component, so failures are explainable."""
+    groups = case.get("must_include", [])
+    missing = [group for group in groups if not any(re.search(p, answer, FLAGS) for p in group)]
+    coverage = 1.0 if not groups else round((len(groups) - len(missing)) / len(groups), 3)
+    forbidden = [p for p in case.get("must_not", []) if re.search(p, answer, FLAGS)]
+
     gap_ok = None
     if case.get("expect_gap_acknowledged"):
-        gap_ok = (not llm_called) or any(re.search(p, answer, flags) for p in GAP_PATTERNS)
-    ungrounded = sorted(_numbers(answer) - _numbers(context) - _numbers(case["question"])) if llm_called else []
+        gap_ok = (not llm_called) or any(re.search(p, answer, FLAGS) for p in GAP_PATTERNS)
+    blocked_ok = None
+    if case.get("expect_blocked"):
+        blocked_ok = source == "guardrail_refusal"
+    rules_ok = None
+    if case.get("expect_rules") is not None and rules_used is not None:
+        rules_ok = rules_used == case["expect_rules"]
+
+    ungrounded = sorted(_numbers(answer) - _numbers(context) - _numbers(case["question"])
+                        - _numbers(" ".join(t.get("content", "") for t in case.get("history", [])))) if llm_called else []
     placeholder = bool(PLACEHOLDER_CITATION.search(answer or ""))
-    passed = not missing and not forbidden and gap_ok is not False
-    return {"passed": passed, "missing": missing, "forbidden": forbidden, "gap_ok": gap_ok,
+    passed = not missing and not forbidden and gap_ok is not False and blocked_ok is not False and rules_ok is not False
+    return {"passed": passed, "coverage": coverage, "missing": missing, "forbidden": forbidden, "gap_ok": gap_ok,
+            "blocked_ok": blocked_ok, "rules_used": rules_used, "rules_ok": rules_ok,
             "ungrounded_numbers": ungrounded, "placeholder_citation": placeholder}
 
 
-async def _ask_streaming(question: str) -> dict:
-    """Run the streaming pipeline and fold its events into process_query's result shape."""
-    done = {}
-    async for event in rag_module.rag_pipeline.process_query_stream(query=question, context_metadata={"country": "Canada"}):
+async def _ask(case: dict, stream: bool) -> Dict[str, Any]:
+    history = case.get("history")
+    if not stream:
+        return await rag_module.rag_pipeline.process_query(
+            query=case["question"], context_metadata={"country": "Canada"}, chat_history=history)
+    done: Dict[str, Any] = {}
+    async for event in rag_module.rag_pipeline.process_query_stream(
+            query=case["question"], context_metadata={"country": "Canada"}, chat_history=history):
         if event.get("type") == "done":
             done = event
     return {"answer": done.get("full_response", ""), "sources": done.get("sources", []), "metrics": done.get("metrics", {})}
 
 
-async def run_model(model: str, cases: list, baseline: bool, stream: bool = False) -> dict:
+async def run_case(case: dict, stream: bool, captured: dict) -> dict:
+    intent_cache.clear()
+    captured.clear()
+    trace = TraceRecorder("eval", query=case["question"])
+    t0 = time.perf_counter()
+    with activate_trace(trace):
+        r = await _ask(case, stream)
+    latency = time.perf_counter() - t0
+    metrics = r.get("metrics", {})
+    rules_step = next((s for s in trace.steps if s["name"] == "rules"), None)
+    rules_used = bool(rules_step.get("rule_facts")) if rules_step else None
+    llm = trace.llm_calls[-1] if trace.llm_calls else None
+    s = score(case, r["answer"], captured.get("context", ""), metrics.get("llm_called", False),
+              metrics.get("source"), rules_used)
+    return {
+        "latency_s": round(latency, 1), "source": metrics.get("source"), "llm_called": metrics.get("llm_called"),
+        "citations": [c.get("url") for c in r.get("sources", [])], "answer": r["answer"], **s,
+        "prompt_tokens": llm.prompt_tokens if llm else None, "output_tokens": llm.output_tokens if llm else None,
+        "prompt_s": llm.prompt_s if llm else None, "generation_s": llm.generation_s if llm else None,
+        "tokens_per_second": llm.tokens_per_second if llm else None,
+    }
+
+
+def _describe(run: dict) -> str:
+    extra = []
+    if run["missing"]:
+        extra.append(f"missing={run['missing']}")
+    if run["forbidden"]:
+        extra.append(f"forbidden={run['forbidden']}")
+    if run["gap_ok"] is False:
+        extra.append("gap-not-acknowledged")
+    if run["blocked_ok"] is False:
+        extra.append(f"not-blocked(source={run['source']})")
+    if run["rules_ok"] is False:
+        extra.append(f"rule-engine-used={run['rules_used']}")
+    if run["ungrounded_numbers"]:
+        extra.append(f"ungrounded={run['ungrounded_numbers']}")
+    if run["placeholder_citation"]:
+        extra.append("literal-[Source N]")
+    return " ".join(extra)
+
+
+async def run_model(model: str, cases: list, baseline: bool, stream: bool = False, runs: int = 1,
+                    system_prompt: Optional[str] = None) -> dict:
     llm_service.model = model
+    if system_prompt is not None:
+        rag_module.GROUNDED_SYSTEM_PROMPT = system_prompt  # evaluate a prompt variant without editing code
     if baseline:
         rag_module.GROUNDED_SYSTEM_PROMPT = _baseline_prompt()
         settings.RAG_TOP_K, settings.RAG_CONTEXT_CHARS, settings.RAG_MAX_ANSWER_TOKENS = 3, 1500, 700
 
-    captured = {}
-    original = llm_service.generate_answer
-    original_stream = llm_service.generate_answer_stream
+    captured: dict = {}
+    original, original_stream = llm_service.generate_answer, llm_service.generate_answer_stream
 
     async def capture(*args, **kwargs):
         captured["context"] = kwargs.get("context", "")
@@ -109,107 +181,126 @@ async def run_model(model: str, cases: list, baseline: bool, stream: bool = Fals
         captured["context"] = kwargs.get("context", "")
         return original_stream(*args, **kwargs)
 
-    llm_service.generate_answer = capture
-    llm_service.generate_answer_stream = capture_stream
-
+    llm_service.generate_answer, llm_service.generate_answer_stream = capture, capture_stream
     # Warm-up so model loading time isn't counted against the first question
     await original(system_prompt="Reply with OK.", user_prompt="OK", temperature=0.0, max_tokens=3)
 
     results = []
-    for case in cases:
-        intent_cache.clear()
-        captured.clear()
-        t0 = time.perf_counter()
-        with record_llm_calls() as calls:
-            if stream:
-                r = await _ask_streaming(case["question"])
-            else:
-                r = await rag_module.rag_pipeline.process_query(query=case["question"], context_metadata={"country": "Canada"})
-        latency = time.perf_counter() - t0
-        llm = calls[-1] if calls else None
-        metrics = r["metrics"]
-        s = score(case, r["answer"], captured.get("context", ""), metrics.get("llm_called", False))
-        results.append({
-            "id": case["id"], "latency_s": round(latency, 1), "source": metrics.get("source"),
-            "llm_called": metrics.get("llm_called"), "citations": [c.get("url") for c in r.get("sources", [])],
-            "answer": r["answer"], **s,
-            # Ollama's own accounting for the answer call (M0.4)
-            "prompt_tokens": llm.prompt_tokens if llm else None,
-            "output_tokens": llm.output_tokens if llm else None,
-            "prompt_s": llm.prompt_s if llm else None,
-            "generation_s": llm.generation_s if llm else None,
-            "tokens_per_second": llm.tokens_per_second if llm else None,
-        })
-        status = "PASS" if s["passed"] else "FAIL"
-        extra = []
-        if s["missing"]: extra.append(f"missing={s['missing']}")
-        if s["forbidden"]: extra.append(f"forbidden={s['forbidden']}")
-        if s["gap_ok"] is False: extra.append("gap-not-acknowledged")
-        if s["ungrounded_numbers"]: extra.append(f"ungrounded={s['ungrounded_numbers']}")
-        if s["placeholder_citation"]: extra.append("literal-[Source N]")
-        timing = (f"[{llm.prompt_tokens} in / {llm.output_tokens} out, read {llm.prompt_s}s, "
-                  f"gen {llm.generation_s}s, {llm.tokens_per_second} tok/s]") if llm else "[no model call]"
-        print(f"  {status} {latency:6.1f}s  {case['id']:<30} {timing} {' '.join(extra)}", flush=True)
-
-    llm_service.generate_answer = original
-    llm_service.generate_answer_stream = original_stream
-    n = len(results)
-    summary = {
-        "model": model, "mode": _mode_name(baseline, stream), "cases": n,
-        "passed": sum(r["passed"] for r in results),
-        "facts_ok": sum(not r["missing"] for r in results),
-        "forbidden_hits": sum(bool(r["forbidden"]) for r in results),
-        "answers_with_ungrounded_numbers": sum(bool(r["ungrounded_numbers"]) for r in results),
-        "placeholder_citations": sum(r["placeholder_citation"] for r in results),
-        "avg_latency_s": round(sum(r["latency_s"] for r in results if r["llm_called"]) / max(1, sum(r["llm_called"] for r in results)), 1),
-        **_timing_summary(results),
-    }
-    return {"summary": summary, "results": results}
+    try:
+        for case in cases:
+            case_runs = []
+            for _ in range(runs):
+                case_runs.append(await run_case(case, stream, captured))
+            passes = sum(r["passed"] for r in case_runs)
+            verdict = passes * 2 > runs
+            stable = passes in (0, runs)
+            results.append({"id": case["id"], "type": case["type"], "critical": case.get("critical", False),
+                            "rules_keys": case.get("rules_keys", []), "passed": verdict, "passes": passes,
+                            "runs": runs, "stable": stable, "run_results": case_runs,
+                            # convenience copies from the first run (kept for v1 consumers)
+                            **{k: case_runs[0][k] for k in ("answer", "source", "llm_called", "latency_s", "coverage",
+                                                            "missing", "forbidden", "ungrounded_numbers")}})
+            first = case_runs[0]
+            status = "PASS" if verdict else "FAIL"
+            spread = f"{passes}/{runs}" + ("" if stable else " UNSTABLE")
+            print(f"  {status} {spread:<13} {first['latency_s']:6.1f}s  {case['type']:<12} {case['id']:<30} "
+                  f"{_describe(first) if not verdict else ''}", flush=True)
+    finally:
+        llm_service.generate_answer, llm_service.generate_answer_stream = original, original_stream
+    return {"summary": summarise(model, results, baseline, stream, runs), "results": results}
 
 
-def _timing_summary(results: list) -> dict:
-    """Averages of Ollama's per-call accounting over the cases that called the model."""
-    def avg(key):
-        values = [r[key] for r in results if r.get(key) is not None]
+def summarise(model: str, results: List[dict], baseline: bool, stream: bool, runs: int) -> dict:
+    all_runs = [r for res in results for r in res["run_results"]]
+    llm_runs = [r for r in all_runs if r["llm_called"]]
+    by_type: Dict[str, Dict[str, int]] = defaultdict(lambda: {"cases": 0, "passed": 0})
+    for res in results:
+        by_type[res["type"]]["cases"] += 1
+        by_type[res["type"]]["passed"] += int(res["passed"])
+    tool_runs = [r for r in all_runs if r["rules_ok"] is not None]
+    multi = [r["coverage"] for res in results if res["type"] == "multi_part" for r in res["run_results"]]
+    latency_by_path: Dict[str, List[float]] = defaultdict(list)
+    for r in all_runs:
+        latency_by_path[r["source"] or "none"].append(r["latency_s"])
+
+    def avg(values):
+        values = [v for v in values if v is not None]
         return round(sum(values) / len(values), 2) if values else None
-    return {"avg_prompt_tokens": avg("prompt_tokens"), "avg_output_tokens": avg("output_tokens"),
-            "avg_prompt_s": avg("prompt_s"), "avg_generation_s": avg("generation_s"),
-            "avg_tokens_per_second": avg("tokens_per_second")}
+
+    n = len(results)
+    return {
+        "model": model, "mode": _mode_name(baseline, stream), "eval_set_version": 2, "cases": n, "runs": runs,
+        "passed": sum(r["passed"] for r in results),
+        "pass_rate": round(sum(r["passed"] for r in results) / n, 3) if n else None,
+        "unstable_cases": [r["id"] for r in results if not r["stable"]],
+        "by_type": dict(sorted(by_type.items())),
+        "coverage_avg": avg(r["coverage"] for r in all_runs),
+        "multi_part_coverage": avg(multi),
+        "tool_choice_accuracy": round(sum(r["rules_ok"] for r in tool_runs) / len(tool_runs), 3) if tool_runs else None,
+        "forbidden_hits": sum(bool(r["forbidden"]) for r in all_runs),
+        "answers_with_ungrounded_numbers": sum(bool(r["ungrounded_numbers"]) for r in all_runs),
+        "unsupported_number_rate": round(sum(bool(r["ungrounded_numbers"]) for r in llm_runs) / len(llm_runs), 3) if llm_runs else None,
+        "placeholder_citations": sum(r["placeholder_citation"] for r in all_runs),
+        "evidence_quote_validity": "not applicable until the verifier (M2/M4)",
+        "latency_by_path": {k: avg(v) for k, v in sorted(latency_by_path.items())},
+        "avg_latency_s": avg(r["latency_s"] for r in llm_runs),
+        "avg_prompt_tokens": avg(r["prompt_tokens"] for r in all_runs),
+        "avg_tokens_per_second": avg(r["tokens_per_second"] for r in all_runs),
+    }
 
 
 def _mode_name(baseline: bool, stream: bool) -> str:
     return ("baseline" if baseline else "current") + ("_stream" if stream else "")
 
 
-async def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--models", required=True)
-    ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--only", default="", help="comma-separated case ids")
-    ap.add_argument("--baseline", action="store_true", help="old prompt + old context/answer budgets")
-    ap.add_argument("--stream", action="store_true", help="evaluate the streaming path (process_query_stream)")
-    args = ap.parse_args()
-
+def select_cases(args) -> list:
     cases = json.loads(EVAL_SET.read_text(encoding="utf-8"))["cases"]
     if args.only:
         wanted = set(args.only.split(","))
         cases = [c for c in cases if c["id"] in wanted]
+    if args.critical:
+        cases = [c for c in cases if c.get("critical")]
+    if args.types:
+        wanted = set(args.types.split(","))
+        cases = [c for c in cases if c["type"] in wanted]
     if args.limit:
         cases = cases[: args.limit]
+    return cases
 
-    out_dir = BACKEND / "logs"
-    out_dir.mkdir(exist_ok=True)
+
+async def main(argv=None) -> List[dict]:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--models", default=settings.OLLAMA_MODEL)
+    ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--only", default="", help="comma-separated case ids")
+    ap.add_argument("--critical", action="store_true", help="only cases marked critical (the quick gate)")
+    ap.add_argument("--types", default="", help="comma-separated case types")
+    ap.add_argument("--runs", type=int, default=1, help="run each case N times; pass by majority")
+    ap.add_argument("--baseline", action="store_true", help="old prompt + old context/answer budgets")
+    ap.add_argument("--stream", action="store_true", help="evaluate the streaming path (process_query_stream)")
+    ap.add_argument("--out", default="", help="write the report here instead of logs/")
+    ap.add_argument("--system-prompt-file", default="", help="evaluate this system prompt instead of the pipeline's")
+    args = ap.parse_args(argv)
+    system_prompt = Path(args.system_prompt_file).read_text(encoding="utf-8") if args.system_prompt_file else None
+
+    cases = select_cases(args)
+    reports = []
     for model in args.models.split(","):
         mode = _mode_name(args.baseline, args.stream)
-        print(f"\n=== {model} ({mode}) - {len(cases)} cases ===", flush=True)
-        report = await run_model(model.strip(), cases, args.baseline, args.stream)
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = out_dir / f"eval_{model.replace(':', '-')}_{mode}_{stamp}.json"
+        print(f"\n=== {model} ({mode}) - {len(cases)} cases x {args.runs} run(s) ===", flush=True)
+        report = await run_model(model.strip(), cases, args.baseline, args.stream, args.runs, system_prompt)
+        if args.out:
+            path = Path(args.out)
+        else:
+            (BACKEND / "logs").mkdir(exist_ok=True)
+            path = BACKEND / "logs" / f"eval_{model.replace(':', '-')}_{mode}_{datetime.now():%Y%m%d_%H%M%S}.json"
         path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
         print("SUMMARY", json.dumps(report["summary"]), flush=True)
         print(f"saved {path}", flush=True)
+        reports.append(report)
     await llm_service.close()
     await engine.dispose()
+    return reports
 
 
 if __name__ == "__main__":

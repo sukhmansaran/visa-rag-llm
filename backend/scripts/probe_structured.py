@@ -80,25 +80,6 @@ SOURCES = [
     "or territorial attestation letter (PAL) for applications received on or after January 1, 2026.",
 ]
 
-# (claim, source index, label): half supported, half not (wrong number, wrong condition, unrelated)
-VERIFIER_CASES = [
-    ("Students can work 24 hours per week off campus during classes.", 0, True),
-    ("Students can work full-time during scheduled breaks.", 0, True),
-    ("Students can work 40 hours per week off campus during classes.", 0, False),
-    ("Students cannot work at all during the summer break.", 0, False),
-    ("A single applicant needs 23,448 CAD for living expenses from September 1, 2026.", 1, True),
-    ("A single applicant needs 20,635 CAD for living expenses from September 1, 2026.", 1, False),
-    ("Tuition is included in the 23,448 CAD amount.", 1, False),
-    ("Children under 14 do not need to give biometrics.", 2, True),
-    ("Applicants over 79 must always give biometrics.", 2, False),
-    ("Biometrics stay valid for 10 years.", 3, True),
-    ("Biometrics must be given again every year.", 3, False),
-    ("Master's students at a public DLI do not need a PAL from January 1, 2026.", 4, True),
-    ("All college diploma students are exempt from the PAL.", 4, False),
-    ("Students can work 24 hours per week off campus.", 2, False),  # unrelated source
-]
-
-
 def planner_inputs(n: int) -> List[dict]:
     questions = [c["question"] for c in json.loads(EVAL_SET.read_text(encoding="utf-8"))["cases"]]
     questions += [
@@ -121,12 +102,20 @@ def answer_inputs(n: int) -> List[dict]:
             for i in range(n)]
 
 
+VERIFIER_SET = BACKEND / "tests" / "data" / "verifier_claims.json"
+
+
 def verifier_inputs(n: int) -> List[dict]:
+    """Labelled claims from tests/data/verifier_claims.json (M0.8c: 46 distinct claims, was 14). Each distinct
+    claim is judged once; an n larger than the set repeats it (temperature 0, so repeats add little)."""
+    data = json.loads(VERIFIER_SET.read_text(encoding="utf-8"))
+    claims = data["claims"]
     out = []
     for i in range(n):
-        claim, src, label = VERIFIER_CASES[i % len(VERIFIER_CASES)]
-        out.append({"system": VERIFIER_SYSTEM, "user": f"CLAIM: {claim}\n\nSOURCE: {SOURCES[src]}",
-                    "context": "", "label": label, "source": SOURCES[src]})
+        item = claims[i % len(claims)]
+        source = data["sources"][item["source"]]
+        out.append({"system": VERIFIER_SYSTEM, "user": f"CLAIM: {item['claim']}\n\nSOURCE: {source}",
+                    "context": "", "label": item["supported"], "source": source})
     return out
 
 
@@ -174,6 +163,11 @@ async def probe_role(role: str, n: int, model: str) -> dict:
     if role == "verifier":
         judged = [r for r in rows if "correct" in r]
         summary["judgment_accuracy"] = round(sum(r["correct"] for r in judged) / max(1, len(judged)), 4)
+        true_claims = [r for r in judged if r["label"]]
+        false_claims = [r for r in judged if not r["label"]]
+        # Accepting a false claim is the dangerous error for a checker; report both kinds separately
+        summary["true_claims_accepted"] = f"{sum(r['correct'] for r in true_claims)}/{len(true_claims)}"
+        summary["false_claims_rejected"] = f"{sum(r['correct'] for r in false_claims)}/{len(false_claims)}"
         summary["quote_copied_from_source"] = round(sum(r["quote_in_source"] for r in judged) / max(1, len(judged)), 4)
     return {"summary": summary, "rows": rows}
 
