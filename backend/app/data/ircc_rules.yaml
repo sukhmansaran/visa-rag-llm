@@ -63,12 +63,13 @@ student_direct_stream:
   rule_id: "IRCC-SDS-SUNSET-2024"
   title: "Student Direct Stream (SDS) Termination"
   effective_from: "2024-11-08"
-  last_verified: "2026-10-01"
-  verified_by: "Entered by an automated tool; not yet checked by a person against source_url"
-  source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/student-direct-stream.html"
+  last_verified: "2026-10-15"
+  verified_by: "Checked against the IRCC notice (source_url) by an AI assistant on 2026-10-15; not yet checked by a person"
+  # The former SDS program page no longer mentions SDS; the closure notice is the authoritative source.
+  source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/news/notices/end-student-direct-stream-nigeria-student-express.html"
   is_active: false
   status: "TERMINATED"
-  termination_notice: "IRCC officially closed the Student Direct Stream (SDS) and Nigeria Student Express (NSE) on November 8, 2024 at 2:00 PM EST. All prospective international students must apply through the standard study permit application stream."
+  termination_notice: "IRCC ended the Student Direct Stream (SDS) and Nigeria Student Express (NSE) as of 2:00 p.m. ET on November 8, 2024. Eligible SDS and NSE applications received before then are processed under those streams; everyone else applies through the regular study permit stream."
 
 post_graduation_work_permit:
   rule_id: "IRCC-PGWP-2024-REFORM"

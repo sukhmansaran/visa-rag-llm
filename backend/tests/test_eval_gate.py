@@ -73,3 +73,22 @@ def test_baseline_requires_three_runs_and_the_full_set():
     report = {"summary": {"runs": 3, "model": "m"}, "results": [result("a", True)]}
     with pytest.raises(SystemExit, match="full set"):
         eval_gate.build_baseline(report, {})
+
+
+def test_accepting_a_fixed_case_requires_three_runs_and_a_majority_pass():
+    base = baseline({"a": (False, False, {}), "b": (True, False, {})})
+    versions = {"model_digest": "d", "prompt_version": "p", "rules_version": "r"}
+    fixed = {"summary": {"runs": 3}, "results": [result("a", True, [run(True), run(True), run(False)])]}
+
+    assert eval_gate.accept_cases(base, fixed, versions, "2026-10-15") == ["a"]
+    assert base["cases"]["a"]["passed"] is True and base["summary"]["passed"] == 2
+    assert base["history"][-1]["accepted"] == ["a"] and base["rules_version"] == "r"
+
+    with pytest.raises(SystemExit, match="--runs 3"):
+        eval_gate.accept_cases(base, {"summary": {"runs": 1}, "results": []}, versions, "x")
+    still_failing = {"summary": {"runs": 3}, "results": [result("b", False, [run(False)] * 3)]}
+    with pytest.raises(SystemExit, match="did not pass"):
+        eval_gate.accept_cases(base, still_failing, versions, "x")
+    unknown = {"summary": {"runs": 3}, "results": [result("zzz", True, [run(True)] * 3)]}
+    with pytest.raises(SystemExit, match="not in the baseline"):
+        eval_gate.accept_cases(base, unknown, versions, "x")

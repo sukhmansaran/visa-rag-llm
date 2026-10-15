@@ -177,7 +177,11 @@ class RAGPipeline:
             guarantee_fact = rule_engine.approval_guarantee_fact(query)
             if guarantee_fact:
                 rule_facts = (rule_facts + "\n\n" + guarantee_fact) if rule_facts else guarantee_fact
-            step.update(rule_facts=bool(rule_facts), guarantee_fact=bool(guarantee_fact))
+            closed_program_fact = rule_engine.discontinued_program_fact(query)
+            if closed_program_fact:
+                rule_facts = (rule_facts + "\n\n" + closed_program_fact) if rule_facts else closed_program_fact
+            step.update(rule_facts=bool(rule_facts), guarantee_fact=bool(guarantee_fact),
+                        closed_program_fact=bool(closed_program_fact))
         rules_version = await self._answer_cache_version()
 
         # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)

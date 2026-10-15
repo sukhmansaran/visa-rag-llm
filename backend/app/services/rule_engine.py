@@ -517,6 +517,32 @@ class RuleEngine:
         re.IGNORECASE,
     )
 
+    # Programs IRCC has closed: a question naming one must be told so, whatever the detected intent.
+    # (Found by the M0.8 eval: "How do I apply under the Student Direct Stream?" was answered as if it still ran.)
+    _DISCONTINUED_PROGRAMS = {
+        "student_direct_stream": re.compile(
+            r"\bstudent[\s-]+direct[\s-]+stream\b|\bSDS\b|\bnigeria(n)?[\s-]+student[\s-]+express\b", re.IGNORECASE),
+    }
+
+    def discontinued_program_fact(self, query: str) -> Optional[str]:
+        """
+        Deterministic fact for questions naming a program IRCC has closed, built from ircc_rules.yaml.
+        Appended to any other rule facts so the model cannot describe the program as open.
+        """
+        if not query:
+            return None
+        facts = []
+        for key, pattern in self._DISCONTINUED_PROGRAMS.items():
+            section = self.rules_data.get(key) or {}
+            if section.get("is_active") is False and pattern.search(query):
+                facts.append(
+                    f"OFFICIAL IRCC FACT - PROGRAM CLOSED ({section.get('title', key)}; source: {section.get('source_url', '')}):\n"
+                    f"- {section.get('termination_notice', '')}\n"
+                    "- Do not explain how to apply to this program. State clearly that it has ended and that applicants "
+                    "now use the regular study permit process."
+                )
+        return "\n\n".join(facts) or None
+
     def approval_guarantee_fact(self, query: str) -> Optional[str]:
         """
         Deterministic compliance fact for questions seeking certainty about approval.
@@ -692,7 +718,7 @@ class RuleEngine:
                 f"(applications submitted on or after {schedule['effective_from']}; higher amounts apply for each accompanying family member).\n"
                 f"- First-Year Tuition: In addition to living expenses (CAD ${single:,}), the applicant must demonstrate sufficient accessible funds to pay the entire first year of tuition fees.\n"
                 "- Transportation & Settlement: Must demonstrate sufficient funds to cover round-trip transportation to Canada for the applicant and any accompanying family members.\n"
-                "- Student Direct Stream (SDS) Status: TERMINATED. IRCC officially closed the Student Direct Stream (SDS) and Nigeria Student Express (NSE) on November 8, 2024. All international students must apply through the standard study permit stream.\n"
+                f"- Student Direct Stream (SDS) Status: TERMINATED. {self.rules_data.get('student_direct_stream', {}).get('termination_notice', '')}\n"
                 "- Acceptable Proof of Financial Support: Bank statements for the past 4 months, proof of a Canadian bank account, GIC certificate, loan approval letter, proof of scholarship/funding, or proof of paid tuition and housing.\n"
                 "- Regulatory Authority: IRCC Proof of Financial Support Guidelines for International Students."
             )
