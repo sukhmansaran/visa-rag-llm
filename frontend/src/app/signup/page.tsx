@@ -3,7 +3,7 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { safeRedirectPath, setAuth } from "@/lib/auth";
+import { safeRedirectPath, signup } from "@/lib/auth";
 import { UserPlus, ArrowRight, Loader2, AlertCircle } from "lucide-react";
 
 function SignupPageForm() {
@@ -34,24 +34,8 @@ function SignupPageForm() {
         setLoading(true);
 
         try {
-            const response = await fetch("/api/v1/auth/signup", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email, password }),
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.detail || "Signup failed.");
-            }
-
-            setAuth({
-                access_token: data.access_token,
-                refresh_token: data.refresh_token,
-                user: data.user,
-            });
-
+            // The session is kept in httpOnly cookies by /api/auth/signup; no token reaches this page
+            await signup(email, password);
             router.push(redirectUrl);
         } catch (err: any) {
             setError(err.message || "An error occurred while creating your account.");

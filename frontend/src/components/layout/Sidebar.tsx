@@ -16,7 +16,7 @@ import {
     LogIn
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getUser, isAuthenticated, logout } from "@/lib/auth";
+import { getUser, isAuthenticated, loadSession, logout } from "@/lib/auth";
 
 const navItems = [
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -37,6 +37,11 @@ export function Sidebar() {
     useEffect(() => {
         setAuthed(isAuthenticated());
         setUser(getUser());
+        // Confirm with the server (renews an expired access token from the refresh cookie)
+        loadSession().then((current) => {
+            setAuthed(current !== null);
+            setUser(current);
+        });
     }, [pathname]);
 
     // Don't show sidebar on landing page, onboarding, login or signup

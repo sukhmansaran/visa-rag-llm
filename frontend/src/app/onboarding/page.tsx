@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, User, GraduationCap, Clock, Wallet, FileText } from "lucide-react";
 import Link from "next/link";
-import { getAuthHeaders, isAuthenticated } from "@/lib/auth";
+import { apiFetch, isAuthenticated } from "@/lib/auth";
 
 /** Convert a GPA on the user's chosen scale to the backend's 10-point scale; null if invalid. */
 function toTenPointGpa(raw: string, scale: string): number | null {
@@ -39,9 +39,8 @@ export default function OnboardingPage() {
                 const gpaScale10 = toTenPointGpa(formData.gpa, formData.gpaScale);
                 const workYears = parseInt(formData.workExperienceYears, 10);
 
-                const res = await fetch("/api/v1/profile", {
+                const res = await apiFetch("/api/v1/profile", {
                     method: "PUT",
-                    headers: getAuthHeaders(),
                     body: JSON.stringify({
                         education_level: formData.degree.toLowerCase(),
                         gpa: gpaScale10,
