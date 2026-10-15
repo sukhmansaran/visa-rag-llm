@@ -4,7 +4,7 @@
  * so no event is lost or shown twice.
  */
 
-import { getAuthHeaders } from "@/lib/auth";
+import { apiFetch } from "@/lib/auth";
 
 export type JobEventType = "status" | "step" | "chunk" | "guardrail_blocked" | "done" | "error" | "cancelled";
 
@@ -31,17 +31,13 @@ export async function startAnswerJob(body: {
     university?: string | null;
     sessionId?: string | null;
 }): Promise<{ job_id: string; session_id: string }> {
-    const response = await fetch("/api/v1/chat/jobs", {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify(body),
-    });
+    const response = await apiFetch("/api/v1/chat/jobs", { method: "POST", body: JSON.stringify(body) });
     if (!response.ok) throw new JobRequestError(`Could not start the answer (HTTP ${response.status})`, response.status);
     return response.json();
 }
 
 export async function cancelJob(jobId: string): Promise<void> {
-    await fetch(`/api/v1/chat/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST", headers: getAuthHeaders() });
+    await apiFetch(`/api/v1/chat/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
 }
 
 /** Parse complete SSE blocks out of `buffer`; returns events and the unparsed remainder. */
@@ -83,9 +79,10 @@ export async function followJob(
     while (true) {
         if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         try {
-            const headers: Record<string, string> = getAuthHeaders();
+            const headers: Record<string, string> = {};
             if (lastId) headers["Last-Event-ID"] = lastId;
-            const response = await fetch(`/api/v1/chat/jobs/${encodeURIComponent(jobId)}/events`, {
+            // apiFetch renews an expired session, so a reconnect late in a long answer still works (M0.7)
+            const response = await apiFetch(`/api/v1/chat/jobs/${encodeURIComponent(jobId)}/events`, {
                 headers,
                 signal: options.signal,
                 cache: "no-store",

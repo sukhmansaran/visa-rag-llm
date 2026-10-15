@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Send, BookOpen, ChevronDown, ChevronUp, Database, Zap, Clock, ExternalLink, ShieldCheck, FileText, Lock } from "lucide-react";
 import Link from "next/link";
 import { MarkdownMessage } from "@/components/MarkdownMessage";
-import { getToken, isAuthenticated } from "@/lib/auth";
+import { isAuthenticated } from "@/lib/auth";
 import { cancelJob, describeStep, followJob, JobEvent, JobRequestError, startAnswerJob } from "@/lib/jobStream";
 
 
@@ -144,7 +144,7 @@ export default function ChatPage() {
     // After a reload, re-attach to the answer that was running (its id is kept in the URL)
     useEffect(() => {
         const jobId = new URL(window.location.href).searchParams.get(JOB_PARAM);
-        if (!jobId || !getToken()) return;
+        if (!jobId || !isAuthenticated()) return;
         setMessages(prev => [...prev, { role: "assistant", content: "", streaming: true, status: "running" }]);
         runJob(jobId);
         return () => abortControllerRef.current?.abort();
@@ -171,7 +171,7 @@ export default function ChatPage() {
         setQuery("");
 
         // Conversation history is loaded server-side from the session (sessionId); never sent by the client
-        if (!getToken()) {
+        if (!isAuthenticated()) {
             setMessages(prev => [...prev, {
                 role: "assistant",
                 content: "Authentication is required to query official records. Please [sign in](/login?redirect=/chat) or [create a free account](/signup?redirect=/chat).",

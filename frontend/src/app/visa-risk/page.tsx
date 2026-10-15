@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, CheckCircle, ChevronRight, BarChart3, TrendingUp, AlertTriangle } from "lucide-react";
 import Link from "next/link";
-import { getAuthHeaders, isAuthenticated } from "@/lib/auth";
+import { apiFetch, isAuthenticated } from "@/lib/auth";
 
 interface RiskBucket {
     name: string;
@@ -39,8 +39,7 @@ export default function VisaRiskPage() {
                     let profileId = sessionStorage.getItem("user_profile_id");
 
                     if (!profileId) {
-                        const profRes = await fetch("/api/v1/profile", {
-                            headers: getAuthHeaders(),
+                        const profRes = await apiFetch("/api/v1/profile", {
                         });
                         if (profRes.ok) {
                             const profData = await profRes.json();
@@ -52,8 +51,7 @@ export default function VisaRiskPage() {
                     }
 
                     if (profileId) {
-                        const riskRes = await fetch(`/api/v1/visa-risk/${profileId}`, {
-                            headers: getAuthHeaders(),
+                        const riskRes = await apiFetch(`/api/v1/visa-risk/${profileId}`, {
                         });
                         if (riskRes.ok) {
                             const data: VisaRiskSummaryData = await riskRes.json();
