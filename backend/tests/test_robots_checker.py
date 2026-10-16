@@ -63,7 +63,7 @@ class TestIsAllowed:
     @pytest.mark.asyncio
     async def test_allowed_when_no_robots(self, checker):
         """Empty robots.txt (fetch failure) allows all URLs."""
-        with patch("app.services.crawler.robots.httpx.AsyncClient") as mock_client_cls:
+        with patch("app.services.crawler.robots.pinned_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -76,7 +76,7 @@ class TestIsAllowed:
     @pytest.mark.asyncio
     async def test_disallowed_path(self, checker):
         """Disallowed paths return False."""
-        with patch("app.services.crawler.robots.httpx.AsyncClient") as mock_client_cls:
+        with patch("app.services.crawler.robots.pinned_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -89,7 +89,7 @@ class TestIsAllowed:
     @pytest.mark.asyncio
     async def test_allowed_path(self, checker):
         """Allowed paths return True."""
-        with patch("app.services.crawler.robots.httpx.AsyncClient") as mock_client_cls:
+        with patch("app.services.crawler.robots.pinned_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -102,7 +102,7 @@ class TestIsAllowed:
     @pytest.mark.asyncio
     async def test_specific_user_agent_disallowed(self, checker):
         """User-agent-specific rules are respected."""
-        with patch("app.services.crawler.robots.httpx.AsyncClient") as mock_client_cls:
+        with patch("app.services.crawler.robots.pinned_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -117,7 +117,7 @@ class TestIsAllowed:
     @pytest.mark.asyncio
     async def test_specific_user_agent_allowed_elsewhere(self, checker):
         """MyBot is allowed on paths not in its Disallow."""
-        with patch("app.services.crawler.robots.httpx.AsyncClient") as mock_client_cls:
+        with patch("app.services.crawler.robots.pinned_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -135,7 +135,7 @@ class TestGetCrawlDelay:
 
     @pytest.mark.asyncio
     async def test_returns_delay_when_present(self, checker):
-        with patch("app.services.crawler.robots.httpx.AsyncClient") as mock_client_cls:
+        with patch("app.services.crawler.robots.pinned_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -147,7 +147,7 @@ class TestGetCrawlDelay:
 
     @pytest.mark.asyncio
     async def test_returns_none_when_no_delay(self, checker):
-        with patch("app.services.crawler.robots.httpx.AsyncClient") as mock_client_cls:
+        with patch("app.services.crawler.robots.pinned_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -159,7 +159,7 @@ class TestGetCrawlDelay:
 
     @pytest.mark.asyncio
     async def test_returns_none_on_fetch_failure(self, checker):
-        with patch("app.services.crawler.robots.httpx.AsyncClient") as mock_client_cls:
+        with patch("app.services.crawler.robots.pinned_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -176,7 +176,7 @@ class TestFetchRobots:
     @pytest.mark.asyncio
     async def test_caches_result_in_redis(self, checker, redis_client):
         """Fetched robots.txt is cached in Redis."""
-        with patch("app.services.crawler.robots.httpx.AsyncClient") as mock_client_cls:
+        with patch("app.services.crawler.robots.pinned_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -194,7 +194,7 @@ class TestFetchRobots:
     @pytest.mark.asyncio
     async def test_uses_cache_on_second_call(self, checker, redis_client):
         """Second call uses cached value, no HTTP request."""
-        with patch("app.services.crawler.robots.httpx.AsyncClient") as mock_client_cls:
+        with patch("app.services.crawler.robots.pinned_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -211,7 +211,7 @@ class TestFetchRobots:
     @pytest.mark.asyncio
     async def test_caches_empty_on_failure(self, checker, redis_client):
         """Fetch failure caches empty string."""
-        with patch("app.services.crawler.robots.httpx.AsyncClient") as mock_client_cls:
+        with patch("app.services.crawler.robots.pinned_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -233,7 +233,7 @@ class TestFetchRobots:
         robots_a = "User-agent: *\nDisallow: /a/"
         robots_b = "User-agent: *\nDisallow: /b/"
 
-        with patch("app.services.crawler.robots.httpx.AsyncClient") as mock_client_cls:
+        with patch("app.services.crawler.robots.pinned_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -241,7 +241,7 @@ class TestFetchRobots:
             mock_client_cls.return_value = mock_client
             await checker._fetch_robots("a.com")
 
-        with patch("app.services.crawler.robots.httpx.AsyncClient") as mock_client_cls:
+        with patch("app.services.crawler.robots.pinned_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)

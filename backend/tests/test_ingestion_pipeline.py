@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import Mock, patch, AsyncMock
 from app.services.ingestion import ingestion_service
 from app.services.scraper import WebScraper
+from app.services.crawler.safe_http import BROWSER_ARGS, BlockedDestinationError
 from app.services.chunker import chunk_document
 from app.models.source import Source
 from app.models.document import Document
@@ -236,13 +237,32 @@ class TestScraping:
         
         mock_playwright.return_value = mock_playwright_instance
         
+        url = "https://www.canada.ca/en/services/immigration-citizenship.html"
         async with WebScraper() as scraper:
-            result = await scraper.scrape_url("https://example.com")
-        
-        assert result['url'] == "https://example.com"
+            result = await scraper.scrape_url(url)
+
+        assert result['url'] == url
         assert result['title'] == "Test Page"
         assert 'content_hash' in result
         assert 'extracted_text' in result
+        # M0.9: Chromium can't resolve names itself; every page request goes through the pinned client
+        assert mock_playwright_instance.chromium.launch.call_args.kwargs["args"] == BROWSER_ARGS
+        mock_page.route.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch('app.services.scraper.async_playwright')
+    async def test_scrape_url_refuses_unofficial_domains(self, mock_playwright):
+        mock_browser = AsyncMock()
+        mock_playwright_instance = AsyncMock()
+        mock_playwright_instance.chromium.launch = AsyncMock(return_value=mock_browser)
+        mock_playwright_instance.start = AsyncMock(return_value=mock_playwright_instance)
+        mock_playwright.return_value = mock_playwright_instance
+
+        async with WebScraper() as scraper:
+            for url in ("https://example.com", "http://127.0.0.1/admin", "https://example.com/file.pdf"):
+                with pytest.raises(BlockedDestinationError):
+                    await scraper.scrape_url(url)
+        mock_browser.new_page.assert_not_called()
     
     def test_scrape_url_pdf_detection(self):
         """Test PDF URL detection."""

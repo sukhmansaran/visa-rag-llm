@@ -11,7 +11,7 @@ from typing import Optional
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
-import httpx
+from app.services.crawler.safe_http import pinned_client
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ class RobotsChecker:
         # Fetch robots.txt from the domain
         robots_url = f"https://{domain}/robots.txt"
         try:
-            async with httpx.AsyncClient(timeout=ROBOTS_FETCH_TIMEOUT) as client:
+            async with pinned_client(timeout=ROBOTS_FETCH_TIMEOUT) as client:  # DNS-pinned (M0.9)
                 response = await client.get(robots_url)
                 response.raise_for_status()
                 content = response.text
