@@ -166,10 +166,16 @@ The web app runs at `http://localhost:3000`.
 Run each in its own terminal:
 ```powershell
 cd backend
-.\scripts\start_celery_worker.ps1   # runs jobs (uses --pool=solo; Windows has no prefork)
-.\scripts\start_celery_beat.ps1     # schedules periodic jobs; run exactly one
+.\scripts\start_celery_worker.ps1 -Role answers -Name answers1   # chat answers
+.\scripts\start_celery_worker.ps1 -Role background -Name bg1     # ingestion, crawling, maintenance
+.\scripts\start_celery_beat.ps1                                  # schedules periodic jobs; run exactly one
 ```
-Chat works without workers; ingestion, crawling and scheduled jobs need them.
+Workers use `--pool=solo` (Windows has no prefork), so each runs one task at a time. Keeping answers on
+their own worker stops a long ingestion or crawl from holding up chat. A single `start_celery_worker.ps1`
+with no `-Role` serves every queue, which is fine for a quick try.
+
+The web chat needs the answers worker: without one, the chat shows "Waiting for the answer service" and
+gives up after 3 minutes. The direct `/chat/answer` API endpoints don't use workers.
 
 ---
 

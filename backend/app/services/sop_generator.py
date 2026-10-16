@@ -95,6 +95,16 @@ SOP_TEMPLATES = {
 }
 
 
+SOP_MAX_TOKENS = 1400     # ~900 words: a full statement of purpose; ~4-5 minutes at worst on this CPU
+SOP_MIN_WORDS = 300       # anything shorter is a stub, not an SOP
+SOP_TEMPERATURE = 0.5     # some variety in wording, without the stubs seen at 0.7
+SOP_MAX_ATTEMPTS = 2
+
+
+class SOPGenerationError(Exception):
+    """The model did not produce a usable SOP draft."""
+
+
 async def generate_sop(
     profile: Profile,
     university: str,
@@ -128,18 +138,22 @@ async def generate_sop(
     system_prompt = _build_system_prompt(template)
     user_prompt = _build_user_prompt(profile_context, context, template, university, program)
     
-    # Generate using the local LLM (Ollama)
-    # Note: local Ollama model — keep max_tokens reasonable to avoid slow responses
-    sop_content = await llm_service.generate_answer(
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        context="",  # Context already in user_prompt
-        temperature=0.7,  # More creative for SOP writing
-        max_tokens=8000,
-        role="sop",
-    )
-    
-    return sop_content
+    # Streamed (no total-time limit), bounded, and checked: one run in the 2026-10-15 review returned a 26-word
+    # stub and full SOPs took 171-178 s of the old 180 s non-streaming limit.
+    for attempt in range(1, SOP_MAX_ATTEMPTS + 1):
+        sop_content = await llm_service.generate_long_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            context="",  # Context already in user_prompt
+            temperature=SOP_TEMPERATURE,
+            max_tokens=SOP_MAX_TOKENS,
+            role="sop",
+        )
+        words = len(sop_content.split())
+        if words >= SOP_MIN_WORDS:
+            return sop_content
+        logger.warning(f"[SOP] attempt {attempt} produced only {words} words (minimum {SOP_MIN_WORDS})")
+    raise SOPGenerationError(f"The SOP draft was too short ({words} words) after {SOP_MAX_ATTEMPTS} attempts.")
 
 
 def _detect_country(university: str) -> str:

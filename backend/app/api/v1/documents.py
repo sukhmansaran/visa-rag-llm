@@ -16,7 +16,8 @@ from app.api.v1.document_schemas import (
     SOPUpdateRequest,
     DocumentListResponse,
 )
-from app.services.sop_generator import generate_sop
+from app.core.exceptions import AIServiceUnavailableError
+from app.services.sop_generator import SOPGenerationError, generate_sop
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 logger = logging.getLogger(__name__)
@@ -82,11 +83,23 @@ async def generate_sop_endpoint(
         
     except HTTPException:
         raise
+    except SOPGenerationError as e:
+        logger.warning("SOP draft too short", extra={"user_id": current_user.id, "error": str(e)})
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="The SOP draft could not be completed. Please try again.",
+        )
+    except AIServiceUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The AI service is busy or unavailable. Please try again shortly.",
+        )
     except Exception as e:
+        # Generic message: internal error text is logged, never returned to the client
         logger.error("Error generating SOP", extra={"user_id": current_user.id, "error": str(e)}, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate SOP: {str(e)}",
+            detail="Failed to generate the SOP.",
         )
 
 @router.get("/sop/{document_id}", response_model=SOPResponse)

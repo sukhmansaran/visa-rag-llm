@@ -184,6 +184,9 @@ async def execute_answer_job(job_id: str, user_id: Optional[int], query: str,
     result: Dict[str, Any] = {"answer": "", "sources": [], "metrics": {}}
 
     async with _Publisher(job_id) as events:
+        current = await get_job(job_id)
+        if current and current.get("status") in TERMINAL:
+            return current["status"]  # already ended (e.g. given up as not_started): don't add a second ending
         if await is_cancel_requested(job_id):
             events.emit("cancelled", {})
             await set_status(job_id, "cancelled")
@@ -223,7 +226,7 @@ async def execute_answer_job(job_id: str, user_id: Optional[int], query: str,
         if outcome == "done":
             metrics = {**result["metrics"], "trace_id": trace.trace_id}
             trace.finish(answer=result["answer"], source=metrics.get("source"))
-            await _save_assistant_message(user_id, session_id, result["answer"], result["sources"], metrics)
+            await _save_assistant_message(user_id, session_id, query, result["answer"], result["sources"], metrics)
             events.emit("done", {"full_response": result["answer"], "sources": result["sources"], "metrics": metrics})
             final = "done"
         elif outcome == "cancelled":
@@ -240,15 +243,17 @@ async def execute_answer_job(job_id: str, user_id: Optional[int], query: str,
     return final
 
 
-async def _save_assistant_message(user_id: Optional[int], session_id: Optional[str], answer: str,
+async def _save_assistant_message(user_id: Optional[int], session_id: Optional[str], query: str, answer: str,
                                   sources: List[Dict[str, Any]], metrics: Dict[str, Any]) -> None:
     if user_id is None:
         return
     from app.core.database import AsyncSessionLocal
+    from app.core.logging_config import PIIRedactor
     from app.models.chat_message import ChatMessage
 
     async with AsyncSessionLocal() as db:
-        db.add(ChatMessage(user_id=user_id, role="assistant", content=answer,
+        # The user's own PII echoed back by the model isn't stored (B6); the live answer is unchanged
+        db.add(ChatMessage(user_id=user_id, role="assistant", content=PIIRedactor.redact_echoes(answer, query),
                            sources={"citations": sources} if sources else {},
                            confidence=float(metrics.get("confidence", 0.0) or 0.0),
                            message_metadata=metrics, session_id=session_id))
@@ -261,6 +266,9 @@ async def execute_diagnostic_job(job_id: str, seconds: float, interval: float = 
     survives a reconnect and can be cancelled). Emits one step every `interval` seconds; touches no data.
     """
     async with _Publisher(job_id) as events:
+        current = await get_job(job_id)
+        if current and current.get("status") in TERMINAL:
+            return current["status"]
         await set_status(job_id, "running")
         events.emit("status", {"status": "running"})
 

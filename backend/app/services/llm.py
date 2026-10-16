@@ -429,6 +429,26 @@ class OllamaService:
         logger.info(f"[OLLAMA] Response generated ({len(content)} chars)")
         return content
 
+    async def generate_long_text(self, system_prompt: str, user_prompt: str, context: str = "",
+                                 temperature: float = 0.7, max_tokens: int = 2000, role: str = "answer",
+                                 model: Optional[str] = None) -> str:
+        """
+        A complete long answer (SOP, itinerary) collected from a *stream*. The non-streaming call must finish
+        within OLLAMA_REQUEST_TIMEOUT_SECONDS in total (an SOP took 171-178 s of the 180 s limit on this CPU,
+        2026-10-15 review); a stream only times out if the model goes silent for OLLAMA_STREAM_IDLE_TIMEOUT_SECONDS.
+        """
+        parts: List[str] = []
+        async with aclosing(self.generate_answer_stream(
+            system_prompt=system_prompt, user_prompt=user_prompt, context=context,
+            temperature=temperature, max_tokens=max_tokens, role=role, model=model,
+        )) as stream:
+            async for chunk in stream:
+                parts.append(chunk)
+        content = "".join(parts)
+        if not content.strip():
+            raise AIServiceUnavailableError("Ollama returned an empty response.", details={"reason": "empty_response"})
+        return content
+
     async def generate_answer_stream(
         self,
         system_prompt: str,

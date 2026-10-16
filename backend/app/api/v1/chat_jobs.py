@@ -9,6 +9,7 @@ Idle streams send `: heartbeat` comments every SSE_HEARTBEAT_SECONDS so proxies 
 
 import json
 import uuid
+from datetime import datetime
 from typing import Any, AsyncIterator, Dict, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -100,9 +101,30 @@ async def cancel_answer_job(job_id: str, current_user: User = Depends(get_curren
     return {"job_id": job_id, "status": "cancel_requested"}
 
 
+async def _check_unstarted(job_id: str, job: Dict[str, str]) -> None:
+    """
+    A job still queued means no worker has picked it up (none running, or all busy). Tell the user after
+    JOB_QUEUED_WARN_SECONDS and give up after JOB_QUEUED_GIVE_UP_SECONDS, instead of "Starting..." for the
+    whole job lifetime (2026-10-15 review, B5). Events go into the job's stream, so every listener sees them.
+    """
+    if job.get("status") != "queued":
+        return
+    try:
+        waited = (datetime.utcnow() - datetime.fromisoformat(job["created_at"])).total_seconds()
+    except (KeyError, ValueError):
+        return
+    if waited >= settings.JOB_QUEUED_GIVE_UP_SECONDS:
+        await jobs.set_status(job_id, "error")
+        await jobs.request_cancel(job_id)  # a worker that starts it late will skip it
+        await jobs.publish(job_id, "error", {"reason": "not_started", "waited_s": round(waited)})
+    elif waited >= settings.JOB_QUEUED_WARN_SECONDS and not job.get("waiting_announced"):
+        await jobs.set_status(job_id, "queued", waiting_announced="1")
+        await jobs.publish(job_id, "status", {"status": "waiting", "waited_s": round(waited)})
+
+
 async def _event_stream(job_id: str, after: str) -> AsyncIterator[str]:
     """Relay the job's events from `after` on; heartbeat while idle; stop after a terminal event."""
-    block_ms = max(1, int(settings.SSE_HEARTBEAT_SECONDS * 1000))
+    block_ms = max(1, int(min(settings.SSE_HEARTBEAT_SECONDS, settings.JOB_QUEUED_WARN_SECONDS) * 1000))
     last = after
     while True:
         events = await jobs.read_events(job_id, after_id=last, block_ms=block_ms)
@@ -111,6 +133,7 @@ async def _event_stream(job_id: str, after: str) -> AsyncIterator[str]:
             if job is None:  # expired while we waited
                 yield f"event: error\ndata: {json.dumps({'reason': 'job_expired'})}\n\n"
                 return
+            await _check_unstarted(job_id, job)
             yield ": heartbeat\n\n"
             continue
         for event_id, kind, data in events:

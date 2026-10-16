@@ -8,18 +8,20 @@ scrapes, change detection, cleanup and the weekly digest never ran.
 
 from app.workers.celery_app import celery_app
 
-def _worker_queues() -> set:
-    """The queues the real worker consumes, read from its start script (the source of truth)."""
+def _role_queues() -> dict:
+    """The queues each worker role consumes, read from its start script (the source of truth)."""
     import re
     from pathlib import Path
 
     script = (Path(__file__).resolve().parent.parent / "scripts" / "start_celery_worker.ps1").read_text(encoding="utf-8")
-    match = re.search(r"--queues=([\w,]+)", script)
-    assert match, "start_celery_worker.ps1 must pass --queues"
-    return set(match.group(1).split(","))
+    roles = dict(re.findall(r'"(answers|background)"\s*\{\s*"([\w,]+)"\s*\}', script))
+    default = re.search(r'default\s*\{\s*"([\w,]+)"\s*\}', script)
+    assert len(roles) == 2 and default, "start_celery_worker.ps1 must map -Role answers/background/all to --queues"
+    roles["all"] = default.group(1)
+    return {role: set(queues.split(",")) for role, queues in roles.items()}
 
 
-WORKER_QUEUES = _worker_queues()
+ROLE_QUEUES = _role_queues()
 
 
 def _registered_tasks():
@@ -50,8 +52,17 @@ def test_every_beat_entry_points_at_a_registered_task():
 
 
 def test_every_task_is_routed_to_a_queue_the_worker_consumes():
-    unrouted = {name: _queue_for(name) for name in _registered_tasks() if _queue_for(name) not in WORKER_QUEUES}
-    assert not unrouted, f"Tasks routed to queues no worker consumes: {unrouted}"
+    """Both setups (one `-Role all` worker, or `answers` + `background`) must run every task."""
+    for setup, queues in {"all": ROLE_QUEUES["all"],
+                          "answers+background": ROLE_QUEUES["answers"] | ROLE_QUEUES["background"]}.items():
+        unrouted = {name: _queue_for(name) for name in _registered_tasks() if _queue_for(name) not in queues}
+        assert not unrouted, f"{setup}: tasks routed to queues no worker consumes: {unrouted}"
+
+
+def test_answers_worker_serves_only_answers():
+    """Long background tasks never hold the answers worker (2026-10-15 review, B7)."""
+    assert ROLE_QUEUES["answers"] == {"answers"}
+    assert "answers" not in ROLE_QUEUES["background"]
 
 
 def test_scheduled_crawls_use_database_seeds():

@@ -148,7 +148,8 @@ Return ONLY valid JSON, no additional text."""
     
     try:
         # Generate itinerary using the local LLM
-        response = await llm_service.generate_answer(
+        # Streamed collection: a long itinerary must not hit the non-streaming total timeout (2026-10-15 review)
+        response = await llm_service.generate_long_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.8,

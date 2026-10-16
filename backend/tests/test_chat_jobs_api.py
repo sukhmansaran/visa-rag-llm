@@ -249,3 +249,50 @@ async def _user_id(client, headers) -> int:
     from app.core.security import verify_token
 
     return int(verify_token(headers["Authorization"].split()[1])["sub"])
+
+
+# ---------------------------------------------------------------- jobs nobody picks up (2026-10-15 review, B5)
+
+@pytest.mark.asyncio
+async def test_unstarted_job_announces_waiting_once_then_gives_up(client, monkeypatch):
+    monkeypatch.setattr(settings, "SSE_HEARTBEAT_SECONDS", 0.1)
+    monkeypatch.setattr(settings, "JOB_QUEUED_WARN_SECONDS", 0.3)
+    monkeypatch.setattr(settings, "JOB_QUEUED_GIVE_UP_SECONDS", 1.0)
+    headers = await login(client, "jobs-noworker@example.com")
+    job_id = await jobs.create_job(await _user_id(client, headers))  # no worker will ever run it
+
+    r = await client.get(f"/api/v1/chat/jobs/{job_id}/events", headers=headers)
+    events, heartbeats = parse_sse(r.text)
+    kinds = [(k, d.get("status") or d.get("reason")) for _, k, d in events]
+    assert kinds == [("status", "waiting"), ("error", "not_started")]  # announced once, then ended
+    assert (await jobs.get_job(job_id))["status"] == "error"
+    assert await jobs.is_cancel_requested(job_id)
+
+
+@pytest.mark.asyncio
+async def test_a_worker_that_starts_a_given_up_job_late_does_nothing(fake_llm):
+    job_id = await jobs.create_job(user_id=None)
+    await jobs.set_status(job_id, "error")
+    await jobs.publish(job_id, "error", {"reason": "not_started"})
+    assert await jobs.execute_answer_job(job_id, None, QUESTION) == "error"
+    assert [k for _, k, _ in await jobs.read_events(job_id)] == ["error"]  # no second ending
+    assert fake_llm.calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_running_job_is_never_given_up(client, monkeypatch):
+    monkeypatch.setattr(settings, "SSE_HEARTBEAT_SECONDS", 0.1)
+    monkeypatch.setattr(settings, "JOB_QUEUED_WARN_SECONDS", 0.1)
+    monkeypatch.setattr(settings, "JOB_QUEUED_GIVE_UP_SECONDS", 0.2)
+    headers = await login(client, "jobs-running@example.com")
+    job_id = await jobs.create_job(await _user_id(client, headers))
+    await jobs.set_status(job_id, "running")
+
+    async def finish_later():
+        await asyncio.sleep(0.8)
+        await jobs.publish(job_id, "done", {})
+
+    task = asyncio.create_task(finish_later())
+    events, _ = parse_sse((await client.get(f"/api/v1/chat/jobs/{job_id}/events", headers=headers)).text)
+    await task
+    assert [k for _, k, _ in events] == ["done"]
