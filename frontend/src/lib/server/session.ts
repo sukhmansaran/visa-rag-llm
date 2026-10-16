@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { ACCESS_COOKIE, REFRESH_COOKIE } from "@/lib/sessionCookies";
+import { ACCESS_COOKIE, CSRF_HEADER, CSRF_VALUE, REFRESH_COOKIE } from "@/lib/sessionCookies";
 
 export { ACCESS_COOKIE, REFRESH_COOKIE };
 const REFRESH_PATH = "/api/auth";
@@ -60,6 +60,21 @@ export function setSessionCookies(request: NextRequest, response: NextResponse, 
 export function clearSessionCookies(request: NextRequest, response: NextResponse): void {
     response.cookies.set(ACCESS_COOKIE, "", cookieOptions(request, "/", 0));
     response.cookies.set(REFRESH_COOKIE, "", cookieOptions(request, REFRESH_PATH, 0));
+}
+
+/**
+ * CSRF guard for the state-changing /api/auth handlers (login, signup, refresh, logout).
+ * A cross-site page can auto-submit a form here, and a `text/plain` form body can be shaped like JSON, so
+ * without this check another site could log a visitor into the attacker's account (login CSRF; found in
+ * the 2026-10-15 review). Our pages send the custom header and a JSON body; a cross-site form can send
+ * neither without a CORS preflight. Returns a 403 response to send back, or null when the request is ok.
+ */
+export function rejectCrossSite(request: NextRequest, options: { jsonBody?: boolean } = {}): NextResponse | null {
+    const csrfOk = request.headers.get(CSRF_HEADER) === CSRF_VALUE;
+    // Handlers that read a body also require JSON, so a text/plain body is never parsed as credentials
+    const jsonOk = !options.jsonBody || (request.headers.get("content-type") || "").toLowerCase().startsWith("application/json");
+    if (csrfOk && jsonOk) return null;
+    return NextResponse.json({ detail: "Request refused." }, { status: 403 });
 }
 
 /** Headers for calling the backend on the user's behalf, keeping the client address for rate limiting. */

@@ -74,10 +74,17 @@ $changed = @(git diff --name-only origin/main 2>$null) + @(git ls-files --others
 $frontendChanged = $Frontend -or ($changed | Where-Object { $_ -like "frontend/*" })
 if ($frontendChanged) {
     Set-Location $frontendDir
-    Run-Step "frontend lint" { pnpm run lint }
-    Run-Step "frontend type-check" { pnpm exec tsc --noEmit }
-    Run-Step "frontend build" { pnpm run build }
-    Run-Step "frontend audit (as CI)" { pnpm audit --prod --audit-level high }
+    # The project's own tools through node: works even where Windows Application Control blocks pnpm.exe
+    Run-Step "frontend lint" { node node_modules/eslint/bin/eslint.js . }
+    Run-Step "frontend type-check" { node node_modules/typescript/bin/tsc --noEmit }
+    Run-Step "frontend build" { node node_modules/next/dist/bin/next build }
+    $pnpmWorks = $false
+    try { pnpm --version *> $null; $pnpmWorks = ($LASTEXITCODE -eq 0) } catch { $pnpmWorks = $false }
+    if ($pnpmWorks) {
+        Run-Step "frontend audit (as CI)" { pnpm audit --prod --audit-level high }
+    } else {
+        Skip-Step "frontend audit" "pnpm unavailable here (CI still runs it)"
+    }
 } else {
     Skip-Step "frontend checks" "no frontend changes"
 }

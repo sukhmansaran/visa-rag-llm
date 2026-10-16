@@ -132,3 +132,38 @@ async def test_trusted_proxy_x_forwarded_for_is_honoured(test_app, monkeypatch):
         assert (await client.post("/api/v1/auth/login", headers={"X-Forwarded-For": "198.51.100.7"})).status_code == 429
         # A different real client behind the same proxy is tracked separately
         assert (await client.post("/api/v1/auth/login", headers={"X-Forwarded-For": "198.51.100.8"})).status_code == 200
+
+
+@pytest.fixture
+def model_app(monkeypatch):
+    async def _no_redis(self):
+        return None
+    monkeypatch.setattr(RateLimitMiddleware, "_get_redis", _no_redis)
+    app = FastAPI()
+    app.add_middleware(RateLimitMiddleware, requests_per_minute=60)
+
+    for path in ("/api/v1/chat/jobs", "/api/v1/documents/sop/generate", "/api/v1/tour-packages/create"):
+        app.add_api_route(path, lambda: {"ok": True}, methods=["POST"])
+    app.add_api_route("/api/v1/chat/jobs/{job_id}/events", lambda job_id: {"ok": True}, methods=["GET"])
+    return app
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/api/v1/chat/jobs", "/api/v1/documents/sop/generate", "/api/v1/tour-packages/create"])
+async def test_model_call_endpoints_use_the_strict_bucket(model_app, path):
+    """Review 2026-10-15: these start minutes of CPU work but fell under the 60/min default."""
+    from app.core.security import create_access_token
+    headers = {"Authorization": f"Bearer {create_access_token({'sub': '7'})}"}
+    async with AsyncClient(transport=ASGITransport(app=model_app), base_url="http://test") as client:
+        codes = [(await client.post(path, headers=headers)).status_code for _ in range(22)]
+    assert codes.count(200) == 20 and codes.count(429) == 2
+
+
+@pytest.mark.asyncio
+async def test_job_event_reconnects_do_not_spend_the_model_budget(model_app):
+    from app.core.security import create_access_token
+    headers = {"Authorization": f"Bearer {create_access_token({'sub': '8'})}"}
+    async with AsyncClient(transport=ASGITransport(app=model_app), base_url="http://test") as client:
+        codes = [(await client.get("/api/v1/chat/jobs/abc/events", headers=headers)).status_code for _ in range(30)]
+        assert codes.count(429) == 0  # default bucket (60/min), not the 20/min model bucket
+        assert (await client.post("/api/v1/chat/jobs", headers=headers)).status_code == 200

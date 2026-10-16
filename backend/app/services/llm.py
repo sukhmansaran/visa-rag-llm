@@ -14,6 +14,7 @@ import contextvars
 import json
 import logging
 import time
+import uuid
 from contextlib import aclosing, asynccontextmanager, contextmanager
 from dataclasses import asdict, dataclass
 from typing import Any, AsyncGenerator, Dict, Iterator, List, Optional, Type, TypeVar
@@ -211,22 +212,51 @@ class OllamaService:
 
     @asynccontextmanager
     async def _slot(self, stats: LLMCallStats):
-        """Wait for a free generation slot (FIFO), recording the wait."""
-        semaphore = self._slots.get_or_create(lambda: asyncio.Semaphore(max(1, settings.LLM_MAX_CONCURRENT_CALLS)))
+        """
+        Wait for a free generation slot, recording the wait. Slots are machine-wide (Redis, shared by the API
+        and all workers) so a request never queues inside Ollama behind another process's call; without Redis,
+        or with LLM_GLOBAL_QUEUE off, the queue is per process.
+        """
+        from app.services.llm_slots import global_slots
+
         started = time.perf_counter()
+        token = uuid.uuid4().hex
+        held = None
+        if settings.LLM_GLOBAL_QUEUE:
+            try:
+                held = await global_slots.acquire(token, settings.LLM_MAX_CONCURRENT_CALLS, settings.LLM_QUEUE_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                stats.queue_wait_s = round(time.perf_counter() - started, 3)
+                raise self._queue_timeout()
+        if held:
+            stats.queue_wait_s = round(time.perf_counter() - started, 3)
+            renewer = asyncio.create_task(global_slots.renew(token))
+            try:
+                yield
+            finally:
+                renewer.cancel()
+                await asyncio.gather(renewer, return_exceptions=True)
+                await global_slots.release(token)
+            return
+
+        semaphore = self._slots.get_or_create(lambda: asyncio.Semaphore(max(1, settings.LLM_MAX_CONCURRENT_CALLS)))
         try:
             await asyncio.wait_for(semaphore.acquire(), timeout=settings.LLM_QUEUE_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
             stats.queue_wait_s = round(time.perf_counter() - started, 3)
-            raise AIServiceUnavailableError(
-                message="The AI service is busy with other requests. Please retry shortly.",
-                details={"reason": "queue_timeout"},
-            )
+            raise self._queue_timeout()
         stats.queue_wait_s = round(time.perf_counter() - started, 3)
         try:
             yield
         finally:
             semaphore.release()
+
+    @staticmethod
+    def _queue_timeout() -> AIServiceUnavailableError:
+        return AIServiceUnavailableError(
+            message="The AI service is busy with other requests. Please retry shortly.",
+            details={"reason": "queue_timeout"},
+        )
 
     @staticmethod
     def _record(stats: LLMCallStats, started: float) -> None:

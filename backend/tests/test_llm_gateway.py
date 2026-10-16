@@ -111,7 +111,13 @@ async def test_stream_call_records_timings_from_final_line():
 async def test_stream_stopped_early_is_recorded_and_frees_the_slot(monkeypatch):
     monkeypatch.setattr(settings, "LLM_MAX_CONCURRENT_CALLS", 1)
     body = "\n".join(json.dumps({"message": {"content": f"t{i} "}, "done": False}) for i in range(5))
-    service = make_service(lambda request: httpx.Response(200, text=body))
+
+    def handler(request):
+        if json.loads(request.content).get("stream"):
+            return httpx.Response(200, text=body)
+        return httpx.Response(200, json=chat_reply("ok"))
+
+    service = make_service(handler)
 
     with record_llm_calls() as calls:
         stream = service.generate_answer_stream("sys", "q")
@@ -119,9 +125,12 @@ async def test_stream_stopped_early_is_recorded_and_frees_the_slot(monkeypatch):
         await stream.aclose()
 
     assert calls[0].ok is False and calls[0].error == "stopped_by_consumer"
-    # The slot is free again; a stuck slot would make every later call wait for the queue timeout
-    semaphore = service._slots.get()
-    assert semaphore is not None and not semaphore.locked()
+    # The slot is free again (global or per-process queue): with one slot and a 1 s queue timeout,
+    # a stuck slot would make this call fail with queue_timeout
+    monkeypatch.setattr(settings, "LLM_QUEUE_TIMEOUT_SECONDS", 1)
+    with record_llm_calls() as more:
+        await asyncio.wait_for(service.generate_answer("sys", "q"), timeout=5)
+    assert more[0].queue_wait_s < 1
 
 
 @pytest.mark.asyncio

@@ -94,6 +94,13 @@ async def close_rate_limit_redis() -> None:
 REDIS_RETRY_SECONDS = 30
 # Credential-accepting endpoints share a strict per-IP bucket
 CREDENTIAL_ENDPOINTS = ("/auth/login", "/auth/signup", "/auth/refresh")
+# Endpoints that start model work (seconds to minutes of CPU each): the strict per-user "llm" bucket.
+# Matched by exact path suffix, so polling/reconnect routes under them (e.g. /chat/jobs/{id}/events) are not
+# counted. /chat/jobs, /documents/sop/generate and /tour-packages/create were missing (2026-10-15 review).
+MODEL_CALL_ENDPOINTS = (
+    "/chat/answer", "/chat/answer/stream", "/chat/jobs", "/admin/diagnostic-jobs",
+    "/documents/sop/generate", "/tour-packages/create", "/travel/itinerary/generate",
+)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -103,7 +110,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     Per-route quotas:
       - /auth/login, /auth/signup, /auth/refresh: 10 req/min, always keyed by client IP
-      - LLM endpoints (/chat/answer*, /travel/itinerary/generate): 20 req/min
+      - Model-call endpoints (MODEL_CALL_ENDPOINTS: chat answers and jobs, SOP, itinerary, tour packages): 20 req/min
       - Default endpoints: 60 req/min
 
     Identity:
@@ -142,7 +149,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path_lower = path.lower()
         if any(path_lower.endswith(p) for p in CREDENTIAL_ENDPOINTS):
             return 10, "auth"
-        if any(p in path_lower for p in ["/chat/answer", "/travel/itinerary/generate"]):
+        if path_lower.rstrip("/").endswith(MODEL_CALL_ENDPOINTS):
             return 20, "llm"
         return self.default_rpm, "default"
 

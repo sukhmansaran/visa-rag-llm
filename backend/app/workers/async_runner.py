@@ -29,6 +29,13 @@ async def _release_loop_resources(dispose_engine: bool) -> None:
     except Exception:
         logger.warning("Failed to close LLM client at end of task loop", exc_info=True)
 
+    from app.services.llm_slots import global_slots
+
+    try:
+        await global_slots.close()  # the shared model-slot Redis client is bound to this loop too
+    except Exception:
+        logger.warning("Failed to close model-slot Redis client at end of task loop", exc_info=True)
+
     if dispose_engine:
         from app.core.database import engine
         try:
