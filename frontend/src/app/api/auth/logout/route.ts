@@ -6,6 +6,7 @@ import {
     callBackend,
     clearSessionCookies,
     refreshSession,
+    rejectCrossSite,
     secondsUntilExpiry,
 } from "@/lib/server/session";
 
@@ -14,6 +15,8 @@ import {
  * valid access token, so an expired one is renewed first. The cookies are cleared in every case.
  */
 export async function POST(request: NextRequest) {
+    const refused = rejectCrossSite(request);
+    if (refused) return refused;
     let access = request.cookies.get(ACCESS_COOKIE)?.value;
     let refresh = request.cookies.get(REFRESH_COOKIE)?.value;
 

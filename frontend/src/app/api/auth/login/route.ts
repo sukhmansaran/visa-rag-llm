@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { backendHeaders, callBackend, sessionResponse } from "@/lib/server/session";
+import { backendHeaders, callBackend, sessionResponse, rejectCrossSite } from "@/lib/server/session";
 
 /** Log in: the backend's tokens become httpOnly cookies; the browser receives only the user. */
 export async function POST(request: NextRequest) {
+    const refused = rejectCrossSite(request, { jsonBody: true });
+    if (refused) return refused;
     const credentials = await request.json().catch(() => null);
     const { status, body } = await callBackend("/api/v1/auth/login", {
         method: "POST",

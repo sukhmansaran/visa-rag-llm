@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     # A CPU serves one generation at a time well; extra calls wait in a queue (per process).
     LLM_MAX_CONCURRENT_CALLS: int = 1
     LLM_QUEUE_TIMEOUT_SECONDS: float = 300.0   # give up waiting for a free slot after this
+    # Share the slots across processes via Redis (API + all workers use one Ollama). Off = per-process queue.
+    LLM_GLOBAL_QUEUE: bool = True
 
     # Celery redelivery (M0.6a). A task whose worker died stays "unacked" in Redis; after this many seconds it is
     # put back on its queue. Must exceed the longest task (answer budget D3 = 5 min), or a task still running

@@ -511,7 +511,8 @@
         ]
       ],
       "must_not": [
-        "\\b5 years\\b"
+        "valid(ity)? (for |of )?(up to |a maximum of )?(5|five) years",
+        "(5|five)[- ]year (visitor )?visa"
       ],
       "rules_keys": []
     },
