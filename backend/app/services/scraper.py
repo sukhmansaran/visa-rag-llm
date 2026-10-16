@@ -4,16 +4,24 @@ Web scraping service using Playwright for dynamic sites and pypdf for PDFs.
 
 import hashlib
 import asyncio
+import io
 from typing import Dict, Optional
 from datetime import datetime
 from playwright.async_api import async_playwright, Browser, Page
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 import pypdf
-import httpx
 from bs4 import BeautifulSoup
 import html2text
 
 from app.core.config import settings
+from app.services.crawler.safe_http import (BROWSER_ARGS, BlockedDestinationError, pin_browser_page,
+                                            pinned_client)
+from app.services.crawler.ssrf_validator import is_safe_url
+
+
+def _allowed(url: str) -> bool:
+    """Official domains only; the address itself is checked when connecting (DNS-pinned, M0.9)."""
+    return is_safe_url(url, resolve_dns=False)
 
 
 # Page furniture that is never policy content (canada.ca uses these ids/classes; generic ones too)
@@ -44,6 +52,8 @@ class WebScraper:
     
     def __init__(self):
         self.browser: Optional[Browser] = None
+        self.client = None  # DNS-pinned client serving every browser and PDF request
+        self._playwright = None
         self.html_converter = html2text.HTML2Text()
         # Keep link text, drop URLs: URLs are noise in embedded chunks
         self.html_converter.ignore_links = True
@@ -52,14 +62,20 @@ class WebScraper:
         
     async def __aenter__(self):
         """Context manager entry - start browser."""
-        playwright = await async_playwright().start()
-        self.browser = await playwright.chromium.launch(headless=True)
+        self._playwright = await async_playwright().start()
+        # Chromium may not resolve names itself; pin_browser_page serves its requests (M0.9)
+        self.browser = await self._playwright.chromium.launch(headless=True, args=BROWSER_ARGS)
+        self.client = pinned_client(timeout=settings.SCRAPE_TIMEOUT_SECONDS)
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit - close browser."""
         if self.browser:
             await self.browser.close()
+        if self.client:
+            await self.client.aclose()
+        if self._playwright:  # was never stopped: its driver process outlived every scrape
+            await self._playwright.stop()
     
     async def scrape_url(self, url: str, wait_for_selector: Optional[str] = None) -> Dict:
         """
@@ -72,14 +88,18 @@ class WebScraper:
         Returns:
             Dict with url, title, raw_html, extracted_text, content_hash, scraped_at
         """
-        if url.lower().endswith('.pdf'):
-            return await self._scrape_pdf(url)
-        
+        if not _allowed(url):
+            raise BlockedDestinationError(f"SSRF blocked: '{url}' is not an allowed official domain")
+
         if not self.browser:
             raise RuntimeError("Browser not initialized. Use async context manager.")
-        
+
+        if url.lower().endswith('.pdf'):
+            return await self._scrape_pdf(url)
+
         page = await self.browser.new_page()
-        
+        await pin_browser_page(page, self.client, _allowed)
+
         try:
             # Navigate with timeout
             await page.goto(url, wait_until="domcontentloaded", timeout=settings.SCRAPE_TIMEOUT_SECONDS * 1000)
@@ -130,16 +150,11 @@ class WebScraper:
         Returns:
             Dict with url, title, extracted_text, content_hash, scraped_at
         """
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=settings.SCRAPE_TIMEOUT_SECONDS)
-            response.raise_for_status()
-            pdf_content = response.content
-        
-        # Parse PDF
-        with open('/tmp/temp.pdf', 'wb') as f:
-            f.write(pdf_content)
-        
-        reader = pypdf.PdfReader('/tmp/temp.pdf')
+        response = await self.client.get(url)
+        response.raise_for_status()
+
+        # Parse in memory (a fixed /tmp path broke on Windows and raced between concurrent scrapes)
+        reader = pypdf.PdfReader(io.BytesIO(response.content))
         
         # Extract text from all pages
         extracted_text = ''

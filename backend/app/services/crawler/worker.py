@@ -18,6 +18,7 @@ import httpx
 from app.services.crawler.types import FetchResult
 from app.services.crawler.throttle import ThrottleManager
 from app.services.crawler.ssrf_validator import is_safe_url
+from app.services.crawler.safe_http import BROWSER_ARGS, pin_browser_page, pinned_transport
 
 logger = logging.getLogger(__name__)
 
@@ -206,11 +207,7 @@ class CrawlerWorker:
         current_url = url
         redirect_hops = 0
 
-        async with httpx.AsyncClient(
-            timeout=30.0,
-            proxy=proxy,
-            follow_redirects=False,
-        ) as client:
+        async with self._http_client(proxy) as client:
             while True:
                 if self.enforce_ssrf and not is_safe_url(current_url, self.allowed_domains):
                     raise ValueError(f"SSRF blocked redirect target: {current_url}")
@@ -263,6 +260,16 @@ class CrawlerWorker:
             used_playwright=False,
         )
 
+    def _http_client(self, proxy: Optional[str]) -> httpx.AsyncClient:
+        """
+        Redirects are followed by hand so each hop is checked. Connections are DNS-pinned (M0.9): the
+        address that passed the SSRF check is the one connected to. Through a proxy the proxy resolves
+        the host, so pinning cannot apply there.
+        """
+        pin = self.enforce_ssrf and not proxy
+        return httpx.AsyncClient(timeout=30.0, proxy=proxy, follow_redirects=False,
+                                 transport=pinned_transport() if pin else None)
+
     def _rotate_user_agent(self) -> str:
         """
         Round-robin through the user-agent pool.
@@ -294,11 +301,7 @@ class CrawlerWorker:
         current_url = url
         redirect_hops = 0
 
-        async with httpx.AsyncClient(
-            timeout=30.0,
-            proxy=proxy,
-            follow_redirects=False,
-        ) as client:
+        async with self._http_client(proxy) as client:
             while True:
                 if self.enforce_ssrf and not is_safe_url(current_url, self.allowed_domains):
                     raise ValueError(f"SSRF blocked redirect target: {current_url}")
@@ -346,25 +349,19 @@ class CrawlerWorker:
         proxy_config = {"server": proxy} if proxy else None
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            # With SSRF enforced, Chromium cannot resolve names: every request is served through a
+            # DNS-pinned client (M0.9), and only to allowed domains
+            browser = await p.chromium.launch(headless=True, args=BROWSER_ARGS if self.enforce_ssrf else None)
             context = await browser.new_context(
                 user_agent=user_agent,
-                proxy=proxy_config,
+                proxy=None if self.enforce_ssrf else proxy_config,
             )
             page = await context.new_page()
+            client = self._http_client(proxy)
 
             if self.enforce_ssrf:
-                async def route_handler(route):
-                    req_url = route.request.url
-                    if req_url.startswith(("data:", "about:", "blob:")):
-                        await route.continue_()
-                    elif not is_safe_url(req_url, self.allowed_domains):
-                        logger.warning("SSRF blocked Playwright sub-request to: %s", req_url)
-                        await route.abort()
-                    else:
-                        await route.continue_()
-
-                await page.route("**/*", route_handler)
+                await pin_browser_page(
+                    page, client, lambda req_url: is_safe_url(req_url, self.allowed_domains, resolve_dns=False))
 
             try:
                 response = await page.goto(url, wait_until="networkidle", timeout=30000)
@@ -374,6 +371,7 @@ class CrawlerWorker:
             finally:
                 await context.close()
                 await browser.close()
+                await client.aclose()
 
         return {
             "status_code": status_code,

@@ -21,6 +21,8 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional, Set, Tuple
 
 import httpx
 
+from app.services.crawler.safe_http import BlockedDestinationError, pinned_transport
+
 logger = logging.getLogger(__name__)
 
 
@@ -177,7 +179,8 @@ class AsyncOfficialFetcher:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
                 timeout=self.timeout,
-                transport=self._custom_transport,
+                # Default: DNS-pinned (M0.9), so a host resolving to a private address is refused at connect
+                transport=self._custom_transport or (None if self.allow_private_ips else pinned_transport()),
                 follow_redirects=False,  # Manual redirect validation for SSRF safety
                 headers={"User-Agent": self.user_agent},
             )
@@ -253,7 +256,7 @@ class AsyncOfficialFetcher:
             ):
                 raise SSRFBlockedError(f"Target IP address '{ip}' is private, loopback, or reserved.")
         except ValueError:
-            # Not an IP literal: hostname will be resolved by transport.
+            # Not an IP literal: the pinned transport resolves it once and refuses prohibited addresses.
             pass
 
     def check_allowed_domain(self, parsed: urllib.parse.SplitResult) -> None:
@@ -515,6 +518,8 @@ class AsyncOfficialFetcher:
                         last_modified=resp_headers.get("last-modified"),
                     )
 
+                except BlockedDestinationError as blocked:  # the pinned transport refused the resolved address
+                    raise SSRFBlockedError(str(blocked)) from blocked
                 except (ResponseTooLargeError, UnsupportedContentTypeError, SSRFBlockedError, InvalidURLError):
                     raise
                 except HTTPFetchError as http_err:
