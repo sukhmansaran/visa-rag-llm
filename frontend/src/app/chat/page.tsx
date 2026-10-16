@@ -31,6 +31,7 @@ function setJobInUrl(jobId: string | null) {
 
 function errorText(reason: string | undefined): string {
     if (reason === "time_budget") return "\n\n⚠️ The answer took longer than the 5-minute limit and was stopped.";
+    if (reason === "not_started") return "\n\n⚠️ The answer service isn't running right now. Please try again in a few minutes.";
     return "\n\n⚠️ The answer could not be completed. Please try again.";
 }
 
@@ -77,6 +78,9 @@ export default function ChatPage() {
                     progress: describeStep(data),
                     steps: typeof data.n === "number" ? [...(m.steps || []), data.n] : m.steps,
                 }));
+                break;
+            case "status":
+                if (data.status === "waiting") updateLastAssistant(m => ({ ...m, progress: "Waiting for the answer service" }));
                 break;
             case "chunk":
                 updateLastAssistant(m => ({ ...m, content: m.content + (data.content || ""), streaming: true }));

@@ -217,3 +217,25 @@ def test_celery_routes_answer_jobs_to_their_own_queue():
     celery_app.loader.import_default_modules()
     assert "app.workers.answer_tasks.run_answer_job_task" in celery_app.tasks
     assert celery_app.conf.task_routes["app.workers.answer_tasks.*"] == {"queue": "answers"}
+
+
+@pytest.mark.asyncio
+async def test_saved_answer_drops_pii_the_user_gave_but_the_live_answer_is_unchanged(client, db_session, scripted):
+    from app.models.chat_message import ChatMessage
+    from app.models.user import User
+
+    await client.post("/api/v1/auth/signup", json={"email": "job-pii@example.com", "password": "testpass123"})
+    await db_session.commit()
+    user = (await db_session.execute(select(User).where(User.email == "job-pii@example.com"))).scalar_one()
+    echoed = "Passport P1234567 holders can work up to 24 hours per week off campus [Source 1]."
+    scripted._rules.clear()
+    scripted.when(r"24 hours per week", echoed)
+
+    job_id = await jobs.create_job(user_id=user.id, session_id="pii-session")
+    question = "My passport is P1234567. How many hours can a study permit holder work off campus?"
+    assert await jobs.execute_answer_job(job_id, user.id, question, session_id="pii-session") == "done"
+    await db_session.commit()
+    saved = (await db_session.execute(select(ChatMessage).where(ChatMessage.session_id == "pii-session"))).scalars().all()
+    assert len(saved) == 1 and "P1234567" not in saved[0].content and "[REDACTED_PASSPORT]" in saved[0].content
+    done = [d for _, k, d in await events_of(job_id) if k == "done"][0]
+    assert "P1234567" in done["full_response"]  # the user still sees their answer as written

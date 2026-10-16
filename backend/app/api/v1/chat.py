@@ -182,7 +182,7 @@ async def get_answer_stream(
                     assistant_msg = ChatMessage(
                         user_id=current_user.id,
                         role="assistant",
-                        content=full_response,
+                        content=PIIRedactor.redact_echoes(full_response, message.query),  # B6
                         sources={"citations": sources} if sources else {},
                         confidence=float(metrics.get("confidence", 0.0)),
                         message_metadata=metrics,
@@ -397,7 +397,7 @@ async def _answer(message: ChatMessageSchema, current_user: User, db: AsyncSessi
         assistant_msg = ChatMessage(
             user_id=current_user.id,
             role="assistant",
-            content=answer,
+            content=PIIRedactor.redact_echoes(answer, message.query),  # B6: the user's own PII isn't stored back
             sources={"citations": sources} if sources else {},
             confidence=confidence,
             message_metadata=rag_metrics,

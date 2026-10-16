@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     ANSWER_JOB_BUDGET_SECONDS: int = 300   # D3: 5 minutes per answer, then the job stops with error "time_budget"
     ANSWER_JOB_TTL_SECONDS: int = 3600     # job state and events expire from Redis after this
     SSE_HEARTBEAT_SECONDS: float = 15.0    # idle event streams send a heartbeat so proxies keep them open
+    # A job nobody has picked up (no worker running): tell the user after this long, give up after the second
+    JOB_QUEUED_WARN_SECONDS: float = 20.0
+    JOB_QUEUED_GIVE_UP_SECONDS: float = 180.0
 
     # Request traces (M0.5): one PII-redacted record per chat request, deleted after the retention period (D7)
     TRACES_ENABLED: bool = True

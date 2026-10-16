@@ -102,6 +102,34 @@ class PIIRedactor:
 
         return text
 
+    @classmethod
+    def redact_echoes(cls, text: str, source: str) -> str:
+        """
+        Remove from `text` the PII values that appear in `source` (2026-10-15 review, B6).
+
+        For stored answers: the model can repeat the user's passport number, email or phone back to them, so
+        those values are scrubbed. Blanket redact() is not used on answers because it would also remove public
+        facts the answer needs, such as the IRCC call-centre number or a program's contact email.
+        """
+        if not text or not source:
+            return text
+        labelled = [
+            (cls.AUTH_TOKEN_PATTERN, "[REDACTED_AUTH_TOKEN]"), (cls.EMAIL_PATTERN, "[REDACTED_EMAIL]"),
+            (cls.PASSPORT_EXPLICIT_PATTERN, "[REDACTED_PASSPORT]"), (cls.PASSPORT_ICAO_PATTERN, "[REDACTED_PASSPORT]"),
+            (cls.SIN_EXPLICIT_PATTERN, "[REDACTED_GOV_ID]"), (cls.SSN_PATTERN, "[REDACTED_GOV_ID]"),
+            (cls.UCI_EXPLICIT_PATTERN, "[REDACTED_GOV_ID]"), (cls.CREDIT_CARD_PATTERN, "[REDACTED_FINANCIAL]"),
+            (cls.BANK_ACCOUNT_PATTERN, "[REDACTED_FINANCIAL]"), (cls.PHONE_PATTERN, "[REDACTED_PHONE]"),
+        ]
+        values: Dict[str, str] = {}
+        for pattern, label in labelled:
+            for match in pattern.finditer(source):
+                value = match.group(match.re.groups) if match.re.groups else match.group(0)  # the value, not its label
+                if value and len(value.strip()) >= 4:
+                    values.setdefault(value.strip(), label)
+        for value in sorted(values, key=len, reverse=True):
+            text = text.replace(value, values[value])
+        return text
+
 
 def redact_pii(data: Any) -> Any:
     """Recursively scrub PII from strings, dicts, lists, and tuples."""

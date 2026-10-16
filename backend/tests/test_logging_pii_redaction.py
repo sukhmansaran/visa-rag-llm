@@ -233,3 +233,28 @@ def test_does_not_mangle_labels_or_regulatory_numbers():
     assert "passport number is [REDACTED_PASSPORT]" in clean
     for kept in ("IMM 1294", "NOC 21231", "TEER 1", "CRS 489", "$150"):
         assert kept in clean
+
+
+class TestRedactEchoes:
+    """Stored answers drop only the user's own PII (2026-10-15 review, B6), not public facts."""
+
+    def test_removes_values_the_user_gave(self):
+        query = "My passport number is P1234567 and my email is asha.k@example.com, call me at 416-555-0199."
+        answer = "Thanks. Passport P1234567 is noted; we'll write to asha.k@example.com or 416-555-0199."
+        clean = PIIRedactor.redact_echoes(answer, query)
+        for value in ("P1234567", "asha.k@example.com", "416-555-0199"):
+            assert value not in clean
+        assert "[REDACTED_PASSPORT]" in clean and "[REDACTED_EMAIL]" in clean and "[REDACTED_PHONE]" in clean
+
+    def test_keeps_public_contact_details(self):
+        answer = "Call the IRCC client support centre at 1-888-242-2100 or email IRCC.Info@cic.gc.ca."
+        assert PIIRedactor.redact_echoes(answer, "How do I contact IRCC?") == answer
+
+    def test_keeps_labels_from_the_question(self):
+        query = "My passport is A12345678, can I apply?"
+        answer = "A passport is required. Your passport A12345678 must be valid."
+        assert PIIRedactor.redact_echoes(answer, query) == "A passport is required. Your passport [REDACTED_PASSPORT] must be valid."
+
+    def test_empty_inputs(self):
+        assert PIIRedactor.redact_echoes("", "P1234567") == ""
+        assert PIIRedactor.redact_echoes("answer", "") == "answer"

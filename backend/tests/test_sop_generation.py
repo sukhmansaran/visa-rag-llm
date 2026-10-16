@@ -14,6 +14,9 @@ from app.services.sop_generator import (
 from app.models.profile import Profile
 
 
+FULL_SOP = "Statement of Purpose. " + "I am applying to this program because of my background. " * 40
+
+
 class TestCountryDetection:
     """Test country detection from university names."""
     
@@ -157,14 +160,14 @@ class TestSOPTemplates:
 class TestSOPGeneration:
     """Test SOP generation with mocked LLM."""
     
-    @patch('app.services.sop_generator.llm_service.generate_answer')
+    @patch('app.services.sop_generator.llm_service.generate_long_text')
     @patch('app.services.sop_generator._retrieve_program_context')
     async def test_generate_sop_success(self, mock_retrieve, mock_llm):
         """Test successful SOP generation."""
         
         # Mock responses
         mock_retrieve.return_value = "Program context from vector store"
-        mock_llm.return_value = "Generated SOP content with proper structure..."
+        mock_llm.return_value = FULL_SOP
         
         profile = Profile(
             user_id=1,
@@ -182,17 +185,17 @@ class TestSOPGeneration:
             additional_info="AI research"
         )
         
-        assert result == "Generated SOP content with proper structure..."
+        assert result == FULL_SOP
         mock_llm.assert_called_once()
         mock_retrieve.assert_called_once()
     
-    @patch('app.services.sop_generator.llm_service.generate_answer')
+    @patch('app.services.sop_generator.llm_service.generate_long_text')
     @patch('app.services.sop_generator._retrieve_program_context')
     async def test_generate_sop_without_context(self, mock_retrieve, mock_llm):
         """Test SOP generation when context retrieval fails."""
         
         mock_retrieve.return_value = ""  # No context
-        mock_llm.return_value = "Generated SOP without context..."
+        mock_llm.return_value = FULL_SOP
         
         profile = Profile(
             user_id=1,
@@ -208,16 +211,16 @@ class TestSOPGeneration:
             program="Test Program"
         )
         
-        assert result == "Generated SOP without context..."
+        assert result == FULL_SOP
         mock_llm.assert_called_once()
     
-    @patch('app.services.sop_generator.llm_service.generate_answer')
+    @patch('app.services.sop_generator.llm_service.generate_long_text')
     @patch('app.services.sop_generator._retrieve_program_context')
     async def test_generate_sop_different_countries(self, mock_retrieve, mock_llm):
         """Test SOP generation for different countries."""
         
         mock_retrieve.return_value = ""
-        mock_llm.return_value = "Generated SOP..."
+        mock_llm.return_value = FULL_SOP
         
         profile = Profile(
             user_id=1,
@@ -288,3 +291,48 @@ class TestProgramContextRetrieval:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ---------------------------------------------------------------- 2026-10-15 review (B4)
+
+@pytest.mark.asyncio
+@patch('app.services.sop_generator._retrieve_program_context', new_callable=AsyncMock, return_value="")
+async def test_a_stub_is_retried_then_refused(mock_retrieve):
+    """One review run returned a 26-word 'SOP'; the generator must not hand that to the user."""
+    from app.services.sop_generator import SOP_MAX_ATTEMPTS, SOPGenerationError
+
+    profile = Profile(user_id=1, education_level="bachelor", field_of_study="CS")
+    with patch('app.services.sop_generator.llm_service.generate_long_text', new_callable=AsyncMock,
+               return_value="As a driven professional, I am excited to apply.") as mock_llm:
+        with pytest.raises(SOPGenerationError):
+            await generate_sop(profile, "University of Toronto", "MSc Computer Science")
+    assert mock_llm.call_count == SOP_MAX_ATTEMPTS
+
+
+@pytest.mark.asyncio
+@patch('app.services.sop_generator._retrieve_program_context', new_callable=AsyncMock, return_value="")
+async def test_a_stub_followed_by_a_full_draft_returns_the_draft(mock_retrieve):
+    profile = Profile(user_id=1, education_level="bachelor", field_of_study="CS")
+    with patch('app.services.sop_generator.llm_service.generate_long_text', new_callable=AsyncMock,
+               side_effect=["Too short.", FULL_SOP]) as mock_llm:
+        assert await generate_sop(profile, "University of Toronto", "MSc Computer Science") == FULL_SOP
+    assert mock_llm.call_count == 2
+    kwargs = mock_llm.call_args.kwargs
+    assert kwargs["max_tokens"] <= 1500 and kwargs["temperature"] <= 0.5 and kwargs["role"] == "sop"
+
+
+@pytest.mark.asyncio
+async def test_long_text_is_collected_from_a_stream_not_one_timed_request(monkeypatch):
+    """generate_long_text must use the stream (idle timeout per chunk), never the total-time request."""
+    from app.services.llm import llm_service
+
+    async def stream(**_):
+        for word in ["Statement ", "of ", "purpose."]:
+            yield word
+
+    async def must_not_be_called(**_):
+        raise AssertionError("the non-streaming call has a total-time limit")
+
+    monkeypatch.setattr(llm_service, "generate_answer_stream", stream)
+    monkeypatch.setattr(llm_service, "generate_answer", must_not_be_called)
+    assert await llm_service.generate_long_text(system_prompt="s", user_prompt="u") == "Statement of purpose."
