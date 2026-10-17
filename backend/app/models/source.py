@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
+from sqlalchemy import JSON, Column
 from sqlmodel import SQLModel, Field, Relationship
 
 if TYPE_CHECKING:
@@ -36,7 +37,14 @@ class Source(SQLModel, table=True):
     is_active: bool = Field(default=True)
     portal_id: Optional[int] = Field(default=None, foreign_key="aggregator_portals.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    
+
+    # Official source registry (M0.10): set by scripts/sync_sources.py from app/data/official_sources.yaml
+    registry_id: Optional[str] = Field(default=None, max_length=100, sa_column_kwargs={"unique": True})
+    topics: Optional[List[str]] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    max_age_days: Optional[int] = Field(default=None)  # older content is stale
+    last_verified_at: Optional[datetime] = Field(default=None)
+    verify_status: Optional[str] = Field(default=None, max_length=40)  # see VerifyResult.status
+
     # Relationships
     documents: List["Document"] = Relationship(back_populates="source")
     changes: List["Change"] = Relationship(back_populates="source")

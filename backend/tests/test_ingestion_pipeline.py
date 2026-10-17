@@ -11,6 +11,11 @@ from app.services.chunker import chunk_document
 from app.models.source import Source
 from app.models.document import Document
 
+# Realistic page length: ingestion refuses error/stub pages under 200 characters of main text (M0.10)
+PAGE_TEXT = ("Canada student visa requirements include proof of acceptance from a designated learning institution, "
+             "proof of financial support for tuition and living expenses, a provincial attestation letter in most "
+             "cases, and identity documents such as a valid passport.")
+
 
 class TestIngestionPipeline:
     """Test complete ingestion pipeline."""
@@ -45,7 +50,7 @@ class TestIngestionPipeline:
             'url': source.url,
             'title': 'Canada Visa Information',
             'raw_html': '<html>...</html>',
-            'extracted_text': 'Canada student visa requirements include proof of acceptance and financial documents.',
+            'extracted_text': PAGE_TEXT,
             'content_hash': 'abc123',
             'scraped_at': '2024-01-15T10:00:00Z'
         }
@@ -108,7 +113,7 @@ class TestIngestionPipeline:
             'url': source.url,
             'title': 'Canada Visa Information',
             'raw_html': '<html>...</html>',
-            'extracted_text': 'Same content',
+            'extracted_text': PAGE_TEXT,
             'content_hash': 'abc123',  # Same hash
             'scraped_at': '2024-01-15T10:00:00Z'
         }
@@ -118,6 +123,30 @@ class TestIngestionPipeline:
         
         assert result['status'] == 'skipped'
         assert result['reason'] == 'content_unchanged'
+
+    @pytest.mark.asyncio
+    @patch('app.services.ingestion.embed_texts_batch')
+    @patch('app.services.ingestion.scrape_with_retry')
+    async def test_error_pages_are_never_ingested(self, mock_scrape, mock_embed, db_session):
+        """M0.10: the University of Toronto source was stored as a 'Page not found' stub (HTTP 200)."""
+        from sqlalchemy import select
+
+        source = Source(url="https://future.utoronto.ca/apply/international-students/", name="UofT",
+                        source_type="university", authority_tier=2)
+        db_session.add(source)
+        await db_session.commit()
+        await db_session.refresh(source)
+        mock_scrape.return_value = {
+            'url': source.url, 'title': 'Page not found', 'raw_html': '<html>...</html>',
+            'extracted_text': '# Page not found\nThe requested page could not be found.',
+            'content_hash': 'stub', 'scraped_at': '2026-10-12T10:46:14Z',
+        }
+
+        result = await ingestion_service.ingest_source(source.id, db_session)
+
+        assert result['status'] == 'error' and result['reason'] == 'error_page'
+        documents = (await db_session.execute(select(Document).where(Document.source_id == source.id))).scalars().all()
+        assert documents == [] and not mock_embed.called  # nothing stored, nothing embedded
     
     @pytest.mark.asyncio
     async def test_ingestion_inactive_source(self, db_session):

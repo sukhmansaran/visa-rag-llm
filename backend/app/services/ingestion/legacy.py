@@ -11,6 +11,7 @@ import app.services.ingestion as ingestion_pkg
 from app.models.source import Source
 from app.models.document import Document
 from app.models.vector_chunk import VectorChunk
+from app.services.source_registry import looks_like_error_page
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,20 @@ class IngestionService:
         
         # Step 1: Scrape
         scraped_data = await ingestion_pkg.scrape_with_retry(source.url)
-        
+
+        # An error page served with HTTP 200 must never become "official" text (M0.10: the University of
+        # Toronto source was stored as "Page not found" and retrieved like any other chunk)
+        error_page = looks_like_error_page(scraped_data.get('title', ''), scraped_data.get('extracted_text', ''))
+        if error_page:
+            logger.warning("Not ingesting source %s (%s): %s", source_id, source.url, error_page)
+            return {
+                'status': 'error',
+                'reason': 'error_page',
+                'detail': error_page,
+                'source_id': source_id,
+                'url': source.url,
+            }
+
         # Check if content changed (compare hash)
         result = await db.execute(
             select(Document)
