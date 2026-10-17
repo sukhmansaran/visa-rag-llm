@@ -62,7 +62,7 @@ class TestMigration011RequestTraces(unittest.TestCase):
         m010.assert_dev_db_untouched()
 
     def test_upgrade_creates_request_traces(self):
-        command.upgrade(self.cfg, "head")
+        command.upgrade(self.cfg, "011")
         self.assertEqual(_revision(self.engine), "011")
 
         insp = inspect(self.engine)
@@ -81,23 +81,23 @@ class TestMigration011RequestTraces(unittest.TestCase):
         self.assertEqual(fks[0]["options"].get("ondelete"), "CASCADE")  # account deletion removes traces (D7)
 
     def test_trace_id_is_unique(self):
-        command.upgrade(self.cfg, "head")
+        command.upgrade(self.cfg, "011")
         _insert_trace(self.engine, "t-1")
         with self.assertRaises(Exception):
             _insert_trace(self.engine, "t-1")
 
     def test_downgrade_of_empty_table_and_reupgrade(self):
-        command.upgrade(self.cfg, "head")
+        command.upgrade(self.cfg, "011")
         command.downgrade(self.cfg, "010")
         self.assertEqual(_revision(self.engine), "010")
         self.assertNotIn("request_traces", inspect(self.engine).get_table_names())
 
-        command.upgrade(self.cfg, "head")
+        command.upgrade(self.cfg, "011")
         self.assertEqual(_revision(self.engine), "011")
         self.assertIn("request_traces", inspect(self.engine).get_table_names())
 
     def test_downgrade_refuses_to_drop_traces_without_explicit_consent(self):
-        command.upgrade(self.cfg, "head")
+        command.upgrade(self.cfg, "011")
         _insert_trace(self.engine, "keep-me")
 
         with self.assertRaises(RuntimeError):

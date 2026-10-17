@@ -1,0 +1,177 @@
+# Official source registry (M0.10) — the pages Pendu's knowledge base may be built from.
+#
+# Hand-curated and reviewed like code: nothing writes to this file. Workflow for a change:
+#   1. edit this file
+#   2. cd backend; python scripts/verify_registry.py      (every URL: HTTP 200, robots.txt, allowlist, not a soft 404)
+#   3. python scripts/sync_sources.py                     (dry run: shows what would change in the sources table)
+#   4. python scripts/sync_sources.py --apply             (then ingest new sources as usual)
+#
+# Fields
+#   id            stable key (lowercase-hyphenated); never reuse an id for a different page
+#   url           https, on the crawler domain allowlist (app/services/crawler/ssrf_validator.py)
+#   tier          1 = IRCC / Government of Canada, 2 = designated learning institution, 3 = recognised org
+#   topics        tags from the `topics` list below
+#   refresh_days  how often the page is re-fetched (sources.scrape_frequency = refresh_days * 24)
+#   max_age_days  older content than this is stale and must not be presented as current
+#   priority      1 (highest) to 5; ingestion order
+version: 1
+
+topics:
+  study_permit: Applying for, holding and keeping a study permit
+  pal_tal: Provincial / territorial attestation letters
+  proof_of_funds: Financial support requirements for students
+  documents: Required documents and how to prepare them
+  status_extension: Extending or restoring status, maintained status
+  work_while_studying: Working on or off campus during studies
+  pgwp: Post-graduation work permit
+  visitor_visa: Temporary resident (visitor) visas
+  eta: Electronic travel authorization
+  biometrics: Fingerprints and photo collection
+  express_entry: Express Entry programs, profiles and draws
+  language_tests: Approved language tests and CLB/NCLC levels
+  fees: Government fees
+  processing_times: Application processing times
+  university_admissions: Admission requirements published by institutions
+
+sources:
+  # ---------------------------------------------------------------- study permits (IRCC)
+  - id: study-permit-overview
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit.html
+    title: Study permit - Overview
+    tier: 1
+    topics: [study_permit, fees, processing_times]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 1
+  - id: study-permit-eligibility
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/eligibility.html
+    title: Study permit - Who can apply
+    tier: 1
+    topics: [study_permit]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 1
+  - id: study-permit-documents
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/get-documents.html
+    title: Study permit - Get the right documents
+    tier: 1
+    topics: [study_permit, documents]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 1
+  - id: study-permit-financial-support
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/get-documents/financial-support.html
+    title: Study permit - Proof of financial support
+    tier: 1
+    topics: [study_permit, proof_of_funds, documents]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 1
+  - id: study-permit-pal-tal
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/get-documents/provincial-attestation-letter.html
+    title: Study permit - Provincial attestation letter (PAL/TAL)
+    tier: 1
+    topics: [study_permit, pal_tal, documents]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 1
+  - id: study-permit-extend
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/extend-study-permit.html
+    title: Study permit - Extend or restore status
+    tier: 1
+    topics: [study_permit, status_extension]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+
+  # ---------------------------------------------------------------- work (IRCC)
+  - id: work-off-campus
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/work-off-campus.html
+    title: Work off campus as an international student
+    tier: 1
+    topics: [work_while_studying]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 1
+  - id: pgwp-about
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/after-graduation/about.html
+    title: Post-graduation work permit - About
+    tier: 1
+    topics: [pgwp]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 1
+  - id: pgwp-eligibility
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/after-graduation/eligibility.html
+    title: Post-graduation work permit - Who can apply
+    tier: 1
+    topics: [pgwp]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 1
+
+  # ---------------------------------------------------------------- visiting (IRCC)
+  - id: visitor-visa-about
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/about-visitor-visa.html
+    title: Visitor visa - About the document
+    tier: 1
+    topics: [visitor_visa]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: biometrics
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/biometrics.html
+    title: Biometrics
+    tier: 1
+    topics: [biometrics]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+
+  # ---------------------------------------------------------------- immigrating (IRCC)
+  - id: express-entry-fsw
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/who-can-apply/federal-skilled-workers.html
+    title: Express Entry - Federal Skilled Worker Program
+    tier: 1
+    topics: [express_entry]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: express-entry-language-tests
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/documents/language-test.html
+    title: Express Entry - Language test results
+    tier: 1
+    topics: [express_entry, language_tests]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+
+  # ---------------------------------------------------------------- institutions (tier 2)
+  - id: mcgill-international
+    url: https://www.mcgill.ca/undergraduate-admissions/apply/requirements/international
+    replaces: https://www.mcgill.ca/applying/requirements/international
+    title: McGill University - International
+    tier: 2
+    topics: [university_admissions]
+    source_type: university
+    refresh_days: 14
+    max_age_days: 60
+    priority: 1
+  - id: ubc-international
+    url: https://you.ubc.ca/international/
+    title: UBC - International Students
+    tier: 2
+    topics: [university_admissions]
+    source_type: university
+    refresh_days: 14
+    max_age_days: 60
+    priority: 1
+
+# Pages deliberately not used. sync_sources.py --apply deactivates their sources; chunks already in the
+# knowledge base are not touched by sync (removing them is a separate, reviewed step).
+excluded:
+  - url: https://future.utoronto.ca/apply/international-students/
+    reason: >-
+      future.utoronto.ca and www.utoronto.ca answer every automated request with HTTP 403 (Pantheon bot
+      protection, including robots.txt; checked 2026-10-16). The stored copy is a "Page not found" stub.
+      University of Toronto facts come from ircc_rules.yaml instead.
