@@ -7,6 +7,7 @@ The pipeline runs for real (guardrails, intent, rules, evidence gate, output che
 """
 
 import json
+import re
 from datetime import datetime, timedelta
 
 import pytest
@@ -106,7 +107,7 @@ async def test_save_trace_redacts_and_records_versions(db_session):
     assert "jane.doe@example.com" not in row.query_redacted and "REDACTED" in row.query_redacted
     assert "416-555-0199" not in row.answer_redacted
     assert (row.status, row.source, row.endpoint, row.session_id) == ("answered", "llm_rag", "chat.answer", "s-1")
-    assert row.prompt_version and len(row.prompt_version) == 12
+    assert re.fullmatch(r"grounded_answer@[1-9][0-9]*:[0-9a-f]{12}", row.prompt_version)  # id@version:fingerprint (M0.12)
     assert row.rules_version and row.model
 
 

@@ -13,7 +13,6 @@ answer are stored PII-redacted; rows are deleted after TRACE_RETENTION_DAYS (D7)
 """
 
 import contextvars
-import hashlib
 import logging
 import time
 import uuid
@@ -131,8 +130,9 @@ def trace_step(name: str, **detail: Any) -> Iterator[Dict[str, Any]]:
 
 
 def _prompt_version() -> str:
-    from app.services.rag_pipeline import GROUNDED_SYSTEM_PROMPT  # local import: the pipeline imports this module
-    return hashlib.sha256(GROUNDED_SYSTEM_PROMPT.encode("utf-8")).hexdigest()[:12]
+    """The grounded-answer prompt as id@version:fingerprint, e.g. grounded_answer@1:4485f8e2c0ac (M0.12)."""
+    from app.services.prompt_registry import get_prompt
+    return get_prompt("grounded_answer").tag
 
 
 async def save_trace(trace: TraceRecorder) -> Optional[str]:

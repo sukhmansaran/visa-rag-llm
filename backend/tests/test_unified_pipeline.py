@@ -9,7 +9,8 @@ Verifies:
 
 import pytest
 from unittest.mock import AsyncMock, patch
-from app.services.rag_pipeline import rag_pipeline, UNVERIFIED_EVIDENCE_REFUSAL, GROUNDED_SYSTEM_PROMPT
+from app.services.prompt_registry import get_prompt
+from app.services.rag_pipeline import rag_pipeline, UNVERIFIED_EVIDENCE_REFUSAL
 from app.core.visa_constitution import ViolationType, REFUSAL_MESSAGES
 
 
@@ -83,7 +84,7 @@ async def test_unified_pipeline_grounded_generation_sync():
         mock_llm.assert_called_once()
         call_kwargs = mock_llm.call_args.kwargs
         assert call_kwargs["temperature"] <= 0.2
-        assert call_kwargs["system_prompt"] == GROUNDED_SYSTEM_PROMPT
+        assert call_kwargs["system_prompt"] == get_prompt("grounded_answer").system
 
 
 

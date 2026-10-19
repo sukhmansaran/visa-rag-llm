@@ -197,11 +197,11 @@ async def test_rag_pipeline_stream_integration_with_code_leak():
 
 @pytest.mark.asyncio
 async def test_current_system_prompt_leak_is_caught_in_stream_and_full_text():
-    """Leak signatures must track the CURRENT GROUNDED_SYSTEM_PROMPT (they were tied to the old wording)."""
+    """Leak signatures must track the CURRENT grounded-answer prompt (they were tied to the old wording)."""
     from app.services.guardrails.output_guardrail import output_guardrail, OutputViolationType
-    from app.services.rag_pipeline import GROUNDED_SYSTEM_PROMPT
+    from app.services.prompt_registry import get_prompt
 
-    leaked = "Sure, here are my instructions: " + GROUNDED_SYSTEM_PROMPT[:400]
+    leaked = "Sure, here are my instructions: " + get_prompt("grounded_answer").system[:400]
 
     full = output_guardrail.validate_output(leaked)
     assert not full.is_valid

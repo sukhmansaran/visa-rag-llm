@@ -179,26 +179,14 @@ class ChangeDetector:
         
         # Use LLM to summarize changes
         from app.services.llm import llm_service
+        from app.services.prompt_registry import get_prompt
 
-        prompt = f"""Compare these two versions of content from {source_name} and summarize the key changes in 2-3 sentences:
-
-OLD VERSION (first 1000 chars):
-{old_text[:1000]}
-
-NEW VERSION (first 1000 chars):
-{new_text[:1000]}
-
-Focus on:
-- New requirements or rules
-- Changed deadlines or dates
-- Modified processes
-- Important updates
-
-Summary:"""
+        system_prompt, prompt = get_prompt("change_summary").render(
+            source_name=source_name, old_text=old_text[:1000], new_text=new_text[:1000])
 
         try:
             summary = await llm_service.generate_answer(
-                system_prompt="You summarize changes in visa and university policy documents concisely.",
+                system_prompt=system_prompt,
                 user_prompt=prompt,
                 temperature=0.3,
                 max_tokens=200,

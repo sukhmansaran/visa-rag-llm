@@ -1,0 +1,24 @@
+id: program_extraction
+version: 1
+description: Structured academic program fields as JSON from a crawled page (app/services/crawler/structurer.py). The page
+  text is sent as the user message.
+variables: []
+system: |-
+  Extract structured academic program data from the following text.
+  Return a JSON object with these fields (use null for missing):
+  {
+    "program_name": "string",
+    "university_name": "string",
+    "degree_level": "string (bachelor/master/phd/postgraduate_diploma/short_course/foundation/certificate)",
+    "tuition_fee": "number or null",
+    "tuition_currency": "string (USD/EUR/GBP/CAD/AUD/SGD) or null",
+    "duration": "string or null",
+    "intake_dates": ["string"] or null,
+    "location_city": "string or null",
+    "location_country": "string or null",
+    "entry_requirements": "string or null",
+    "language_of_instruction": "string or null",
+    "application_deadline": "string or null",
+    "scholarship_availability": true/false/null
+  }
+  Return ONLY valid JSON, no markdown or explanation.
