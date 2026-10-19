@@ -92,3 +92,25 @@ def test_accepting_a_fixed_case_requires_three_runs_and_a_majority_pass():
     unknown = {"summary": {"runs": 3}, "results": [result("zzz", True, [run(True)] * 3)]}
     with pytest.raises(SystemExit, match="not in the baseline"):
         eval_gate.accept_cases(base, unknown, versions, "x")
+
+
+# ---------------------------------------------------------------- model pins (M0.11)
+
+def _pin_report(status):
+    from app.services.model_pins import compare
+    installed = {"llama3.2:3b": "b" * 64 if status == "changed" else "a" * 64}
+    return compare({"llama3.2:3b": {"digest": "a" * 64}}, installed, {"llama3.2:3b": ["answer"]})
+
+
+def test_quick_gate_refuses_unpinned_builds():
+    message = eval_gate.pin_gate_problem(_pin_report("changed"), full=False)
+    assert message.startswith("FAIL") and "llama3.2:3b has changed" in message and "--full" in message
+
+
+def test_full_run_may_evaluate_a_new_build():
+    message = eval_gate.pin_gate_problem(_pin_report("changed"), full=True)
+    assert message.startswith("note:") and "evaluates the new builds" in message
+
+
+def test_pinned_builds_pass_through():
+    assert eval_gate.pin_gate_problem(_pin_report("ok"), full=False) == ""

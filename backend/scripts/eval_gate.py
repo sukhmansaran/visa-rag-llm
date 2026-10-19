@@ -9,6 +9,11 @@ Compares a fresh evaluation with the stored baseline (tests/data/rag_eval_baseli
     baseline. Re-check those cases by hand, then refresh the baseline.
 Improvements and new cases are reported but never fail the gate.
 
+Model builds (M0.11): the quick gate fails at once if a configured model's build differs from its pin in
+app/data/model_pins.yaml, since a few critical cases can't vouch for a new build. --full still runs (that is
+how a new build is evaluated) and says so; after reviewing it, update the baseline and run
+scripts/pin_models.py --accept.
+
 Ollama is not perfectly repeatable even at temperature 0, so in quick mode a baseline-passing case that fails
 is re-run twice more and judged by majority of 3 before it counts as a regression.
 
@@ -64,6 +69,17 @@ async def _versions(model: str) -> Dict[str, Any]:
     await llm_service.close()
     return {"model": model, "model_digest": digest, "prompt_version": _prompt_version(),
             "rules_version": get_rules_content_hash()}
+
+
+def pin_gate_problem(pin_report, full: bool) -> str:
+    """Why the gate can't judge these model builds ('' if it can). Quick runs need pinned builds."""
+    if pin_report.ok:
+        return ""
+    problems = "; ".join(pin_report.problems())
+    if full:
+        return f"note: model builds differ from their pins ({problems}). This full run evaluates the new builds."
+    return (f"FAIL: model builds differ from their pins ({problems}). The quick gate can't judge a new build: run "
+            "--full, review it, refresh the baseline, then scripts/pin_models.py --accept.")
 
 
 def build_baseline(report: dict, versions: dict) -> dict:
@@ -155,6 +171,14 @@ async def run_gate(args) -> int:
         return 1
     baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
 
+    from app.services.model_pins import check_pins
+    pins = await check_pins()
+    pin_problem = pin_gate_problem(pins, args.full)
+    if pin_problem:
+        print(pin_problem)
+        if not args.full:
+            return 1
+
     argv = ["--models", baseline["model"], "--out", str(BACKEND / "logs" / "eval_gate_last.json")]
     argv += ["--runs", "3"] if args.full else ["--critical", "--runs", "1"]
     if args.system_prompt_file:
@@ -195,6 +219,9 @@ async def run_gate(args) -> int:
     for key in ("model_digest", "prompt_version", "rules_version"):
         if versions[key] != baseline.get(key):
             print(f"  note: {key} changed since the baseline ({baseline.get(key)} -> {versions[key]})")
+    if pin_problem:
+        print("  note: evaluated on unpinned model builds; if this run is acceptable, refresh the baseline and run "
+              "scripts/pin_models.py --accept")
     print(f"RESULT: {'FAIL' if failed else 'PASS'}")
     return 1 if failed else 0
 

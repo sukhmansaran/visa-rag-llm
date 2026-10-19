@@ -31,6 +31,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.APP_NAME}...")
     await init_db()
     logger.info("Database initialized")
+
+    # M0.11: are the models Ollama serves the builds that were evaluated? Warn, never block startup.
+    from app.services.model_pins import refresh_pin_report
+    await refresh_pin_report()
     
     yield
     
@@ -122,4 +126,8 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Root health check endpoint."""
-    return {"status": "healthy", "service": settings.APP_NAME}
+    from app.services.model_pins import pin_report
+    report = pin_report()
+    # "healthy" is about serving requests; `models` says whether answers come from the evaluated builds (M0.11)
+    return {"status": "healthy", "service": settings.APP_NAME,
+            "models": report.as_dict() if report else {"ok": None, "detail": "not checked yet"}}
