@@ -613,21 +613,14 @@ class OllamaService:
 
     async def factual_summarize(self, text: str) -> str:
         """
-        Fact-dense bullet-point summary used at ingestion time to compress chunks.
+        Fact-dense bullet-point summary (diagnostics only: ingestion stores verbatim text since 2026-10-12).
+        Prompt: app/prompts/fact_summary.yaml.
         """
-        system_prompt = (
-            "You are a factual summarization engine. Your only goal is to extract "
-            "hard facts, requirements, and policies from the provided text.\n\n"
-            "STRICT RULES:\n"
-            "- Output ONLY bullet points.\n"
-            "- NO prose, NO intro, NO conclusion, NO conversational text.\n"
-            "- NO interpretation, NO examples.\n"
-            "- Extremely concise, dense facts.\n"
-            "- Maximum 150 words total output."
-        )
+        from app.services.prompt_registry import get_prompt
+        system_prompt, user_prompt = get_prompt("fact_summary").render(text=text)
         return await self.generate_answer(
             system_prompt=system_prompt,
-            user_prompt=f"Extract facts from this text:\n\n{text}",
+            user_prompt=user_prompt,
             temperature=0.0,
             max_tokens=300,
             role="ingestion",

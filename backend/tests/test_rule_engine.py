@@ -67,11 +67,25 @@ class TestProofOfFundsCalculations:
         assert "First-Year Tuition: CAD $18,500.50" in result.breakdown
         assert "Round-Trip Transportation: CAD $3,000.00" in result.breakdown
 
-    def test_quebec_specific_schedule(self):
-        """Quebec living benchmark follows provincial schedule."""
-        result = rule_engine.calculate_proof_of_funds(family_members_count=1, in_quebec=True)
-        assert result.base_living_cad == 15078
-        assert "MIFI" in result.authority_statute
+    @pytest.mark.parametrize("people,expected", [
+        # quebec.ca "Costs related to studying in Québec", applications as of 2026-01-01 (checked 2026-10-19)
+        (1, 24617), (2, 34814), (3, 42638), (6, 60299),
+        (8, 60299 + 2 * 5254),  # +5,254 for each person beyond six
+    ])
+    def test_quebec_specific_schedule(self, people, expected):
+        """Quebec publishes its own table by family size (not single + a flat amount per person)."""
+        result = rule_engine.calculate_proof_of_funds(family_members_count=people, in_quebec=True)
+        assert result.base_living_cad + result.additional_dependents_cad == expected
+        assert "MIFI" in result.authority_statute and "quebec.ca" in result.source_url
+
+    @pytest.mark.parametrize("query,quebec", [
+        ("How much funds do I need for 3 people studying in Quebec?", True),
+        ("funds for my family of 4 in Montréal", True),
+        ("How much funds do I need for 3 people studying in Toronto?", False),
+    ])
+    def test_quebec_questions_get_quebec_amounts(self, query, quebec):
+        facts = rule_engine.try_rule_answer("general", "canada", None, query=query)
+        assert ("quebec.ca" in facts) == quebec and ("financial-support.html" in facts) == (not quebec)
 
 
 class TestCLBBenchmarkConversions:
@@ -311,3 +325,40 @@ class TestApprovalGuaranteeFact:
     ])
     def test_ordinary_questions_do_not(self, query):
         assert rule_engine.approval_guarantee_fact(query) is None
+
+
+class TestFactsCorrectedInM013:
+    """Facts that were wrong before the 2026-10-19 check against canada.ca / quebec.ca (M0.13)."""
+
+    def _facts(self, query):
+        return rule_engine.try_rule_answer("general", "canada", None, query=query)
+
+    def test_software_engineers_are_not_told_they_qualify_for_stem_draws(self):
+        facts = self._facts("I am a software engineer, can I apply for Express Entry?")
+        assert "NOT on the current STEM category list" in facts
+        assert "21231" not in facts.split("occupations currently listed are:")[1].split("\n")[0]
+        assert "Cybersecurity specialists (NOC 21220)" in facts
+        assert "lower Comprehensive Ranking System" not in facts and "CRS score cutoffs" not in facts
+
+    def test_visitors_may_take_short_programs_without_a_study_permit(self):
+        facts = self._facts("Can I study as a tourist visitor in Canada?")
+        assert "no study permit is needed for a program of 6 months or less" in facts
+        assert "full-time post-secondary study" not in facts
+
+    def test_bank_statements_cover_six_months(self):
+        for query in ("What proof of funds documents are accepted?", "funds for a family of 3"):
+            facts = self._facts(query)
+            assert "6 months" in facts and "4 months" not in facts
+
+    def test_pgwp_conditions_are_stated(self):
+        facts = self._facts("How long is the PGWP after my master's?")
+        assert "never valid longer than the passport" in facts
+        assert "valid at some point during those days" in facts
+        assert "can't work until the PGWP is approved" in facts
+        assert "submitted on or after November 1, 2024" in facts
+
+    def test_letter_of_explanation_is_recommended_not_required(self):
+        facts = self._facts("What documents do I need for my study permit checklist?")
+        assert "Letter of explanation: recommended, not required" in facts
+        assert "Quebec Acceptance Certificate (CAQ)" in facts
+        assert "provincial-attestation-letter.html" in facts and "/study-permit/provincial-attestation-letter.html" not in facts

@@ -40,6 +40,7 @@ sys.path.insert(0, str(BACKEND))
 
 from app.core.config import settings  # noqa: E402
 from app.core.database import engine  # noqa: E402
+from app.services import prompt_registry  # noqa: E402
 from app.services import rag_pipeline as rag_module  # noqa: E402
 from app.services.cache_service import intent_cache  # noqa: E402
 from app.services.llm import llm_service  # noqa: E402
@@ -165,9 +166,9 @@ async def run_model(model: str, cases: list, baseline: bool, stream: bool = Fals
                     system_prompt: Optional[str] = None) -> dict:
     llm_service.model = model
     if system_prompt is not None:
-        rag_module.GROUNDED_SYSTEM_PROMPT = system_prompt  # evaluate a prompt variant without editing code
+        prompt_registry.set_override("grounded_answer", system_prompt)  # a variant, tagged grounded_answer@0:...
     if baseline:
-        rag_module.GROUNDED_SYSTEM_PROMPT = _baseline_prompt()
+        prompt_registry.set_override("grounded_answer", _baseline_prompt())
         settings.RAG_TOP_K, settings.RAG_CONTEXT_CHARS, settings.RAG_MAX_ANSWER_TOKENS = 3, 1500, 700
 
     captured: dict = {}
@@ -230,6 +231,8 @@ def summarise(model: str, results: List[dict], baseline: bool, stream: bool, run
     n = len(results)
     return {
         "model": model, "mode": _mode_name(baseline, stream), "eval_set_version": 2, "cases": n, "runs": runs,
+        # which prompt text produced these answers (M0.12); "@0" means an unsaved variant
+        "prompts": {"grounded_answer": prompt_registry.get_prompt("grounded_answer").tag},
         "passed": sum(r["passed"] for r in results),
         "pass_rate": round(sum(r["passed"] for r in results) / n, 3) if n else None,
         "unstable_cases": [r["id"] for r in results if not r["stable"]],

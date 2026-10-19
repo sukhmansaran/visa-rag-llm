@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.services.llm import llm_service
+from app.services.prompt_registry import get_prompt
 from app.models.tourist_destination import TouristDestination
 from app.models.travel_cost import TravelCost
 
@@ -87,64 +88,17 @@ async def generate_itinerary(
     # Create AI prompt
     interests_str = ", ".join(interests) if interests else "general sightseeing"
     
-    system_prompt = """You are an expert travel planner. Create detailed, practical day-by-day itineraries 
-that are realistic and enjoyable. Consider travel time between locations, opening hours, and energy levels.
-Format your response as a structured JSON with this exact format:
-
-{
-  "title": "Trip title",
-  "overview": "Brief overview",
-  "daily_budget": estimated daily cost in USD,
-  "days": [
-    {
-      "day": 1,
-      "title": "Day title",
-      "activities": [
-        {
-          "time": "09:00",
-          "activity": "Activity name",
-          "location": "Location name",
-          "duration": "2 hours",
-          "cost": 25.00,
-          "notes": "Any tips or notes"
-        }
-      ],
-      "meals": {
-        "breakfast": "Suggestion",
-        "lunch": "Suggestion",
-        "dinner": "Suggestion"
-      },
-      "accommodation": "Hotel suggestion",
-      "daily_cost": 150.00
-    }
-  ],
-  "tips": ["Tip 1", "Tip 2"],
-  "total_estimated_cost": 1000.00
-}"""
-    
-    user_prompt = f"""Create a {duration_days}-day travel itinerary for {country}.
-
-Budget Tier: {budget_tier}
-Interests: {interests_str}
-Available Destinations: {len(destinations)}
-
-Destinations to include:
-{chr(10).join([f"- {d['name']} ({d['city']}): {d['description'][:100]}... Rating: {d['rating']}, Time needed: {d['estimated_time']}, Entry: ${d['entry_fee']}" for d in destinations_info[:10]])}
-
-Cost Context:
-- Average daily food: ${avg_daily_food}
-- Average daily transport: ${avg_daily_transport}
-- Average hotel per night: ${avg_hotel}
-
-Create a realistic, enjoyable itinerary that:
-1. Balances activities throughout each day
-2. Includes travel time between locations
-3. Suggests specific restaurants and hotels
-4. Provides practical tips
-5. Stays within the {budget_tier} budget
-6. Focuses on the user's interests: {interests_str}
-
-Return ONLY valid JSON, no additional text."""
+    destination_lines = "\n".join(
+        f"- {d['name']} ({d['city']}): {d['description'][:100]}... Rating: {d['rating']}, "
+        f"Time needed: {d['estimated_time']}, Entry: ${d['entry_fee']}"
+        for d in destinations_info[:10]
+    )
+    # Prompt text: app/prompts/itinerary.yaml (M0.12)
+    system_prompt, user_prompt = get_prompt("itinerary").render(
+        duration_days=duration_days, country=country, budget_tier=budget_tier, interests=interests_str,
+        destination_count=len(destinations), destination_lines=destination_lines, avg_daily_food=avg_daily_food,
+        avg_daily_transport=avg_daily_transport, avg_hotel=avg_hotel,
+    )
     
     try:
         # Generate itinerary using the local LLM

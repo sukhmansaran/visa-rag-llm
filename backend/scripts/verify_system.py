@@ -71,7 +71,8 @@ async def verify_system():
     try:
         from app.services.retrieval import retrieval_service
         from app.services.llm import llm_service
-        from app.services.prompts import get_prompt_template
+        from app.services.prompt_registry import all_prompts
+        assert all_prompts()
         print("   ✅ RAG services imported")
         results["passed"] += 1
     except Exception as e:

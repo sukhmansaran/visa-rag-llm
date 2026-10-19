@@ -25,26 +25,12 @@ from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
 from app.services.tracing import trace_step
+from app.services.prompt_registry import get_prompt
 
 logger = logging.getLogger(__name__)
 
 
-GROUNDED_SYSTEM_PROMPT = """You are Pendu, a Canadian immigration information assistant (IRCC study permits, work, visitor visas, Express Entry).
-
-GROUNDING RULES (most important):
-- Answer ONLY with facts stated in the OFFICIAL STATUTORY FACTS and RETRIEVED DATA below. Do not use outside knowledge.
-- After each factual statement, cite the source it came from using the number shown in RETRIEVED DATA, e.g. [Source 1] or [Source 2]. Never write a literal "[Source N]" and never cite a source that does not say it.
-- If the sources do not cover part of the question, say plainly: "The official sources I have don't cover <that part>," and suggest checking canada.ca or a licensed RCIC. Do not fill the gap with general advice or guesses.
-- Copy numbers, dates, hour limits, dollar amounts and CLB levels exactly as written in the sources.
-- Statutory calculations in OFFICIAL STATUTORY FACTS are binding: repeat them exactly; only explain them.
-- Do not add requirements, steps, documents or exceptions that the sources do not state.
-
-STYLE:
-- Be direct and concise: answer the question first, then the key conditions. Aim for under 200 words.
-- Use short paragraphs or "- " bullet points, one per line. No greetings on follow-up questions.
-
-COMPLIANCE:
-- Never promise or imply guaranteed approval. Decisions are made by IRCC officers."""
+# The grounded-answer prompt lives in app/prompts/grounded_answer.yaml (M0.12).
 
 def normalize_markdown_output(text: str) -> str:
     """Ensure bullet points and headers generated on a single line are cleanly spaced with newlines."""
@@ -68,12 +54,12 @@ class RAGPipeline:
 
     @staticmethod
     async def _answer_cache_version() -> str:
-        """Cache-key version: rules file hash + knowledge-base fingerprint (B16)."""
+        """Cache-key version: rules file hash + knowledge-base fingerprint (B16) + prompt version (M0.12)."""
         try:
             kb_version = await vector_store.content_version()
         except Exception:
             kb_version = "kb-unknown"
-        return f"{get_rules_content_hash()}:{kb_version}"
+        return f"{get_rules_content_hash()}:{kb_version}:{get_prompt('grounded_answer').tag}"
 
     async def process_query(
         self,
@@ -249,9 +235,9 @@ class RAGPipeline:
 
         # 7. Grounded Generation
         combined_context, sources = self._build_grounded_context(rule_facts, chunks, tourist_context)
-        user_prompt = f"User Question: {query}"
+        system_prompt, user_prompt = get_prompt("grounded_answer").render(query=query)
         generation_args = dict(
-            system_prompt=GROUNDED_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_prompt=user_prompt,
             context=combined_context,
             chat_history=chat_history,
@@ -393,7 +379,7 @@ class RAGPipeline:
     @staticmethod
     def _record_usage(metrics: Dict[str, Any], user_prompt: str, context: str, answer: str) -> None:
         """Rough token/cost estimate (characters / 4); real Ollama counts arrive with the request trace (M0.5)."""
-        metrics["tokens_in"] = (len(GROUNDED_SYSTEM_PROMPT) + len(user_prompt) + len(context)) // 4
+        metrics["tokens_in"] = (len(get_prompt("grounded_answer").system) + len(user_prompt) + len(context)) // 4
         metrics["tokens_out"] = len(answer) // 4
         metrics["cost_usd"] = (metrics["tokens_in"] + metrics["tokens_out"]) * 0.0000001
         metrics["source"] = "llm_rag"

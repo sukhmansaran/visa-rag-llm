@@ -6,7 +6,6 @@ import pytest
 from unittest.mock import Mock, patch, AsyncMock
 from app.services.retrieval import retrieval_service
 from app.services.llm import llm_service
-from app.services.prompts import build_prompt
 from app.services.rag_pipeline import RAGPipeline
 
 
@@ -128,80 +127,6 @@ class TestRAGPipelineIntegration:
         # Verify filters were passed to vector store
         call_args = mock_search.call_args
         assert call_args[1]['filters'] == {'country': 'Canada', 'university': 'UofT'}
-
-
-class TestPromptBuilding:
-    """Test prompt building for different query types."""
-    
-    def test_build_visa_prompt(self):
-        """Test building visa-specific prompt."""
-        
-        context = "[Source 1] Canada visa requirements..."
-        query = "What are Canada visa requirements?"
-        
-        prompt = build_prompt(
-            query=query,
-            context=context,
-            query_type="visa"
-        )
-        
-        assert "visa" in prompt.lower()
-        assert context in prompt
-        assert query in prompt
-    
-    def test_build_university_prompt(self):
-        """Test building university-specific prompt."""
-        
-        context = "[Source 1] UofT admission requirements..."
-        query = "UofT admission requirements?"
-        user_profile = {
-            "education_level": "bachelor",
-            "gpa": 3.8
-        }
-        
-        prompt = build_prompt(
-            query=query,
-            context=context,
-            query_type="university",
-            user_profile=user_profile
-        )
-        
-        assert "university" in prompt.lower() or "admission" in prompt.lower()
-        assert "3.8" in prompt
-    
-    def test_build_checklist_prompt(self):
-        """Test building checklist prompt."""
-        
-        context = "[Source 1] Required documents..."
-        query = "What documents do I need?"
-        
-        prompt = build_prompt(
-            query=query,
-            context=context,
-            query_type="checklist",
-            application_type="student_visa"
-        )
-        
-        assert "checklist" in prompt.lower() or "document" in prompt.lower()
-        assert context in prompt
-
-    def test_build_checklist_prompt_precedence_and_duplicate_args(self):
-        """Test build_prompt safely resolves application_type when present in both kwargs and user_profile."""
-        context = "[Source 1] Required documents..."
-        query = "What documents do I need?"
-        user_profile = {
-            "application_type": "visitor_visa",
-            "education_level": "bachelor",
-        }
-        prompt = build_prompt(
-            query=query,
-            context=context,
-            query_type="checklist",
-            user_profile=user_profile,
-            application_type="student_visa",
-        )
-        assert "student_visa" in prompt
-        assert context in prompt
 
 
 class TestCitationValidation:

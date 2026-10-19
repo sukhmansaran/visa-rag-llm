@@ -41,7 +41,7 @@ from app.core.config import settings  # noqa: E402
 from app.services.guardrails.input_guardrail import input_guardrail  # noqa: E402
 from app.services.intent_parser import intent_parser  # noqa: E402
 from app.services.llm import llm_service  # noqa: E402
-from app.services.rag_pipeline import GROUNDED_SYSTEM_PROMPT  # noqa: E402
+from app.services.prompt_registry import get_prompt  # noqa: E402
 from app.services.retrieval import retrieval_service  # noqa: E402
 
 LOGS = BACKEND / "logs"
@@ -103,7 +103,8 @@ async def answer(state: SpikeState, config) -> SpikeState:
         return {"answer": "bench"}
     _log(NODE_LOG, {"thread": _thread(config), "node": "answer", "phase": "start"})
     context = "\n\n".join(f"[Source {i + 1}] {c['text']}" for i, c in enumerate(state.get("chunks", [])))
-    text = await llm_service.generate_answer(system_prompt=GROUNDED_SYSTEM_PROMPT, user_prompt=f"User Question: {state['question']}",
+    system_prompt, user_prompt = get_prompt("grounded_answer").render(query=state["question"])
+    text = await llm_service.generate_answer(system_prompt=system_prompt, user_prompt=user_prompt,
                                              context=context, temperature=0.0, max_tokens=200, role="answer")
     _log(NODE_LOG, {"thread": _thread(config), "node": "answer", "phase": "end"})
     return {"answer": text}

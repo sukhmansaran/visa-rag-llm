@@ -12,6 +12,7 @@ import math
 import re
 from typing import Optional
 
+from app.services.prompt_registry import get_prompt
 from app.services.crawler.types import (
     DEGREE_LEVEL_VOCABULARY,
     VALID_CURRENCIES,
@@ -22,39 +23,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_BATCH_SIZE = 50
 
-_VISA_EXTRACTION_PROMPT = """Extract structured visa/immigration data from the following text.
-Return a JSON object with these fields (use null for missing):
-{
-  "visa_type": "string",
-  "country": "string",
-  "processing_time": "string",
-  "required_documents": ["string"],
-  "fees": "string",
-  "eligibility_criteria": "string",
-  "deadlines": "string",
-  "application_steps": ["string"],
-  "contact_information": "string"
-}
-Return ONLY valid JSON, no markdown or explanation."""
-
-_PROGRAM_EXTRACTION_PROMPT = """Extract structured academic program data from the following text.
-Return a JSON object with these fields (use null for missing):
-{
-  "program_name": "string",
-  "university_name": "string",
-  "degree_level": "string (bachelor/master/phd/postgraduate_diploma/short_course/foundation/certificate)",
-  "tuition_fee": "number or null",
-  "tuition_currency": "string (USD/EUR/GBP/CAD/AUD/SGD) or null",
-  "duration": "string or null",
-  "intake_dates": ["string"] or null,
-  "location_city": "string or null",
-  "location_country": "string or null",
-  "entry_requirements": "string or null",
-  "language_of_instruction": "string or null",
-  "application_deadline": "string or null",
-  "scholarship_availability": true/false/null
-}
-Return ONLY valid JSON, no markdown or explanation."""
+# Extraction prompts: app/prompts/visa_extraction.yaml and program_extraction.yaml (M0.12)
 
 _VISA_REQUIRED_FIELDS = {"visa_type", "country"}
 _PROGRAM_REQUIRED_FIELDS = {"program_name", "university_name", "degree_level"}
@@ -90,14 +59,14 @@ class LLMStructurer:
     async def extract_visa_fields(self, text: str) -> Optional[dict]:
         """Extract visa/immigration structured fields from text."""
         return await self._extract_with_retry(
-            text, _VISA_EXTRACTION_PROMPT, "visa"
+            text, get_prompt("visa_extraction").system, "visa"
         )
 
     async def extract_program_fields(
         self, text: str, portal_name: Optional[str] = None
     ) -> Optional[dict]:
         """Extract academic program structured fields from text."""
-        prompt = _PROGRAM_EXTRACTION_PROMPT
+        prompt = get_prompt("program_extraction").system
         if portal_name:
             prompt += f"\nThis text is from the {portal_name} portal."
 

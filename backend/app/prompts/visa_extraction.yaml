@@ -1,0 +1,20 @@
+id: visa_extraction
+version: 1
+description: Structured visa fields as JSON from a crawled page (app/services/crawler/structurer.py). The page text is sent
+  as the user message.
+variables: []
+system: |-
+  Extract structured visa/immigration data from the following text.
+  Return a JSON object with these fields (use null for missing):
+  {
+    "visa_type": "string",
+    "country": "string",
+    "processing_time": "string",
+    "required_documents": ["string"],
+    "fees": "string",
+    "eligibility_criteria": "string",
+    "deadlines": "string",
+    "application_steps": ["string"],
+    "contact_information": "string"
+  }
+  Return ONLY valid JSON, no markdown or explanation.

@@ -3,10 +3,11 @@ SOP generation service using LLM and user profile.
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from app.models.profile import Profile
 from app.services.llm import llm_service  # Ollama-backed LLM service
 from app.services.retrieval import retrieval_service
+from app.services.prompt_registry import get_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -135,8 +136,7 @@ async def generate_sop(
     profile_context = _build_profile_context(profile, university, program, additional_info)
     
     # Create SOP generation prompt
-    system_prompt = _build_system_prompt(template)
-    user_prompt = _build_user_prompt(profile_context, context, template, university, program)
+    system_prompt, user_prompt = _render_prompts(profile_context, context, template, university, program)
     
     # Streamed (no total-time limit), bounded, and checked: one run in the 2026-10-15 review returned a 26-word
     # stub and full SOPs took 171-178 s of the old 180 s non-streaming limit.
@@ -221,77 +221,31 @@ def _build_profile_context(
     }
 
 
-def _build_system_prompt(template: Dict[str, Any]) -> str:
-    """Build system prompt for SOP generation."""
-    return f"""You are an expert Statement of Purpose writer with years of experience helping students gain admission to top universities worldwide.
-
-Your task is to write a compelling, authentic, and well-structured SOP that:
-1. Highlights the candidate's unique strengths and experiences
-2. Demonstrates genuine passion and motivation
-3. Shows clear fit with the target program
-4. Follows best practices for SOP writing
-5. Stays within {template['max_words']} words
-
-Key principles:
-- Be authentic and personal (avoid clichés)
-- Use specific examples and achievements
-- Show, don't just tell
-- Connect past experiences to future goals
-- Demonstrate research about the program
-- Maintain professional yet engaging tone
-- Use active voice and strong verbs
-
-Structure the SOP with these sections:
-{chr(10).join([f"- {section}" for section in template['key_sections']])}
-
-Important tips for this region:
-{chr(10).join([f"- {tip}" for tip in template['tips']])}"""
-
-
-def _build_user_prompt(
+def _render_prompts(
     profile_context: Dict[str, Any],
     program_context: str,
     template: Dict[str, Any],
     university: str,
-    program: str
-) -> str:
-    """Build user prompt with all context."""
-    
-    prompt = f"""Write a Statement of Purpose for the following candidate:
-
-**Candidate Profile:**
-- Name: {profile_context['name']}
-- Current Education: {profile_context['education_level']} in {profile_context['field_of_study']}
-- GPA: {profile_context['gpa']}
-- Test Scores: {profile_context['test_scores']}
-- Work Experience: {profile_context['work_experience']}
-
-**Target Program:**
-- University: {university}
-- Program: {program}
-
-**Additional Information:**
-{profile_context['additional_info']}
-"""
-
-    if program_context:
-        prompt += f"""
-**Program Information (from research):**
-{program_context}
-"""
-
-    prompt += f"""
-**Requirements:**
-- Maximum length: {template['max_words']} words
-- Include all required sections
-- Make it personal and compelling
-- Use specific examples from the candidate's background
-- Show genuine interest in the program
-- Avoid generic statements
-
-Generate the complete SOP now:"""
-
-    return prompt
+    program: str,
+) -> Tuple[str, str]:
+    """(system, user) prompts for an SOP draft. Prompt text: app/prompts/sop_draft.yaml (M0.12)."""
+    program_context_block = (f"\n**Program Information (from research):**\n{program_context}\n"
+                             if program_context else "")
+    return get_prompt("sop_draft").render(
+        max_words=template["max_words"],
+        sections="\n".join(f"- {section}" for section in template["key_sections"]),
+        tips="\n".join(f"- {tip}" for tip in template["tips"]),
+        name=profile_context["name"],
+        education_level=profile_context["education_level"],
+        field_of_study=profile_context["field_of_study"],
+        gpa=profile_context["gpa"],
+        test_scores=profile_context["test_scores"],
+        work_experience=profile_context["work_experience"],
+        university=university,
+        program=program,
+        additional_info=profile_context["additional_info"],
+        program_context_block=program_context_block,
+    )
 
 
 def _format_test_scores(test_scores: dict) -> str:

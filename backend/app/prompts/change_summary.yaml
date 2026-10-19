@@ -1,0 +1,26 @@
+id: change_summary
+version: 1
+description: Two-to-three sentence summary of what changed between two versions of a policy page (app/services/change_detector.py).
+  old_text and new_text are already cut to 1000 characters.
+variables:
+- source_name
+- old_text
+- new_text
+system: |-
+  You summarize changes in visa and university policy documents concisely.
+user: |-
+  Compare these two versions of content from {{source_name}} and summarize the key changes in 2-3 sentences:
+
+  OLD VERSION (first 1000 chars):
+  {{old_text}}
+
+  NEW VERSION (first 1000 chars):
+  {{new_text}}
+
+  Focus on:
+  - New requirements or rules
+  - Changed deadlines or dates
+  - Modified processes
+  - Important updates
+
+  Summary:

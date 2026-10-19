@@ -111,9 +111,12 @@ def test_rule_engine_answers_contain_effective_dates_and_citations():
     assert "https://www.canada.ca" in pof_facts
 
 
-# Sections whose figures were entered by an automated tool and have not yet been checked by a
-# person against source_url. Remove a key from this set once it has been verified.
-KNOWN_UNVERIFIED_SECTIONS = {"student_direct_stream", "express_entry_stem", "visitor_visa"}
+# Sections not yet checked by a person against source_url. Remove a key once the owner has reviewed it.
+# M0.13 (2026-10-19): an AI assistant checked every value in these sections against the official pages and
+# corrected the wrong ones (Quebec amounts, STEM occupations, visitor study rule, PGWP conditions); the
+# owner's review of that evidence is what remains, so they stay listed with that reason.
+KNOWN_UNVERIFIED_SECTIONS = {"student_direct_stream", "express_entry_stem", "visitor_visa",
+                             "post_graduation_work_permit", "proof_of_funds"}
 
 
 def test_every_section_records_who_verified_it():

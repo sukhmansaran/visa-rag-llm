@@ -104,7 +104,7 @@ class OutputGuardrail:
         re.compile(r"Conversational\s+Continuity\s+&\s+Tone", re.IGNORECASE),
         re.compile(r"Base\s+all\s+facts,\s+numbers,\s+TEER\s+levels,\s+NOC\s+classifications", re.IGNORECASE),
         re.compile(r"Never\s+provide\s+absolute\s+legal\s+guarantees", re.IGNORECASE),
-        # Current grounded prompt (rewritten 2026-10-12): keep in sync with rag_pipeline.GROUNDED_SYSTEM_PROMPT
+        # Current grounded prompt (rewritten 2026-10-12): keep in sync with app/prompts/grounded_answer.yaml
         re.compile(r"You are Pendu,\s+a\s+Canadian\s+immigration\s+information\s+assistant", re.IGNORECASE),
         re.compile(r"GROUNDING\s+RULES\s*\(most\s+important\)", re.IGNORECASE),
         re.compile(r"Answer\s+ONLY\s+with\s+facts\s+stated\s+in\s+the\s+OFFICIAL\s+STATUTORY\s+FACTS", re.IGNORECASE),
