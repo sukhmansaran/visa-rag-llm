@@ -602,7 +602,7 @@
       "must_include": [
         [
           "\\bno\\b",
-          "don.?t need",
+          "don.?t\\W{0,4}need",
           "do not need",
           "not required",
           "exempt"
@@ -823,7 +823,7 @@
       ],
       "must_not": [],
       "rules_keys": [
-        "post_graduation_work_permit.field_of_study_requirements.college_diplomas"
+        "post_graduation_work_permit.field_of_study_requirements.other_programs"
       ]
     },
     {

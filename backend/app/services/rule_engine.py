@@ -161,12 +161,16 @@ class RuleEngine:
         count = max(1, family_members_count)
 
         if in_quebec:
+            # Quebec publishes a table by family size (not a flat amount per extra person), quebec.ca 2026-01-01
             quebec = section.get("quebec_guidelines", {})
-            base_living = int(quebec["single_applicant_cad"])
-            add_living = max(0, count - 1) * int(quebec["additional_person_cad"])
-            living_total = base_living + add_living
+            table = {int(k): int(v) for k, v in quebec["rates_by_family_size"].items()}
+            largest = max(table)
+            beyond = int(quebec["additional_person_beyond_6_cad"])
+            living_total = table.get(count) or table[largest] + (count - largest) * beyond
+            base_living = table[1]
+            add_living = living_total - base_living
             statute = "Ministère de l'Immigration, de la Francisation et de l'Intégration (MIFI) Quebec Guidelines"
-            effective_from = ""
+            effective_from = str(quebec.get("effective_from", ""))
             source_url = quebec["source_url"]
             schedule_verified = bool(quebec.get("verified", False))
         else:
@@ -438,7 +442,13 @@ class RuleEngine:
             except ValueError:
                 tuition_cad = 0.0
 
-        return self.calculate_proof_of_funds(family_members_count=family_count, tuition_cad=tuition_cad)
+        return self.calculate_proof_of_funds(family_members_count=family_count, tuition_cad=tuition_cad,
+                                             in_quebec=self.mentions_quebec(q_lower))
+
+    @staticmethod
+    def mentions_quebec(text: str) -> bool:
+        """Quebec sets its own amounts (M0.13): a Quebec student must never get the outside-Quebec figure."""
+        return bool(re.search(r"\bqu[eé]bec\b|\bmontr[eé]al\b|\bqu[eé]bec city\b", text.lower()))
 
     def extract_query_language_params(self, query: str) -> Optional[CLBConversionResult]:
         """Detect language test scores in query and return CLB conversion."""
@@ -581,6 +591,7 @@ class RuleEngine:
                 family_members_count=pof_calc.family_count,
                 tuition_cad=pof_calc.tuition_cad,
                 transport_cad=pof_calc.transport_cad,
+                in_quebec=self.mentions_quebec(query),
             )
             return (
                 f"OFFICIAL IRCC REGULATORY FACTS — STATUTORY PROOF OF FUNDS CALCULATION:\n"
@@ -594,15 +605,15 @@ class RuleEngine:
                 + f")\n"
                 f"{current.breakdown}\n"
                 f"- Applications submitted before {current.effective_from} were assessed against an earlier, lower schedule.\n"
-                f"- Acceptable Evidence: Bank statements (last 4 months), GIC certificate, loan approval, or educational funding."
+                f"- Acceptable Evidence: bank statements for the past 6 months, a GIC, a student or education loan from a bank, a scholarship, or proof of paid tuition and housing."
             )
 
         # 2. Dynamic Language CLB Conversion
         lang_calc = self.extract_query_language_params(query)
         if lang_calc:
             return (
-                f"OFFICIAL IRCC REGULATORY FACTS — CANADIAN LANGUAGE BENCHMARK (CLB) CONVERSION (verified 2026-10-01):\n"
-                f"- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/documents/language-requirements.html\n"
+                f"OFFICIAL IRCC REGULATORY FACTS — CANADIAN LANGUAGE BENCHMARK (CLB) CONVERSION (verified 2026-10-19):\n"
+                f"- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/after-graduation/eligibility/language-results.html\n"
                 f"{lang_calc.summary}\n"
                 f"- Statutory Requirement: FSW requires minimum CLB 7 across all 4 language abilities."
             )
@@ -610,9 +621,10 @@ class RuleEngine:
         # 3. Dynamic PAL Assessment
         pal_calc = self.extract_query_pal_params(query)
         if pal_calc:
+            pal_rule = self.rules_data.get("provincial_attestation_letter", {})
             return (
-                f"OFFICIAL IRCC REGULATORY FACTS — PROVINCIAL ATTESTATION LETTER (PAL) MANDATE (as of Jan 1, 2025; verified 2026-10-01):\n"
-                f"- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/provincial-attestation-letter.html\n"
+                f"OFFICIAL IRCC REGULATORY FACTS — PROVINCIAL ATTESTATION LETTER (PAL) MANDATE (as of Jan 1, 2026; verified {pal_rule.get('last_verified', '')}):\n"
+                f"- Source: {pal_rule.get('source_url', '')}\n"
                 f"- Requirement: {'MANDATORY' if pal_calc.is_required else 'EXEMPT'}\n"
                 f"- Category: {pal_calc.study_level}\n"
                 f"- Reason: {pal_calc.reason}\n"
@@ -639,23 +651,7 @@ class RuleEngine:
         # 4. Express Entry & Skilled Tech / Software Engineer Eligibility
         if re.search(r'\b(?:express entry|fsw|federal skilled worker|pr|permanent residence)\b', query_lower) or \
            (re.search(r'\b(?:software engineer|developer|programmer|python|tech)\b', query_lower) and re.search(r'\b(?:apply|eligible|eligibility|canada|entry)\b', query_lower)):
-            return (
-                "OFFICIAL IRCC REGULATORY FACTS — EXPRESS ENTRY & STEM TECH PATHWAYS (as of June 28, 2023; verified 2026-10-01):\n"
-                "- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/submit-profile/rounds-invitations/category-based-selection.html\n"
-                "- NOC Classification: Software Engineers and Designers are classified under NOC 21231 (TEER 1). "
-                "Software Developers and Programmers are classified under NOC 21232 (TEER 1). Both belong to high-skilled TEER 1.\n"
-                "- Work Experience Requirement: Under the Federal Skilled Worker Program (FSWP), applicants must possess at least "
-                "1 continuous year of full-time (or equivalent part-time) skilled paid work experience in TEER 0, 1, 2, or 3 within the past 10 years. "
-                "An applicant with 3 years of software engineering experience exceeds the 1-year minimum requirement.\n"
-                "- Targeted Category-Based Selection: IRCC conducts dedicated category-based Express Entry rounds of invitations for Science, Technology, "
-                "Engineering, and Math (STEM) occupations. Eligible software engineers qualify for these targeted STEM draws, which typically invite candidates "
-                "at lower Comprehensive Ranking System (CRS) score cutoffs compared to general draws.\n"
-                "- Core Minimum Eligibility Criteria:\n"
-                "  1. Language Proficiency: Minimum Canadian Language Benchmark (CLB) 7 in English (e.g., IELTS General 6.0 in all bands or CELPIP 7 in all bands) or French.\n"
-                "  2. Education: Post-secondary degree evaluated by a designated organization with an Educational Credential Assessment (ECA) report (e.g., WES).\n"
-                "  3. Six Selection Factors Grid: Must score at least 67 out of 100 points across age, education, work experience, language skills, arranged employment, and adaptability.\n"
-                "- Regulatory Authority: Immigration, Refugees and Citizenship Canada (IRCC) Express Entry & Category-Based Selection Guidelines."
-            )
+            return self._express_entry_facts(query)
 
         # 5. International Student Off-Campus Work Regulations
         if any(w in query_lower for w in [
@@ -686,24 +682,7 @@ class RuleEngine:
             "pgwp", "post-graduation work permit", "post graduation", "work permit after graduation",
             "graduate from", "master's degree", "masters degree", "university of toronto"
         ]):
-            return (
-                "OFFICIAL IRCC REGULATORY FACTS — POST-GRADUATION WORK PERMIT (PGWP) (as of November 1, 2024; verified 2026-10-01):\n"
-                "- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/after-graduation/eligibility.html\n"
-                "- Program & Institution Eligibility: Graduates from eligible programs at recognized Designated Learning Institutions (DLIs), "
-                "including the University of Toronto, qualify for a Post-Graduation Work Permit (PGWP).\n"
-                "- Language & Field of Study Requirements (effective Nov 1, 2024):\n"
-                "  * Language Benchmark: University degree graduates (Bachelor's, Master's, PhD) must demonstrate minimum CLB 7 in English or French. College diploma graduates must demonstrate minimum CLB 5.\n"
-                "  * Field of Study: University degree graduates remain eligible across all fields of study. College diploma graduates must have completed a program in a designated labour shortage field (STEM, healthcare, agriculture, trade, transport).\n"
-                "- Duration of the PGWP:\n"
-                "  * Programs 2 years or longer: Eligible for a full 3-year PGWP.\n"
-                "  * Master's Degree Special Policy: Under IRCC regulations, graduates of Master's degree programs of 8 months or longer qualify for a full 3-year PGWP, acknowledging that master's graduates are high-demand candidates.\n"
-                "  * For a 2-year Master's degree at University of Toronto: The applicant qualifies for the maximum 3-year PGWP.\n"
-                "- Nature of Work Permit: The PGWP is an open work permit. It does not require a Labour Market Impact Assessment (LMIA) or a specific job offer, "
-                "and allows the holder to work for any eligible Canadian employer in any location.\n"
-                "- Application Deadline: The applicant must apply within 180 days of receiving their official completion letter or final transcripts from the institution.\n"
-                "- Maintained Status: If applying before the study permit expires, graduates are legally authorized to work full-time while waiting for the PGWP decision.\n"
-                "- Regulatory Authority: IRCC Post-Graduation Work Permit Program (PGWPP) Regulations."
-            )
+            return self._pgwp_facts()
 
         # 7. Canada Student Visa Financial Requirements (Default / General)
         if any(w in query_lower for w in ["financial", "funds", "cost", "bank", "gic", "tuition", "living expense", "money", "fee", "sds"]) or \
@@ -711,49 +690,139 @@ class RuleEngine:
             section = self._pof_section()
             schedule = self.get_pof_schedule()
             single = int(schedule["rates_by_family_size"][1])
+            quebec = section.get("quebec_guidelines", {})
+            quebec_single = int(quebec["rates_by_family_size"][1])
             return (
                 f"OFFICIAL IRCC REGULATORY FACTS — STUDY PERMIT FINANCIAL REQUIREMENTS (schedule effective {schedule['effective_from']}; verified {section.get('last_verified', '')}):\n"
                 f"- Source: {section['source_url']}\n"
                 f"- Cost of Living Requirement: The minimum proof of funds for living expenses outside Quebec is CAD ${single:,} per year for a single applicant "
                 f"(applications submitted on or after {schedule['effective_from']}; higher amounts apply for each accompanying family member).\n"
+                f"- Quebec sets its own amounts instead: CAD ${quebec_single:,} per year for one person for applications "
+                f"made as of {quebec.get('effective_from', '')} (source: {quebec.get('source_url', '')}).\n"
                 f"- First-Year Tuition: In addition to living expenses (CAD ${single:,}), the applicant must demonstrate sufficient accessible funds to pay the entire first year of tuition fees.\n"
-                "- Transportation & Settlement: Must demonstrate sufficient funds to cover round-trip transportation to Canada for the applicant and any accompanying family members.\n"
+                "- Transportation: Must also show funds for transportation to and from Canada for the applicant and any accompanying family members.\n"
                 f"- Student Direct Stream (SDS) Status: TERMINATED. {self.rules_data.get('student_direct_stream', {}).get('termination_notice', '')}\n"
-                "- Acceptable Proof of Financial Support: Bank statements for the past 4 months, proof of a Canadian bank account, GIC certificate, loan approval letter, proof of scholarship/funding, or proof of paid tuition and housing.\n"
+                "- Acceptable Proof of Financial Support: bank statements for the past 6 months (including the month of the application or the month before), proof of a Canadian bank account in the applicant's name, a Guaranteed Investment Certificate (GIC), a student or education loan from a bank, proof of a scholarship or Government of Canada-funded program, or proof of paid first-year tuition and housing.\n"
                 "- Regulatory Authority: IRCC Proof of Financial Support Guidelines for International Students."
             )
 
         # 8. Canada Student Visa Document Checklist & Attestation
         if any(w in query_lower for w in ["checklist", "document", "pal", "attestation", "loa", "dli", "require", "paperwork"]) or \
            (country == "canada" and visa_type == "student" and intent == "checklist"):
-            return (
-                "OFFICIAL IRCC REGULATORY FACTS — CANADIAN STUDY PERMIT CHECKLIST (verified 2026-10-12):\n"
-                "- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/get-documents.html\n"
-                "- Letter of Acceptance (LOA): Official unconditional acceptance letter from a Designated Learning Institution (DLI) containing the school's DLI number.\n"
-                "- Provincial Attestation Letter (PAL): A mandatory Provincial Attestation Letter (PAL) or Territorial Attestation Letter (TAL) from the provincial government where the school is located "
-                "(required for most post-secondary study permit applications; from January 1, 2026, master's and doctoral programs at a public DLI are exempt, "
-                "and exempt applicants must show proof of the exemption).\n"
-                "- Valid Travel Document: A valid passport with remaining validity covering the intended duration of studies.\n"
-                f"- Proof of Financial Support: Proof of funds covering CAD ${self.current_single_applicant_funds():,} living expenses (single applicant) plus first-year tuition (bank statements, GIC, payment receipts).\n"
-                "- Statement of Purpose (SOP): A clear explanation of academic intent, course choice, post-graduation career goals, and ties ensuring temporary resident compliance.\n"
-                "- Upfront Medical Exam & Police Certificates: If residing in designated countries or required for program clinical placements.\n"
-                "- Regulatory Authority: IRCC Study Permit Document Checklist & PAL Guidelines."
-            )
+            return self._checklist_facts()
 
         # 9. General Canada Visitor / Tourist Requirements
         if any(w in query_lower for w in ["tourist", "visitor", "travel", "visit canada", "eta", "trv"]) or visa_type == "tourist":
-            return (
-                "OFFICIAL IRCC REGULATORY FACTS — CANADA VISITOR VISA & ETA (as of 2024/2026; verified 2026-10-01):\n"
-                "- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/about-visitor-visa.html\n"
-                "- Entry Document: Foreign nationals require either a Temporary Resident Visa (TRV) or an Electronic Travel Authorization (eTA), depending on their country of citizenship.\n"
-                "- Maximum Authorized Stay: Up to 6 months per entry from the date of admission, unless a CBSA border services officer specifies a different date.\n"
-                "- Mandatory Requirements: Must prove sufficient financial funds for the visit, valid passport, clear criminal/security record, medical admissibility, "
-                "and strong ties to home country (employment, family, assets) proving temporary stay intent.\n"
-                "- No Work or Study: Visitors are not authorized to work or engage in full-time post-secondary study in Canada without separate permits.\n"
-                "- Regulatory Authority: IRCC Temporary Resident Visa Regulations."
-            )
+            return self._visitor_facts()
 
         return None
+
+    # ------------------------------------------------------------------ fact blocks built from ircc_rules.yaml
+    # (M0.13: each sentence checked against the source_url pages on 2026-10-19; numbers come from the rules file)
+
+    _STEM_QUESTION = re.compile(
+        r"\bstem\b|categor|occupation|\bnoc\b|\bteer\b|software|developer|programmer|engineer|data scien|"
+        r"\btech|\bdraws?\b|invitation|\bjob\b", re.IGNORECASE)
+
+    def _express_entry_facts(self, query: str = "") -> str:
+        """FSW basics always; the STEM category list only when the question is about it (it crowds other answers)."""
+        ee = self.rules_data.get("express_entry_stem", {})
+        stem = ee.get("stem_category", {})
+        occupations = "; ".join(f"{name} (NOC {code})" for code, name in stem.get("occupations", {}).items())
+        teer = ", ".join(str(t) for t in ee.get("fsw_eligible_teer_categories", []))
+        facts = (
+            f"OFFICIAL IRCC REGULATORY FACTS — EXPRESS ENTRY: FEDERAL SKILLED WORKER & STEM CATEGORY (verified {ee.get('last_verified', '')}):\n"
+            f"- Sources: {ee.get('fsw_source_url', '')} ; {ee.get('source_url', '')}\n"
+            "- Federal Skilled Worker Program (FSWP) minimum requirements (one per line):\n"
+            f"  * Work experience: at least {ee.get('fsw_minimum_work_experience_years')} year of continuous, paid, "
+            f"skilled work in TEER {teer} within the last {ee.get('fsw_work_experience_window_years')} years "
+            "(1 year full time = 1,560 hours total, at 30 hours per week).\n"
+            f"  * Language: at least CLB {ee.get('fsw_minimum_clb_all_bands')} in all 4 abilities of the first official "
+            "language (IELTS General Training: 6.0 in each ability).\n"
+            "  * Education: a completed educational credential. A degree, diploma or certificate from outside Canada "
+            "needs an Educational Credential Assessment (ECA) report for immigration purposes; a Canadian credential "
+            "does not.\n"
+            f"  * Points: at least {ee.get('fsw_selection_grid_pass_points')} out of 100 on the selection grid.\n"
+            f"- Language test results must be less than {ee.get('language_results_max_age_years')} years old when the "
+            "Express Entry profile is completed and when the application for permanent residence is submitted.\n"
+            "- Invitations go to the eligible candidates with the highest Comprehensive Ranking System (CRS) scores; "
+            "do not predict cut-off scores or whether a draw will be held."
+        )
+        if not self._STEM_QUESTION.search(query or ""):
+            return facts
+        return facts + (
+            f"\n- STEM category-based rounds: candidates need {stem.get('experience', '')}. The occupations currently "
+            f"listed are: {occupations}.\n"
+            "- Software engineers, software developers and programmers, data scientists, web developers and computer "
+            "engineers are NOT on the current STEM category list; they can still be invited through general or "
+            "program-specific rounds if they meet a program's requirements."
+        )
+
+    def _pgwp_facts(self) -> str:
+        pgwp = self.rules_data.get("post_graduation_work_permit", {})
+        lang = pgwp.get("language_requirements", {})
+        return (
+            f"OFFICIAL IRCC REGULATORY FACTS — POST-GRADUATION WORK PERMIT (PGWP) (verified {pgwp.get('last_verified', '')}):\n"
+            f"- Sources: {pgwp.get('source_url', '')} ; {pgwp.get('duration_source_url', '')}\n"
+            "- Eligibility: the program must be at least 8 months long (900 hours in Quebec) at a PGWP-eligible "
+            "designated learning institution (DLI).\n"
+            f"- Language (PGWP applications on or after November 1, 2024; all 4 abilities): CLB "
+            f"{lang.get('university_graduates_clb')} (NCLC {lang.get('university_graduates_clb')} in French) for "
+            f"bachelor's, master's, doctoral and other university programs; CLB {lang.get('college_graduates_clb')} "
+            f"(NCLC {lang.get('college_graduates_clb')}) for college, polytechnic and other non-university programs.\n"
+            "- Field of study: no requirement for bachelor's, master's or doctoral degrees. Other programs must be in an "
+            "eligible field of study linked to occupations in long-term shortage, if the study permit application was "
+            "submitted on or after November 1, 2024.\n"
+            "- Length of the PGWP:\n"
+            "  * Study program of 2 years or longer: a 3-year PGWP.\n"
+            "  * Master's degree graduates can get a 3-year PGWP if the master's program was at least 8 months long, "
+            "even if it was shorter than 2 years (for example, a 1-year master's). This rule applies since "
+            "February 15, 2024.\n"
+            "  * Any other program of at least 8 months but less than 2 years: a PGWP valid for up to the length of "
+            "the program.\n"
+            "  * The officer decides the final length, and a PGWP is never valid longer than the passport.\n"
+            f"- Deadline: apply within {pgwp.get('application_window_days')} days of confirmation that the program was "
+            "completed; the study permit must have been valid at some point during those days.\n"
+            "- Working while the application is processed: only if the study permit was valid when the PGWP application "
+            "was submitted and the other conditions on IRCC's page are met; otherwise the graduate can't work until the "
+            "PGWP is approved.\n"
+            "- The PGWP is an open work permit: no job offer or Labour Market Impact Assessment (LMIA) is needed."
+        )
+
+    def _checklist_facts(self) -> str:
+        pal = self.rules_data.get("provincial_attestation_letter", {})
+        return (
+            f"OFFICIAL IRCC REGULATORY FACTS — CANADIAN STUDY PERMIT DOCUMENTS (verified 2026-10-19):\n"
+            "- Source: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/get-documents.html\n"
+            "- Letter of acceptance from a designated learning institution (DLI): always required.\n"
+            "- Provincial or territorial attestation letter (PAL/TAL): needed in most cases; from January 1, 2026, "
+            "master's and doctoral programs at a public DLI are exempt, and exempt applicants must show proof of the "
+            f"exemption ({pal.get('source_url', '')}). Students going to Quebec need a Quebec Acceptance Certificate (CAQ).\n"
+            "- Proof of identity: a valid passport or travel document and 2 recent passport-size photos: always required.\n"
+            f"- Proof of funds: always required; at least CAD ${self.current_single_applicant_funds():,} for living "
+            "expenses for a single applicant outside Quebec, plus first-year tuition and transportation.\n"
+            "- Letter of explanation: recommended, not required.\n"
+            "- Medical exam and police certificate: only in some cases; check IRCC's pages for whether they apply.\n"
+            "- Proof of care for minor children and country-specific documents: only if they apply."
+        )
+
+    def _visitor_facts(self) -> str:
+        visit = self.rules_data.get("visitor_visa", {})
+        return (
+            f"OFFICIAL IRCC REGULATORY FACTS — VISITING CANADA (visitor visa / eTA) (verified {visit.get('last_verified', '')}):\n"
+            f"- Sources: {visit.get('source_url', '')} ; {visit.get('eligibility_url', '')}\n"
+            "- Entry document: a visitor visa (temporary resident visa) or an electronic travel authorization (eTA), "
+            "depending on citizenship and how the person travels.\n"
+            f"- Length of stay: most visitors can stay up to {visit.get('maximum_authorized_stay_months')} months; the "
+            "border services officer may allow less or more and will then mark the date to leave.\n"
+            "- Basic requirements: a valid travel document, good health, no criminal or immigration-related "
+            "convictions, ties to the home country, intention to leave at the end of the visit, and enough money for "
+            "the stay.\n"
+            f"- Work: visitor status does not allow work, except activities listed as not needing a work permit "
+            f"({visit.get('work_without_permit_url', '')}).\n"
+            f"- Study: no study permit is needed for a program of {visit.get('study_without_permit_max_months')} months "
+            f"or less; longer programs need a study permit ({visit.get('study_without_permit_url', '')})."
+        )
 
 
 # Global instance
