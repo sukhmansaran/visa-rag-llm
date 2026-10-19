@@ -14,7 +14,7 @@
         ]
       ],
       "must_not": [
-        "\\b20\\s*hours"
+        "(up to|maximum of|max(imum)?|limit (is|of)|can work|allowed to work|work)\\W+(\\*\\*)?20\\s*hours"
       ],
       "expect_rules": true,
       "rules_keys": [

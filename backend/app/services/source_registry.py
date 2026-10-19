@@ -150,7 +150,8 @@ def looks_like_error_page(title: str, main_text: str) -> Optional[str]:
 class VerifyResult:
     entry_id: str
     url: str
-    # ok | http_<code> | soft_404 | robots_disallowed | off_allowlist | redirect_loop | blocked | error
+    # ok | http_<code> | soft_404 | moved_to_parent | robots_disallowed | off_allowlist | redirect_loop
+    # | blocked | error
     status: str = "unchecked"
     http_status: Optional[int] = None
     final_url: Optional[str] = None
@@ -162,6 +163,15 @@ class VerifyResult:
     @property
     def ok(self) -> bool:
         return self.status == "ok"
+
+
+def _is_parent_page(original: str, final: str) -> bool:
+    """True if `final` is a section page above `original` (/a/b/c.html -> /a/b.html or /a.html)."""
+    a, b = urlparse(original), urlparse(final)
+    if a.netloc != b.netloc:
+        return False
+    stem = lambda path: re.sub(r"(/index)?\.html?$", "", path).rstrip("/")  # noqa: E731
+    return stem(a.path).startswith(stem(b.path) + "/")
 
 
 async def _robots_allows(client: httpx.AsyncClient, url: str, cache: Dict[str, RobotFileParser]) -> bool:
@@ -227,6 +237,12 @@ async def verify_entry(client: httpx.AsyncClient, entry: RegistryEntry,
         result.status, result.detail = "soft_404", reason
         return result
     if url != entry.url:
+        if _is_parent_page(entry.url, url):
+            # canada.ca sends removed pages to their section hub (the SDS page now lands on "Study in Canada"):
+            # a live page, but not the one registered
+            result.status = "moved_to_parent"
+            result.detail = f"redirects up to its section page {url}; the page was probably removed"
+            return result
         result.detail = f"redirected to {url}; consider updating the registry URL"
     result.status = "ok"
     return result

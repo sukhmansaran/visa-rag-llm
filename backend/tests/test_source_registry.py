@@ -122,6 +122,10 @@ def reg_entry(path, **overrides):
     ("/private/a.html", {"/private/a.html": (200, page("Private"))}, "robots_disallowed"),
     ("/away.html", {"/away.html": (302, "https://evil.example.com/")}, "off_allowlist"),
     ("/loop.html", {"/loop.html": (301, "/loop.html")}, "redirect_loop"),
+    # A removed page sent up to its section hub (the SDS page now lands on "Study in Canada")
+    ("/study-canada/study-permit/sds.html",
+     {"/study-canada/study-permit/sds.html": (301, "/study-canada.html"), "/study-canada.html": (200, page("Study"))},
+     "moved_to_parent"),
 ])
 async def test_verify_entry_statuses(path, pages, status):
     async with mock_site(pages) as client:
@@ -138,6 +142,27 @@ async def test_an_allowed_redirect_passes_and_suggests_the_new_url():
     assert result.ok and result.final_url == "https://www.canada.ca/new.html"
     assert "consider updating the registry URL" in result.detail
     assert result.title == "Study permit" and result.main_text_chars > 200
+
+
+IRCC = "https://www.canada.ca/en/immigration-refugees-citizenship/services"
+
+
+@pytest.mark.parametrize("original,final,is_parent", [
+    (f"{IRCC}/study-canada/study-permit/student-direct-stream.html", f"{IRCC}/study-canada.html", True),
+    (f"{IRCC}/work-canada/permit.html", f"{IRCC}/work-canada.html", True),
+    # real moves seen 2026-10-19: same depth or elsewhere, not up to a hub
+    (f"{IRCC}/immigrate-canada/express-entry/documents/education-assessed.html",
+     f"{IRCC}/immigrate-canada/express-entry/documents/education-assessment.html", False),
+    (f"{IRCC}/immigrate-canada/express-entry/eligibility/find-national-occupation-code.html",
+     f"{IRCC}/immigrate-canada/find-national-occupation-code.html", False),
+    ("https://www.mcgill.ca/applying/requirements/international",
+     "https://www.mcgill.ca/undergraduate-admissions/apply/requirements/international", False),
+    (f"{IRCC}/study-canada.html", "https://www.canada.ca/en.html", True),  # sent to the site home: also removed
+    (f"{IRCC}/study-canada.html", "https://www.canada.ca/fr.html", False),
+])
+def test_parent_page_detection(original, final, is_parent):
+    from app.services.source_registry import _is_parent_page
+    assert _is_parent_page(original, final) == is_parent
 
 
 # ---------------------------------------------------------------- sync planning

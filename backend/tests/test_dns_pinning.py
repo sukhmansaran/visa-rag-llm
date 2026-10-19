@@ -300,3 +300,14 @@ async def test_live_https_still_validates_certificates():
     async with pinned_client(timeout=20) as client:
         response = await client.get("https://www.canada.ca/en/immigration-refugees-citizenship.html")
     assert response.status_code == 200 and "Immigration" in response.text
+
+
+def test_quiet_checks_log_at_debug_not_warning(caplog):
+    """Blocked third-party extras (analytics, fonts) appear on every canada.ca page: not worth a warning each."""
+    from app.services.crawler.ssrf_validator import is_safe_url
+
+    with caplog.at_level("DEBUG", logger="app.services.crawler.ssrf_validator"):
+        assert not is_safe_url("https://fonts.gstatic.com/s/lato.woff2", resolve_dns=False, quiet=True)
+        assert not is_safe_url("https://evil.example.com/", resolve_dns=False)
+    levels = [(r.levelname, "gstatic" in r.getMessage()) for r in caplog.records]
+    assert levels == [("DEBUG", True), ("WARNING", False)]

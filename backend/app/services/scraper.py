@@ -21,7 +21,7 @@ from app.services.crawler.ssrf_validator import is_safe_url
 
 def _allowed(url: str) -> bool:
     """Official domains only; the address itself is checked when connecting (DNS-pinned, M0.9)."""
-    return is_safe_url(url, resolve_dns=False)
+    return is_safe_url(url, resolve_dns=False, quiet=True)
 
 
 # Page furniture that is never policy content (canada.ca uses these ids/classes; generic ones too)

@@ -361,7 +361,7 @@ class CrawlerWorker:
 
             if self.enforce_ssrf:
                 await pin_browser_page(
-                    page, client, lambda req_url: is_safe_url(req_url, self.allowed_domains, resolve_dns=False))
+                    page, client, lambda req_url: is_safe_url(req_url, self.allowed_domains, resolve_dns=False, quiet=True))
 
             try:
                 response = await page.goto(url, wait_until="networkidle", timeout=30000)

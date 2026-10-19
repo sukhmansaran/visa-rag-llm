@@ -32,6 +32,9 @@ topics:
   fees: Government fees
   processing_times: Application processing times
   university_admissions: Admission requirements published by institutions
+  work_permits: Work permits outside study (employer-specific, open, LMIA, NOC/TEER)
+  medical_and_police: Medical exams and police certificates
+  notices: Official notices of program changes (e.g. a stream closing)
 
 sources:
   # ---------------------------------------------------------------- study permits (IRCC)
@@ -166,6 +169,224 @@ sources:
     refresh_days: 14
     max_age_days: 60
     priority: 1
+
+  # ---------------------------------------------------------------- study permits (IRCC) — added M0.10b
+  - id: study-permit-apply
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/apply.html
+    title: Study permit - How to apply
+    tier: 1
+    topics: [study_permit, documents, biometrics]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 1
+  - id: study-permit-prepare-arrival
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/prepare-arrival.html
+    title: Study permit - Prepare for arrival
+    tier: 1
+    topics: [study_permit]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: dli-list
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/prepare/designated-learning-institutions-list.html
+    title: Designated learning institutions list
+    tier: 1
+    topics: [study_permit]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 1
+  - id: study-permit-when-to-extend
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/extend-study-permit/when-to-apply.html
+    title: Extend your study permit - When to apply
+    tier: 1
+    topics: [study_permit, status_extension]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: study-permit-expired
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/extend-study-permit/expired-permit.html
+    title: Extend your study permit - If your permit expires (maintained status)
+    tier: 1
+    topics: [study_permit, status_extension]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: sds-ended-notice
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/news/notices/end-student-direct-stream-nigeria-student-express.html
+    title: Notice - End of the Student Direct Stream and Nigeria Student Express
+    tier: 1
+    topics: [study_permit, notices]
+    refresh_days: 30
+    max_age_days: 365
+    priority: 1
+
+  # ---------------------------------------------------------------- work (IRCC / ESDC) — added M0.10b
+  - id: work-on-campus
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/work-on-campus.html
+    title: Work on campus as an international student
+    tier: 1
+    topics: [work_while_studying]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 1
+  - id: student-spouse-work
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/help-your-spouse-common-law-partner-work-canada.html
+    title: Spouse or common-law partner of a student - work permit
+    tier: 1
+    topics: [work_while_studying, work_permits]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: pgwp-apply
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/after-graduation/apply.html
+    title: Post-graduation work permit - How to apply
+    tier: 1
+    topics: [pgwp]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 1
+  - id: lmia
+    url: https://www.canada.ca/en/employment-social-development/services/foreign-workers.html
+    title: Hire a temporary foreign worker - Labour Market Impact Assessment (ESDC)
+    tier: 1
+    topics: [work_permits]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 3
+
+  # ---------------------------------------------------------------- visiting (IRCC) — added M0.10b
+  - id: eta
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/eta.html
+    title: Electronic travel authorization (eTA)
+    tier: 1
+    topics: [eta]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: entry-requirements-country
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/entry-requirements-country.html
+    title: Entry requirements by country or territory
+    tier: 1
+    topics: [visitor_visa, eta]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: visitor-visa-apply
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/apply-visitor-visa.html
+    title: Visitor visa - How to apply
+    tier: 1
+    topics: [visitor_visa, documents]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: super-visa
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/parent-grandparent-super-visa.html
+    title: Super visa for parents and grandparents
+    tier: 1
+    topics: [visitor_visa]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 3
+
+  # ---------------------------------------------------------------- immigrating (IRCC) — added M0.10b
+  - id: express-entry
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry.html
+    title: Express Entry - Overview
+    tier: 1
+    topics: [express_entry]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: express-entry-cec
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/who-can-apply/canadian-experience-class.html
+    title: Express Entry - Canadian Experience Class
+    tier: 1
+    topics: [express_entry]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: express-entry-fst
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/who-can-apply/federal-skilled-trades.html
+    title: Express Entry - Federal Skilled Trades Program
+    tier: 1
+    topics: [express_entry]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: crs-criteria
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/check-score/crs-criteria.html
+    title: Express Entry - Comprehensive Ranking System (CRS) criteria
+    tier: 1
+    topics: [express_entry]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: express-entry-rounds
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/rounds-invitations.html
+    title: Express Entry - Rounds of invitations
+    tier: 1
+    topics: [express_entry]
+    refresh_days: 3
+    max_age_days: 14
+    priority: 2
+  - id: eca
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/documents/education-assessment.html
+    title: Express Entry - Educational credential assessment (ECA)
+    tier: 1
+    topics: [express_entry, documents]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: noc
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/find-national-occupation-code.html
+    title: Find your National Occupational Classification (NOC) and TEER
+    tier: 1
+    topics: [express_entry, work_permits]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: express-entry-proof-of-funds
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/documents/proof-funds.html
+    title: Express Entry - Proof of funds
+    tier: 1
+    topics: [express_entry, proof_of_funds]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+
+  # ---------------------------------------------------------------- applications in general (IRCC) — added M0.10b
+  - id: fees
+    url: https://ircc.canada.ca/english/information/fees/fees.asp
+    title: IRCC fee list
+    tier: 1
+    topics: [fees]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 2
+  - id: processing-times
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/application/check-processing-times.html
+    title: Check processing times
+    tier: 1
+    topics: [processing_times]
+    refresh_days: 1
+    max_age_days: 7
+    priority: 2
+  - id: medical-exam-temporary
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/application/medical-police/medical-exams/requirements-temporary-residents.html
+    title: Medical exams - Temporary residents
+    tier: 1
+    topics: [medical_and_police]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 3
+  - id: police-certificates
+    url: https://www.canada.ca/en/immigration-refugees-citizenship/services/application/medical-police/police-certificates.html
+    title: Police certificates
+    tier: 1
+    topics: [medical_and_police]
+    refresh_days: 7
+    max_age_days: 30
+    priority: 3
 
 # Pages deliberately not used. sync_sources.py --apply deactivates their sources; chunks already in the
 # knowledge base are not touched by sync (removing them is a separate, reviewed step).

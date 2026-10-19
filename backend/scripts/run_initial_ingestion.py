@@ -1,5 +1,10 @@
 """
 Run initial ingestion for all seeded sources.
+
+    python scripts/run_initial_ingestion.py --only-new   # sources never ingested (e.g. new registry pages)
+
+--only-new matters until M0.14: re-ingesting a page whose content changed adds new chunks but does not remove
+the old ones, so both versions would be retrievable. A source with no documents has nothing to duplicate.
 """
 
 import asyncio
@@ -12,11 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
+from app.models.document import Document
 from app.models.source import Source
 from app.services.ingestion import ingestion_service
 
 
-async def run_initial_ingestion(limit: int = None, priority: int = None):
+async def run_initial_ingestion(limit: int = None, priority: int = None, only_new: bool = False):
     """
     Run initial ingestion for sources.
     
@@ -31,6 +37,9 @@ async def run_initial_ingestion(limit: int = None, priority: int = None):
         
         # Build query
         query = select(Source).where(Source.is_active == True)
+        if only_new:
+            query = query.where(~select(Document.id).where(Document.source_id == Source.id).exists())
+            print("🆕 Only sources that were never ingested")
         
         if priority is not None:
             query = query.where(Source.priority == priority)
@@ -114,9 +123,15 @@ async def main():
         help="Only ingest sources with this priority"
     )
     
+    parser.add_argument(
+        "--only-new",
+        action="store_true",
+        help="Only sources with no stored document yet (avoids duplicate chunks for changed pages)"
+    )
+
     args = parser.parse_args()
-    
-    await run_initial_ingestion(limit=args.limit, priority=args.priority)
+
+    await run_initial_ingestion(limit=args.limit, priority=args.priority, only_new=args.only_new)
 
 
 if __name__ == "__main__":

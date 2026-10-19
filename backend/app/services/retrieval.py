@@ -11,6 +11,7 @@ from datetime import datetime
 
 from app.services.vector_store import vector_store
 from app.services.embeddings import embed_text
+from app.services.source_status import inactive_source_ids
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +47,15 @@ class RetrievalService:
         if university and university != "unknown":
             filters['university'] = university
         
+        # Deactivated sources never reach an answer, even before their chunks are removed (M0.10b)
+        excluded = await inactive_source_ids()
+
         # Retrieve from vector store with strict top_k
         results = await vector_store.search(
             query_embedding=query_embedding,
             filters=filters if filters else None,
             top_k=top_k,
+            exclude_source_ids=excluded,
         )
 
         # Fallback to looser filter on 0 hits (A10):
@@ -61,6 +66,7 @@ class RetrievalService:
                 query_embedding=query_embedding,
                 filters={'country': filters['country']},
                 top_k=top_k,
+                exclude_source_ids=excluded,
             )
         
         # Rerank results with authority tier, freshness, and intent/visa_type boost

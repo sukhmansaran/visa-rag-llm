@@ -26,6 +26,7 @@ from app.services.crawler.safe_http import pinned_client  # noqa: E402
 from app.services.source_registry import REGISTRY_PATH, load_registry, verify_entry  # noqa: E402
 
 DELAY_BETWEEN_REQUESTS_S = 1.0  # be polite to canada.ca
+RETRY_AFTER_S = 5.0
 
 
 async def record_results(results) -> None:
@@ -69,6 +70,9 @@ async def main() -> int:
             if i:
                 await asyncio.sleep(DELAY_BETWEEN_REQUESTS_S)
             result = await verify_entry(client, entry, robots_cache)
+            if result.status == "error":  # network blip (e.g. a dropped connection): one retry
+                await asyncio.sleep(RETRY_AFTER_S)
+                result = await verify_entry(client, entry, robots_cache)
             results.append(result)
             mark = "OK  " if result.ok else "FAIL"
             print(f"{mark} {result.status:<18} {result.main_text_chars:>6} chars  {entry.id}"

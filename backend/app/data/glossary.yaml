@@ -1,0 +1,146 @@
+# Immigration acronyms (M0.10b) — reviewed data, like ircc_rules.yaml and official_sources.yaml.
+#
+# Loaded by app/services/glossary.py for the validators (answers must not invent or misuse terms).
+# Every `source` is an id in official_sources.yaml whose page uses the term; tests check that the id exists.
+#
+# Fields
+#   acronym     as written in official text (matched case-sensitively, so "pal" the word is not PAL)
+#   expansion   the official long form
+#   aliases     other spellings people use (matched case-insensitively)
+#   definition  one plain sentence
+#   source      registry id of the official page
+#   status      current (default) | discontinued
+#   ended       date a discontinued term stopped applying (YYYY-MM-DD)
+version: 1
+
+terms:
+  - acronym: PAL
+    expansion: Provincial attestation letter
+    aliases: [provincial attestation]
+    definition: A letter from a province confirming a study permit applicant has a place within that province's
+      allocation of study permit applications; most study permit applicants need a PAL or TAL.
+    source: study-permit-pal-tal
+
+  - acronym: TAL
+    expansion: Territorial attestation letter
+    aliases: [territorial attestation]
+    definition: The territorial equivalent of a PAL, issued by a territory for study permit applicants who will
+      study there.
+    source: study-permit-pal-tal
+
+  - acronym: SDS
+    expansion: Student Direct Stream
+    aliases: [student direct]
+    definition: A faster study permit processing stream for legal residents of certain countries; it ended on
+      November 8, 2024, and applications now go through the regular study permit process.
+    source: sds-ended-notice
+    status: discontinued
+    ended: 2024-11-08
+
+  - acronym: PGWP
+    expansion: Post-graduation work permit
+    aliases: [post graduation work permit, post-grad work permit]
+    definition: An open work permit for eligible graduates of eligible programs at designated learning institutions.
+    source: pgwp-about
+
+  - acronym: CLB
+    expansion: Canadian Language Benchmarks
+    aliases: [Canadian Language Benchmark]
+    definition: The national standard for describing English language ability; IRCC converts approved test scores to
+      CLB levels (NCLC is the French equivalent).
+    source: express-entry-language-tests
+
+  - acronym: NOC
+    expansion: National Occupational Classification
+    aliases: [national occupation code]
+    definition: Canada's national system for classifying occupations; IRCC uses NOC codes and TEER categories to
+      decide which jobs count for a program.
+    source: noc
+
+  - acronym: TEER
+    expansion: Training, Education, Experience and Responsibilities
+    aliases: [TEER category]
+    definition: The six categories (TEER 0 to 5) in the 2021 NOC describing the training, education, experience and
+      responsibilities an occupation requires.
+    source: noc
+
+  - acronym: LMIA
+    expansion: Labour Market Impact Assessment
+    aliases: [labor market impact assessment]
+    definition: A document from Employment and Social Development Canada that an employer may need before hiring a
+      foreign worker.
+    source: lmia
+
+  - acronym: GIC
+    expansion: Guaranteed Investment Certificate
+    aliases: [guaranteed investment]
+    definition: An investment from a Canadian financial institution that students can use as proof of financial
+      support for a study permit.
+    source: study-permit-financial-support
+
+  - acronym: DLI
+    expansion: Designated learning institution
+    aliases: [designated learning institute]
+    definition: A school approved by a provincial or territorial government to host international students; a study
+      permit application needs an acceptance letter from a DLI.
+    source: dli-list
+
+  - acronym: ECA
+    expansion: Educational credential assessment
+    aliases: [education credential assessment, credential assessment]
+    definition: A report verifying that a degree, diploma or certificate from outside Canada is valid and equal to a
+      completed Canadian credential, used for Express Entry.
+    source: eca
+
+  - acronym: ITA
+    expansion: Invitation to apply
+    aliases: [invitation to apply for permanent residence]
+    definition: An invitation sent to Express Entry candidates selected in a round of invitations to apply for
+      permanent residence.
+    source: express-entry-rounds
+
+  - acronym: CRS
+    expansion: Comprehensive Ranking System
+    aliases: [CRS score]
+    definition: The points system used to assess and rank candidates in the Express Entry pool.
+    source: crs-criteria
+
+  - acronym: FSW
+    expansion: Federal Skilled Worker Program
+    aliases: [FSWP, federal skilled worker]
+    definition: An Express Entry program for skilled workers with foreign work experience who meet education,
+      language and other criteria.
+    source: express-entry-fsw
+
+  - acronym: CEC
+    expansion: Canadian Experience Class
+    aliases: [canadian experience]
+    definition: An Express Entry program for skilled workers who have Canadian work experience.
+    source: express-entry-cec
+
+  - acronym: FST
+    expansion: Federal Skilled Trades Program
+    aliases: [FSTP, federal skilled trades]
+    definition: An Express Entry program for skilled workers qualified in a skilled trade.
+    source: express-entry-fst
+
+  - acronym: IRCC
+    expansion: Immigration, Refugees and Citizenship Canada
+    aliases: [CIC, Citizenship and Immigration Canada]
+    definition: The federal department that processes visas, study and work permits, permanent residence and
+      citizenship.
+    source: eca
+
+  - acronym: eTA
+    expansion: Electronic travel authorization
+    aliases: [ETA, electronic travel authorisation]
+    definition: An entry requirement for visa-exempt foreign nationals flying to or transiting through a Canadian
+      airport.
+    source: eta
+
+  - acronym: TRV
+    expansion: Temporary resident visa
+    aliases: [visitor visa]
+    definition: The official name of the visitor visa, a document placed in a passport showing the holder meets the
+      requirements to enter Canada.
+    source: visitor-visa-about
