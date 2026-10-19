@@ -146,17 +146,20 @@ def is_domain_allowed(domain: str, allowed_patterns: Optional[List[str]] = None)
     return True
 
 
-def is_safe_url(url: str, allowed_patterns: Optional[List[str]] = None, resolve_dns: bool = True) -> bool:
+def is_safe_url(url: str, allowed_patterns: Optional[List[str]] = None, resolve_dns: bool = True,
+                quiet: bool = False) -> bool:
     """
     Perform complete SSRF safety evaluation:
     1. Validates scheme (http/https).
     2. Validates hostname against server-side allowlist.
     3. If resolve_dns=True, resolves DNS and blocks loopback, private RFC1918, and cloud metadata IPs.
     """
+    # quiet: a browser's third-party extras (analytics, fonts) are refused on every page; log those at debug
+    log = logger.debug if quiet else logger.warning
     try:
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
-            logger.warning("SSRF blocked: Disallowed scheme '%s' in url: %s", parsed.scheme, url)
+            log("SSRF blocked: Disallowed scheme '%s' in url: %s", parsed.scheme, url)
             return False
 
         hostname = (parsed.hostname or "").lower().strip()
@@ -165,14 +168,14 @@ def is_safe_url(url: str, allowed_patterns: Optional[List[str]] = None, resolve_
 
         # Domain whitelist check
         if not is_domain_allowed(hostname, allowed_patterns):
-            logger.warning("SSRF blocked: Domain '%s' not in allowed scope for url: %s", hostname, url)
+            log("SSRF blocked: Domain '%s' not in allowed scope for url: %s", hostname, url)
             return False
 
         # Check if hostname itself is directly an IP literal
         try:
             direct_ip = ipaddress.ip_address(hostname)
             if is_ip_blocked(str(direct_ip)):
-                logger.warning("SSRF blocked: Direct private/metadata IP '%s'", hostname)
+                log("SSRF blocked: Direct private/metadata IP '%s'", hostname)
                 return False
         except ValueError:
             pass  # It's a hostname
@@ -186,10 +189,10 @@ def is_safe_url(url: str, allowed_patterns: Optional[List[str]] = None, resolve_
             for family, _, _, _, sockaddr in addr_info:
                 ip_str = sockaddr[0]
                 if is_ip_blocked(ip_str):
-                    logger.warning("SSRF blocked: Host '%s' resolved to prohibited IP '%s'", hostname, ip_str)
+                    log("SSRF blocked: Host '%s' resolved to prohibited IP '%s'", hostname, ip_str)
                     return False
         except (socket.gaierror, socket.herror) as err:
-            logger.warning("SSRF blocked: DNS resolution failed for '%s': %s", hostname, err)
+            log("SSRF blocked: DNS resolution failed for '%s': %s", hostname, err)
             return False
 
         return True

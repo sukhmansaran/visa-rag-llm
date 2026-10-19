@@ -126,7 +126,9 @@ async def pin_browser_page(page, client: httpx.AsyncClient, is_allowed: Callable
         try:
             for _ in range(MAX_BROWSER_REDIRECTS + 1):
                 if not is_allowed(url):
-                    logger.warning("SSRF blocked browser request to: %s", url)
+                    # the page itself is worth a warning; its third-party extras (analytics, fonts) are routine
+                    log = logger.warning if request.is_navigation_request() else logger.debug
+                    log("SSRF blocked browser request to: %s", url)
                     await route.abort("blockedbyclient")
                     return
                 response = await client.request(method, url, headers=request.headers, content=content)

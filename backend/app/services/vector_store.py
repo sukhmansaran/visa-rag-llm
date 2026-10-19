@@ -38,6 +38,7 @@ class VectorStore(ABC):
         query_embedding: List[float],
         filters: Optional[Dict[str, Any]] = None,
         top_k: int = 10,
+        exclude_source_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search for similar vectors.
@@ -46,6 +47,8 @@ class VectorStore(ABC):
             query_embedding: Query vector
             filters: Metadata filters (e.g., {'country': 'Canada'})
             top_k: Number of results to return
+            exclude_source_ids: Sources whose chunks must not be returned (deactivated sources, M0.10b).
+                Applied inside the search, so top_k is filled from the remaining sources.
             
         Returns:
             List of dicts with 'id', 'text', 'metadata', 'score'
@@ -128,13 +131,16 @@ class ChromaVectorStore(VectorStore):
         query_embedding: List[float],
         filters: Optional[Dict[str, Any]] = None,
         top_k: int = 10,
+        exclude_source_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
         """Search Chroma for similar chunks using cosine similarity."""
         
         # Build where filter - ChromaDB requires $and for multiple conditions
         where_filter = None
-        if filters:
-            conditions = [{k: v} for k, v in filters.items()]
+        conditions = [{k: v} for k, v in (filters or {}).items()]
+        if exclude_source_ids:
+            conditions.append({"source_id": {"$nin": list(exclude_source_ids)}})
+        if conditions:
             if len(conditions) == 1:
                 where_filter = conditions[0]
             else:
@@ -222,13 +228,17 @@ class PineconeVectorStore(VectorStore):
         query_embedding: List[float],
         filters: Optional[Dict[str, Any]] = None,
         top_k: int = 10,
+        exclude_source_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
         """Search Pinecone for similar chunks."""
         
+        pinecone_filter = dict(filters or {})
+        if exclude_source_ids:
+            pinecone_filter["source_id"] = {"$nin": list(exclude_source_ids)}
         results = self.index.query(
             vector=query_embedding,
             top_k=top_k,
-            filter=filters,
+            filter=pinecone_filter or None,
             include_metadata=True,
         )
         
