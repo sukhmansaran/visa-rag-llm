@@ -92,6 +92,42 @@ def _enforce_dev_safety_guard(target_url: str, is_override: bool) -> None:
         )
 
 
+def _migration_command() -> tuple[str, str]:
+    """('upgrade' | 'downgrade' | other, target revision) when run from the alembic CLI; ('', '') otherwise."""
+    opts = getattr(config, "cmd_opts", None)
+    cmd = getattr(opts, "cmd", None)
+    if not cmd:
+        return "", ""
+    return getattr(cmd[0], "__name__", ""), str(getattr(opts, "revision", "") or "")
+
+
+def _backup_before_migrating(current: str | None) -> None:
+    """
+    M0.16: back up the dev database (and chroma_data) before `alembic upgrade/downgrade` changes it. Only from the
+    CLI, only on the default (settings) database, and only when the revision will actually change.
+    PENDU_SKIP_MIGRATION_BACKUP=1 skips it.
+    """
+    import os
+
+    if os.getenv("PENDU_SKIP_MIGRATION_BACKUP", "").lower() in ("1", "true", "yes"):
+        return
+    command, target = _migration_command()
+    if command not in ("upgrade", "downgrade"):
+        return
+    if command == "upgrade":
+        from alembic.script import ScriptDirectory
+        if target in ("head", "heads") and current == ScriptDirectory.from_config(config).get_current_head():
+            return  # already up to date: nothing will change
+    if command == "downgrade" and current is None:
+        return
+
+    sys.path.insert(0, str(backend_dir / "scripts"))
+    from backup_now import backup
+
+    dump, _ = backup(f"pre_{command}_from_{current or 'empty'}")
+    print(f"Backed up before {command} (from {current}): {dump}")
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
     target_url, is_override = _get_target_url()
@@ -134,7 +170,12 @@ async def run_migrations_online() -> None:
             await connection.run_sync(do_run_migrations)
         await connectable.dispose()
     else:
+        from alembic.runtime.migration import MigrationContext
+
         from app.core.database import engine
+        async with engine.connect() as connection:
+            current = await connection.run_sync(lambda c: MigrationContext.configure(c).get_current_revision())
+        _backup_before_migrating(current)
         async with engine.connect() as connection:
             await connection.run_sync(do_run_migrations)
         await engine.dispose()

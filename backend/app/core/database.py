@@ -34,6 +34,7 @@ DISPOSABLE_DATABASE_ALLOWLIST = frozenset({
     "visa_chatbot_ci_test",
     "visa_chatbot_migration_test",
     "visa_chatbot_disposable_migration_test",
+    "visa_chatbot_restore_check",  # scripts/backup_now.py --verify restores a backup here, then drops it (M0.16)
 })
 
 
