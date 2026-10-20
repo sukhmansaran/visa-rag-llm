@@ -172,12 +172,13 @@ class RAGPipeline:
 
         # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)
         with trace_step("cache") as step:
-            cached_response = intent_cache.get(country, visa_type, intent, version=rules_version, query=query)
-            step.update(hit=bool(cached_response), used=bool(cached_response and not chat_history))
-        if cached_response and not chat_history:
+            cached = intent_cache.get_entry(country, visa_type, intent, version=rules_version, query=query)
+            step.update(hit=bool(cached), used=bool(cached and not chat_history))
+        if cached and not chat_history:
             metrics["source"] = "cache"
-            yield {"type": "chunk", "content": cached_response}
-            yield {"type": "done", "full_response": cached_response, "sources": [], "metrics": finished_metrics()}
+            yield {"type": "chunk", "content": cached["response"]}
+            yield {"type": "done", "full_response": cached["response"], "sources": cached["sources"],
+                   "metrics": finished_metrics()}
             return
 
         # 4. Structured Database & Tourist Context Check (A8 fallback session)
@@ -280,7 +281,8 @@ class RAGPipeline:
 
             # Cache grounded result only if validation passed without leakage
             if val_res.is_valid:
-                intent_cache.set(country, visa_type, intent, answer, version=rules_version, query=query)
+                intent_cache.set(country, visa_type, intent, answer, version=rules_version, query=query,
+                                 sources=sources)
 
             yield {"type": "chunk", "content": answer}
             yield {"type": "done", "full_response": answer, "sources": sources, "metrics": finished_metrics()}
@@ -330,7 +332,8 @@ class RAGPipeline:
                     metrics["risk_categories"] = []
 
                 normalized_full = normalize_markdown_output(full_response)
-                intent_cache.set(country, visa_type, intent, normalized_full, version=rules_version, query=query)
+                intent_cache.set(country, visa_type, intent, normalized_full, version=rules_version, query=query,
+                                 sources=sources)
         except Exception as e:
             logger.error(f"[RAG_PIPELINE] LLM stream error: {e}", exc_info=True)
             err_msg = "An error occurred while generating the answer from official sources."

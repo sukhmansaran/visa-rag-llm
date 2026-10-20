@@ -30,7 +30,7 @@ if (-not (Test-Path $py)) {
 }
 
 Write-Host "Checking what Pendu needs..." -ForegroundColor Cyan
-& $py scripts\preflight.py
+& $py scripts\preflight.py --for-start   # busy ports stop the start (an old copy would answer)
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Not started: fix the problems above, then run this again." -ForegroundColor Red
     exit 1

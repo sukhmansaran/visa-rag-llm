@@ -19,7 +19,7 @@ async def test_unified_pipeline_rag_only_policy_rejects_hallucinations_sync():
     """Verify non-streaming pipeline returns grounded refusal when 0 verified chunks are found."""
     query = "What is the secret trick to bypass IRCC background checks?"
     with patch("app.services.retrieval.retrieval_service.retrieve", new_callable=AsyncMock) as mock_retrieve, \
-         patch("app.services.cache_service.intent_cache.get", return_value=None), \
+         patch("app.services.cache_service.intent_cache.get_entry", return_value=None), \
          patch("app.services.rule_engine.rule_engine.try_rule_answer", return_value=None), \
          patch("app.services.llm.llm_service.generate_answer", new_callable=AsyncMock) as mock_llm:
         mock_retrieve.return_value = []
@@ -37,7 +37,7 @@ async def test_unified_pipeline_rag_only_policy_rejects_hallucinations_stream():
     """Verify streaming pipeline returns grounded refusal when 0 verified chunks are found."""
     query = "What is the secret trick to bypass IRCC background checks?"
     with patch("app.services.retrieval.retrieval_service.retrieve", new_callable=AsyncMock) as mock_retrieve, \
-         patch("app.services.cache_service.intent_cache.get", return_value=None), \
+         patch("app.services.cache_service.intent_cache.get_entry", return_value=None), \
          patch("app.services.rule_engine.rule_engine.try_rule_answer", return_value=None), \
          patch("app.services.llm.llm_service.generate_answer_stream", new_callable=AsyncMock) as mock_llm_stream:
         mock_retrieve.return_value = []
@@ -67,7 +67,7 @@ async def test_unified_pipeline_grounded_generation_sync():
         "authority_tier": 1
     }
     with patch("app.services.retrieval.retrieval_service.retrieve", new_callable=AsyncMock) as mock_retrieve, \
-         patch("app.services.cache_service.intent_cache.get", return_value=None), \
+         patch("app.services.cache_service.intent_cache.get_entry", return_value=None), \
          patch("app.services.rule_engine.rule_engine.try_rule_answer", return_value=None), \
          patch("app.services.llm.llm_service.generate_answer", new_callable=AsyncMock) as mock_llm:
         mock_retrieve.return_value = [mock_chunk]
@@ -103,7 +103,7 @@ async def test_unified_pipeline_grounded_generation_stream():
             yield token
 
     with patch("app.services.retrieval.retrieval_service.retrieve", new_callable=AsyncMock) as mock_retrieve, \
-         patch("app.services.cache_service.intent_cache.get", return_value=None), \
+         patch("app.services.cache_service.intent_cache.get_entry", return_value=None), \
          patch("app.services.rule_engine.rule_engine.try_rule_answer", return_value=None), \
          patch("app.services.llm.llm_service.generate_answer_stream", side_effect=mock_stream_tokens) as mock_llm_stream:
         mock_retrieve.return_value = [mock_chunk]
@@ -125,13 +125,16 @@ async def test_unified_pipeline_grounded_generation_stream():
 async def test_unified_pipeline_cache_parity():
     """Verify cache hits return immediately in both sync and stream modes."""
     query = "What are the requirements for a study permit?"
-    cached_content = "- Valid passport\n- Letter of acceptance\n- Proof of funds"
+    cached_content = "- Valid passport [Source 1]\n- Letter of acceptance\n- Proof of funds"
+    cached_sources = [{"url": "https://www.canada.ca/en/study-permit.html", "title": "Study permit"}]
+    entry = {"response": cached_content, "sources": cached_sources}
 
-    with patch("app.services.cache_service.intent_cache.get", return_value=cached_content):
+    with patch("app.services.cache_service.intent_cache.get_entry", return_value=entry):
         # 1. Sync
         sync_result = await rag_pipeline.process_query(query)
         assert sync_result["answer"] == cached_content
         assert sync_result["metrics"]["source"] == "cache"
+        assert sync_result["sources"] == cached_sources  # hardening 3: cache hits returned no sources
 
         # 2. Stream
         events = []
@@ -142,6 +145,18 @@ async def test_unified_pipeline_cache_parity():
         assert "".join(chunks) == cached_content
         done_event = next(e for e in events if e.get("type") == "done")
         assert done_event["metrics"]["source"] == "cache"
+        assert done_event["sources"] == cached_sources
+
+
+def test_the_cache_keeps_an_answers_sources():
+    from app.services.cache_service import IntentCache
+
+    cache = IntentCache()
+    sources = [{"url": "https://www.canada.ca/a.html"}]
+    cache.set("Canada", "student", "work", "24 hours [Source 1]", version="v", query="hours?", sources=sources)
+    assert cache.get_entry("Canada", "student", "work", version="v", query="hours?") == {
+        "response": "24 hours [Source 1]", "sources": sources}
+    assert cache.get("Canada", "student", "work", version="v", query="hours?") == "24 hours [Source 1]"
 
 
 @pytest.mark.asyncio

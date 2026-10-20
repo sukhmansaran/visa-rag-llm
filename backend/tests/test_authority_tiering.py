@@ -185,7 +185,7 @@ async def test_insufficient_confidence_triggers_grounded_refusal():
     }
 
     with patch("app.services.retrieval.retrieval_service.retrieve", new_callable=AsyncMock) as mock_retrieve, \
-         patch("app.services.cache_service.intent_cache.get", return_value=None), \
+         patch("app.services.cache_service.intent_cache.get_entry", return_value=None), \
          patch("app.services.rule_engine.rule_engine.try_rule_answer", return_value=None), \
          patch("app.services.llm.llm_service.generate_answer", new_callable=AsyncMock) as mock_llm:
         mock_retrieve.return_value = [low_confidence_chunk]
