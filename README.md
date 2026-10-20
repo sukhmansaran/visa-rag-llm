@@ -60,13 +60,13 @@ Modules in [`services/crawler/`](backend/app/services/crawler/): `frontier`, `ro
 - Jobs run as Celery tasks; periodic crawls are scheduled with Celery beat.
 
 ### 6. 🗄️ Database safety
-- Alembic migrations `001`–`010` (the last two add schema integrity constraints and immutable document versioning).
+- Alembic migrations `001`–`013`. Migrating the development database backs it up first, and `scripts/backup_now.py --verify` proves a backup restores (row counts compared table by table).
 - Tests never touch the development database: they use allowlisted test databases only, and the migration tests snapshot the dev database and fail if it changes.
 - Automatic table creation is off by default and refused for any database outside the allowlist.
 
 ### 7. 📏 Measured, not assumed
-- [`scripts/eval_rag.py`](backend/scripts/eval_rag.py) runs a fixed set of 17 questions through the full pipeline and scores answers for required facts, forbidden claims and invented numbers. On `llama3.2:3b` it passes 16 of 17, with no forbidden claims or invented numbers.
-- GitHub Actions runs about 720 backend tests on every pull request, along with a dependency vulnerability audit, a lint/syntax gate and a frontend lint, build and audit. Tests that need a live Ollama model are skipped in CI and run locally.
+- [`scripts/eval_rag.py`](backend/scripts/eval_rag.py) runs 63 questions (26 critical) through the full pipeline and scores answers for required facts, forbidden claims and invented numbers; [`scripts/eval_gate.py`](backend/scripts/eval_gate.py) fails a change that makes a passing case fail. The current baseline on `llama3.2:3b` passes 52 of 63 (majority of 3 runs).
+- GitHub Actions runs about 1,100 backend tests on every pull request, along with a dependency vulnerability audit, a lint/syntax gate and a frontend lint, build and audit. Tests that need a live Ollama model are skipped in CI and run locally.
 
 ---
 
@@ -101,7 +101,7 @@ Modules in [`services/crawler/`](backend/app/services/crawler/): `frontier`, `ro
 │   │   ├── services/        # rag_pipeline, retrieval, rule_engine, llm, vector_store,
 │   │   │                    # guardrails/, crawler/, ingestion/
 │   │   └── workers/         # Celery app, tasks and schedules
-│   ├── alembic/             # Migrations 001–010
+│   ├── alembic/             # Migrations 001–013
 │   ├── scripts/             # Source seeding, RAG evaluation, Celery start scripts
 │   └── tests/               # pytest suite
 ├── frontend/
@@ -129,6 +129,16 @@ The `Dockerfile` and `docker-compose.yml` in `backend/` have not been tested rec
   ollama pull nomic-embed-text
   ```
 
+### One command (after the first-time setup below)
+```powershell
+cd backend
+.\scripts\start_all.ps1
+```
+It checks PostgreSQL (and migrations), Redis, Ollama (and the pinned model builds), settings, the knowledge base,
+frontend packages and free ports, and stops with the fix if something is missing. Then it opens a window each for
+the API, the two workers, the scheduler and the frontend, waits for the API, and prints the URLs.
+`python scripts/preflight.py` runs just the checks.
+
 ### 1. Backend
 ```powershell
 cd backend
@@ -149,7 +159,8 @@ The chatbot answers from the pages you ingest. Register the official sources, th
 ```powershell
 cd backend
 playwright install chromium
-python scripts/seed_sources.py          # registers the curated canada.ca and university pages
+python scripts/verify_registry.py       # checks every page in app/data/official_sources.yaml is live and allowed
+python scripts/sync_sources.py --apply  # registers those pages as sources
 python scripts/run_initial_ingestion.py # fetches them and stores the chunks in ChromaDB
 ```
 Without ingested sources, rule-based questions still work, but other answers will say the sources don't cover the question.
