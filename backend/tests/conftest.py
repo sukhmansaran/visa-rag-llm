@@ -31,6 +31,11 @@ settings.DATABASE_USE_NULL_POOL = True  # each test runs on its own event loop
 # Tests use a separate Redis logical database so revoked-token / rate-limit keys never land in the app's db 0
 TEST_REDIS_URL = os.getenv("TEST_REDIS_URL", settings.REDIS_URL.rsplit("/", 1)[0] + "/15")
 settings.REDIS_URL = TEST_REDIS_URL
+# ...and a throwaway Chroma store (M0.14): ingestion now deletes superseded chunks by source id, and test source
+# ids (1, 2, ...) overlap real ones, so tests must never open the real knowledge base in ./chroma_data
+import tempfile  # noqa: E402
+
+settings.CHROMA_PERSIST_DIRECTORY = tempfile.mkdtemp(prefix="pendu_test_chroma_")
 
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker

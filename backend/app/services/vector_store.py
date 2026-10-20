@@ -60,6 +60,14 @@ class VectorStore(ABC):
         """Delete all chunks from a specific source."""
         pass
 
+    @abstractmethod
+    async def delete_superseded(self, source_id: int, keep_document_id: int) -> int:
+        """
+        Delete a source's chunks that belong to any document other than `keep_document_id` (M0.14): after a
+        page changes, only its latest version may be retrievable. Returns how many chunks were deleted.
+        """
+        pass
+
     async def content_version(self) -> str:
         """
         Cheap fingerprint of the knowledge-base contents, used in answer-cache keys (B16)
@@ -183,6 +191,16 @@ class ChromaVectorStore(VectorStore):
             )
             _invalidate_answer_cache()
 
+    async def delete_superseded(self, source_id: int, keep_document_id: int) -> int:
+        old = await asyncio.to_thread(
+            self.collection.get,
+            where={"$and": [{"source_id": source_id}, {"document_id": {"$ne": keep_document_id}}]},
+        )
+        if old["ids"]:
+            await asyncio.to_thread(self.collection.delete, ids=old["ids"])
+            _invalidate_answer_cache()
+        return len(old["ids"])
+
 
 class PineconeVectorStore(VectorStore):
     """Pinecone vector store implementation for production."""
@@ -256,6 +274,11 @@ class PineconeVectorStore(VectorStore):
     async def delete_by_source(self, source_id: int) -> None:
         """Delete chunks by source_id filter."""
         self.index.delete(filter={"source_id": source_id})
+
+    async def delete_superseded(self, source_id: int, keep_document_id: int) -> int:
+        # Pinecone's delete-by-filter does not report a count
+        self.index.delete(filter={"source_id": source_id, "document_id": {"$ne": keep_document_id}})
+        return -1
 
 
 def get_vector_store() -> VectorStore:

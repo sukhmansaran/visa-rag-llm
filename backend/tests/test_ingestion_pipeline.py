@@ -10,6 +10,7 @@ from app.services.crawler.safe_http import BROWSER_ARGS, BlockedDestinationError
 from app.services.chunker import chunk_document
 from app.models.source import Source
 from app.models.document import Document
+from app.models.vector_chunk import VectorChunk
 
 # Realistic page length: ingestion refuses error/stub pages under 200 characters of main text (M0.10)
 PAGE_TEXT = ("Canada student visa requirements include proof of acceptance from a designated learning institution, "
@@ -107,7 +108,11 @@ class TestIngestionPipeline:
         )
         db_session.add(existing_doc)
         await db_session.commit()
-        
+        # It only counts as the current version if it was indexed (M0.14)
+        db_session.add(VectorChunk(document_id=existing_doc.id, chunk_index=0, text="Same content",
+                                   vector_id="existing-0", chunk_metadata={}))
+        await db_session.commit()
+
         # Mock scraping returns same hash
         mock_scrape.return_value = {
             'url': source.url,

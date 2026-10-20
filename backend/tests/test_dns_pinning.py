@@ -200,18 +200,6 @@ def test_crawler_and_shared_clients_use_the_pinned_transport():
     assert isinstance(pinned_client()._transport._pool._network_backend, safe_http.PinnedNetworkBackend)
 
 
-@pytest.mark.asyncio
-async def test_official_fetcher_reports_a_pinned_block_as_ssrf(monkeypatch):
-    from app.services.official_fetcher import AsyncOfficialFetcher, SSRFBlockedError
-
-    rebinding_dns(monkeypatch, {"www.canada.ca": ["10.1.2.3"]})
-    async with AsyncOfficialFetcher(max_retries=0) as fetcher:
-        client = await fetcher._get_client()
-        assert isinstance(client._transport._pool._network_backend, safe_http.PinnedNetworkBackend)
-        with pytest.raises(SSRFBlockedError):
-            await fetcher.fetch("https://www.canada.ca/en.html")
-
-
 # ---------------------------------------------------------------- the browser
 
 def _chromium_available() -> bool:

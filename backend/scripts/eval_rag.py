@@ -71,6 +71,16 @@ def _baseline_prompt() -> str:
     return src[start:src.index('"""', start)]
 
 
+def _app_notice_numbers() -> set:
+    """
+    Numbers in the fixed legal notices the app appends to answers (e.g. "Section 40 IRPA"). The model didn't
+    write them, so they are not invented numbers (a false alarm in the M0.14 gate run).
+    """
+    from app.services.guardrails import legal_disclaimer
+    notices = [v for k, v in vars(legal_disclaimer).items() if k.startswith("DISCLAIMER_") and isinstance(v, str)]
+    return _numbers(" ".join(notices))
+
+
 def _numbers(text: str) -> set:
     out = set()
     for raw in NUMBER_RE.findall(text or ""):
@@ -99,7 +109,8 @@ def score(case: dict, answer: str, context: str, llm_called: bool, source: Optio
         rules_ok = rules_used == case["expect_rules"]
 
     ungrounded = sorted(_numbers(answer) - _numbers(context) - _numbers(case["question"])
-                        - _numbers(" ".join(t.get("content", "") for t in case.get("history", [])))) if llm_called else []
+                        - _numbers(" ".join(t.get("content", "") for t in case.get("history", [])))
+                        - _app_notice_numbers()) if llm_called else []
     placeholder = bool(PLACEHOLDER_CITATION.search(answer or ""))
     passed = not missing and not forbidden and gap_ok is not False and blocked_ok is not False and rules_ok is not False
     return {"passed": passed, "coverage": coverage, "missing": missing, "forbidden": forbidden, "gap_ok": gap_ok,
