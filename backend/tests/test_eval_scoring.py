@@ -87,3 +87,12 @@ def test_does_not_explicitly_state_counts_as_acknowledging_a_gap():
             "expect_gap_acknowledged": True}
     answer = "The official IRCC regulatory facts do not explicitly state that you cannot get a second PGWP."
     assert eval_rag.score(case, answer, "", llm_called=True)["gap_ok"] is True
+
+
+def test_numbers_in_the_apps_own_legal_notices_are_not_invented():
+    """The app appends "Critical Legal Warning (Section 40 IRPA)"; the model didn't write that 40 (M0.14)."""
+    from app.services.guardrails.legal_disclaimer import DISCLAIMER_MISREPRESENTATION
+    answer = "I can't help with falsifying documents." + DISCLAIMER_MISREPRESENTATION
+    assert eval_rag.score(CASE, answer, "", llm_called=True)["ungrounded_numbers"] == []
+    # the model inventing the same number in its own text is still caught when it isn't a notice number
+    assert eval_rag.score(CASE, "You need 12,345 CAD.", "", llm_called=True)["ungrounded_numbers"] == ["12345"]
