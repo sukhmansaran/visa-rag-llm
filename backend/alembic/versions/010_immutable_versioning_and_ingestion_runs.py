@@ -109,6 +109,18 @@ def normalize_url(raw_url: str) -> str:
 
 
 def upgrade() -> None:
+    create_versioning_schema()
+
+    # 9. Execute Deterministic Legacy Backfill (if online and legacy documents exist)
+    if not _is_offline():
+        _execute_backfill_migration()
+
+
+def create_versioning_schema() -> None:
+    """
+    Tables, columns and constraints of this migration, without the backfill. Also used by migration 013's
+    downgrade to put the (dropped, unused) versioning schema back. Idempotent: every step checks first.
+    """
     # 1. Create logical_documents
     if not _table_exists('logical_documents'):
         op.create_table(
@@ -353,10 +365,6 @@ def upgrade() -> None:
         op.create_index('ix_vector_chunks_version_id', 'vector_chunks', ['document_version_id'])
     if not _index_exists('ix_vector_chunks_status'):
         op.create_index('ix_vector_chunks_status', 'vector_chunks', ['status'])
-
-    # 9. Execute Deterministic Legacy Backfill (if online and legacy documents exist)
-    if not _is_offline():
-        _execute_backfill_migration()
 
 
 def _execute_backfill_migration() -> None:

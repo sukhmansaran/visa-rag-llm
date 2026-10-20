@@ -32,14 +32,6 @@ from app.models.crawled_page import CrawledPage
 from app.models.program_record import ProgramRecord
 
 # Versioning & Ingestion Models (Stage B2)
-from app.models.ingestion_run import IngestionRun
-from app.models.logical_document import LogicalDocument
-from app.models.document_version import DocumentVersion
-from app.models.current_document_pointer import CurrentDocumentPointer
-from app.models.legacy_document_version_mapping import LegacyDocumentVersionMapping
-from app.models.version_indexing_operation import VersionIndexingOperation
-from app.models.document_change import DocumentChange
-from app.models.migration_unmapped_record import MigrationUnmappedRecord
 
 __all__ = [
     "User",
@@ -66,12 +58,4 @@ __all__ = [
     "CrawlJob",
     "CrawledPage",
     "ProgramRecord",
-    "IngestionRun",
-    "LogicalDocument",
-    "DocumentVersion",
-    "CurrentDocumentPointer",
-    "LegacyDocumentVersionMapping",
-    "VersionIndexingOperation",
-    "DocumentChange",
-    "MigrationUnmappedRecord",
 ]
