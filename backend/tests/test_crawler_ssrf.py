@@ -88,7 +88,12 @@ class TestSSRFValidator:
             "https://www.ubc.ca",
         ],
     )
-    def test_is_safe_url_allows_approved_canadian_domains(self, url):
+    def test_is_safe_url_allows_approved_canadian_domains(self, url, monkeypatch):
+        # About the domain allowlist, so DNS is faked with a public address: a live lookup flaked twice
+        # (Errno 11002). Resolution to private/metadata addresses is covered by the DNS tests in this file.
+        import socket
+        monkeypatch.setattr(socket, "getaddrinfo",
+                            lambda host, *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("205.193.215.159", 0))])
         assert is_safe_url(url) is True
 
 

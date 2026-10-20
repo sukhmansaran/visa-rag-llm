@@ -264,8 +264,8 @@ class TestMilestoneB21MigrationAndModels(unittest.TestCase):
             self.assertIn("chunk_id", vc_cols)
             self.assertIn("status", vc_cols)
 
-            # Verification Gate: Model/Schema Parity Check
-            # Compare SQLModel metadata with the migrated PostgreSQL schema
+            # M0.14b: the orchestrator that used these tables was removed and migration 013 drops them, so their
+            # models are gone too (tests/test_migration_013_drop_versioning.py covers the drop and its downgrade)
             versioning_models = [
                 "logical_documents",
                 "ingestion_runs",
@@ -277,11 +277,7 @@ class TestMilestoneB21MigrationAndModels(unittest.TestCase):
                 "migration_unmapped_records",
             ]
             for tbl_name in versioning_models:
-                self.assertIn(tbl_name, SQLModel.metadata.tables, f"Model {tbl_name} missing from SQLModel metadata")
-                model_cols = set(SQLModel.metadata.tables[tbl_name].columns.keys())
-                db_cols = {c["name"] for c in inspector.get_columns(tbl_name)}
-                diff = model_cols - db_cols
-                self.assertEqual(len(diff), 0, f"Columns in model but missing from DB for {tbl_name}: {diff}")
+                self.assertNotIn(tbl_name, SQLModel.metadata.tables, f"Model {tbl_name} should have been removed")
 
             # Check synthetic origin source
             synth_src = conn.execute(text(
@@ -299,7 +295,7 @@ class TestMilestoneB21MigrationAndModels(unittest.TestCase):
         """
         recreate_disposable_db()
         cfg = get_alembic_config(DISP_URL)
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, "010")  # these tables were dropped in 013 (M0.14b)
 
         engine = create_engine(DISP_URL, poolclass=pool.NullPool)
         with engine.connect() as conn:
@@ -378,7 +374,7 @@ class TestMilestoneB21MigrationAndModels(unittest.TestCase):
         """
         recreate_disposable_db()
         cfg = get_alembic_config(DISP_URL)
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, "010")  # these tables were dropped in 013 (M0.14b)
 
         engine = create_engine(DISP_URL, poolclass=pool.NullPool)
         with engine.connect() as conn:

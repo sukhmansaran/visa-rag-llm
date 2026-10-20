@@ -1,12 +1,10 @@
 from datetime import datetime
 from typing import Optional, Dict, Any, TYPE_CHECKING
 from sqlmodel import SQLModel, Field, Relationship, JSON, Column
-from sqlalchemy import ForeignKeyConstraint, CheckConstraint
+from sqlalchemy import CheckConstraint
 
 if TYPE_CHECKING:
     from app.models.document import Document
-    from app.models.document_version import DocumentVersion
-    from app.models.logical_document import LogicalDocument
 
 
 class VectorChunk(SQLModel, table=True):
@@ -18,25 +16,12 @@ class VectorChunk(SQLModel, table=True):
             "status IN ('staging', 'active', 'superseded', 'tombstoned')",
             name="chk_vector_chunk_status",
         ),
-        CheckConstraint(
-            "((document_version_id IS NULL AND logical_document_id IS NULL) OR (document_version_id IS NOT NULL AND logical_document_id IS NOT NULL))",
-            name="chk_vector_chunks_paired_doc_ver",
-        ),
-        ForeignKeyConstraint(
-            ["logical_document_id", "document_version_id"],
-            ["document_versions.logical_document_id", "document_versions.id"],
-            name="fk_vector_chunks_composite_doc_ver",
-            ondelete="RESTRICT",
-        ),
     )
     
     id: Optional[int] = Field(default=None, primary_key=True)
     document_id: int = Field(foreign_key="documents.id", index=True)
     
-    # Versioning extensions
-    document_version_id: Optional[int] = Field(default=None, index=True)
-    logical_document_id: Optional[int] = Field(default=None, index=True)
-    chunk_id: Optional[str] = Field(default=None, unique=True, max_length=255)
+    # active = the page's current version; superseded = an older version, removed from the vector store (M0.14)
     status: str = Field(default="active", max_length=20, index=True)
 
     # Chunk index within the document
@@ -59,4 +44,3 @@ class VectorChunk(SQLModel, table=True):
     
     # Relationships
     document: "Document" = Relationship(back_populates="chunks")
-    document_version: Optional["DocumentVersion"] = Relationship(back_populates="chunks")

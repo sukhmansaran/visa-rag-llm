@@ -76,10 +76,23 @@ def event_loop():
     loop.close()
 
 
+def _drop_tables_without_models(sync_conn) -> None:
+    """
+    Drop tables in the test database that no model defines any more (e.g. the versioning tables removed in
+    M0.14b). drop_all only knows current models, so a leftover table with a foreign key into `documents` made
+    every test's reset fail. Test database only: its name was checked against the disposable allowlist above.
+    """
+    from sqlalchemy import inspect, text
+
+    for table in set(inspect(sync_conn).get_table_names()) - set(SQLModel.metadata.tables) - {"alembic_version"}:
+        sync_conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE'))
+
+
 @pytest_asyncio.fixture(scope="function")
 async def db_session():
     """Create a fresh database session for each test."""
     async with test_engine.begin() as conn:
+        await conn.run_sync(_drop_tables_without_models)
         await conn.run_sync(SQLModel.metadata.drop_all)
         await conn.run_sync(SQLModel.metadata.create_all)
     

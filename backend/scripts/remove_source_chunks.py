@@ -9,8 +9,8 @@ Run by the owner, never automatically. Rules:
   - only inactive sources (deactivate first: registry `excluded` + sync_sources.py --apply)
   - --apply backs up the database and chroma_data first (scripts/backup_now.py) and stops if that fails
   - removes the source's Chroma chunks, vector_chunks rows and documents; the source row stays (inactive) as a record
-  - stops without changing anything if other tables still reference the documents (crawled pages, program records,
-    version mappings): those need a decision, not a cascade
+  - stops without changing anything if other tables still reference the documents (crawled pages, program
+    records): those need a decision, not a cascade
 Retrieval already ignores inactive sources, so this is cleanup, not a fix that answers depend on.
 """
 
@@ -32,7 +32,6 @@ from app.models.vector_chunk import VectorChunk  # noqa: E402
 BLOCKING_REFERENCES = [
     ("crawled_pages", "document_id"),
     ("program_records", "document_id"),
-    ("legacy_document_version_mappings", "legacy_document_id"),
 ]
 
 
