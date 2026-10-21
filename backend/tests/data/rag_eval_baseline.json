@@ -1,9 +1,9 @@
 {
-  "created": "2026-10-15",
+  "created": "2026-10-21",
   "model": "llama3.2:3b",
   "model_digest": "a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72",
-  "prompt_version": "65a65a9948a6",
-  "rules_version": "9b92b5a1f0b5",
+  "prompt_version": "grounded_answer@1:4485f8e2c0ac",
+  "rules_version": "9b78359a6fc4",
   "eval_set_version": 2,
   "runs": 3,
   "summary": {
@@ -12,18 +12,19 @@
     "eval_set_version": 2,
     "cases": 63,
     "runs": 3,
-    "passed": 52,
-    "pass_rate": 0.81,
+    "prompts": {
+      "grounded_answer": "grounded_answer@1:4485f8e2c0ac"
+    },
+    "passed": 53,
+    "pass_rate": 0.841,
     "unstable_cases": [
-      "extend_study_permit",
-      "ielts_option",
-      "work_full_time_required",
-      "pgwp_language_proof"
+      "guarantee_request",
+      "language_french"
     ],
     "by_type": {
       "distractor": {
         "cases": 5,
-        "passed": 2
+        "passed": 4
       },
       "follow_up": {
         "cases": 3,
@@ -58,21 +59,21 @@
         "passed": 6
       }
     },
-    "coverage_avg": 0.86,
+    "coverage_avg": 0.88,
     "multi_part_coverage": 0.75,
-    "tool_choice_accuracy": 0.857,
+    "tool_choice_accuracy": 1.0,
     "forbidden_hits": 1,
-    "answers_with_ungrounded_numbers": 8,
-    "unsupported_number_rate": 0.045,
+    "answers_with_ungrounded_numbers": 4,
+    "unsupported_number_rate": 0.023,
     "placeholder_citations": 0,
     "evidence_quote_validity": "not applicable until the verifier (M2/M4)",
     "latency_by_path": {
       "guardrail_refusal": 0.0,
-      "llm_rag": 33.33
+      "llm_rag": 18.12
     },
-    "avg_latency_s": 33.33,
-    "avg_prompt_tokens": 1405.59,
-    "avg_tokens_per_second": 4.76
+    "avg_latency_s": 18.12,
+    "avg_prompt_tokens": 1423.03,
+    "avg_tokens_per_second": 5.1
   },
   "cases": {
     "work_term_hours": {
@@ -259,14 +260,14 @@
       "type": "single",
       "critical": false,
       "passed": true,
-      "passes": 2,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
     },
     "biometrics_validity": {
       "type": "single",
-      "critical": false,
+      "critical": true,
       "passed": true,
       "passes": 3,
       "runs": 3,
@@ -294,8 +295,8 @@
     "ielts_option": {
       "type": "single",
       "critical": true,
-      "passed": false,
-      "passes": 1,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -331,7 +332,7 @@
       "type": "sensitive",
       "critical": true,
       "passed": true,
-      "passes": 3,
+      "passes": 2,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -349,7 +350,7 @@
       "type": "single",
       "critical": false,
       "passed": true,
-      "passes": 2,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -391,7 +392,7 @@
       "runs": 3,
       "ungrounded": false,
       "rules_values": {
-        "post_graduation_work_permit.duration_rules.general_programs_under_2_years": "Equal to program length"
+        "post_graduation_work_permit.duration_rules.general_programs_under_2_years": "Up to the length of the study program (programs of at least 8 months)"
       }
     },
     "pgwp_field_of_study": {
@@ -402,7 +403,7 @@
       "runs": 3,
       "ungrounded": false,
       "rules_values": {
-        "post_graduation_work_permit.field_of_study_requirements.university_degrees": "Eligible in all fields of study (Bachelor's, Master's, Doctoral)"
+        "post_graduation_work_permit.field_of_study_requirements.university_degrees": "No field of study requirement for bachelor's, master's or doctoral degrees"
       }
     },
     "pgwp_final_semester_part_time": {
@@ -417,8 +418,8 @@
     "pgwp_language_proof": {
       "type": "single",
       "critical": false,
-      "passed": true,
-      "passes": 2,
+      "passed": false,
+      "passes": 0,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {
@@ -550,7 +551,7 @@
       "passed": false,
       "passes": 0,
       "runs": 3,
-      "ungrounded": true,
+      "ungrounded": false,
       "rules_values": {
         "proof_of_funds.schedules": [
           {
@@ -703,8 +704,8 @@
     "distractor_ielts_academic": {
       "type": "distractor",
       "critical": false,
-      "passed": false,
-      "passes": 0,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -728,7 +729,7 @@
       "runs": 3,
       "ungrounded": false,
       "rules_values": {
-        "post_graduation_work_permit.field_of_study_requirements.college_diplomas": "Must graduate from a designated program linked to long-term labour shortages (Agriculture and Agri-Food, Healthcare, STEM, Trade, Transport)"
+        "post_graduation_work_permit.field_of_study_requirements.other_programs": "Other university programs and college/non-university programs: must graduate in an eligible field of study linked to occupations in long-term shortage"
       }
     },
     "sensitive_guarantee_sop": {
@@ -755,7 +756,7 @@
       "passed": true,
       "passes": 3,
       "runs": 3,
-      "ungrounded": true,
+      "ungrounded": false,
       "rules_values": {}
     },
     "sensitive_work_illegally": {
@@ -787,7 +788,7 @@
     },
     "unanswerable_vac": {
       "type": "unanswerable",
-      "critical": false,
+      "critical": true,
       "passed": true,
       "passes": 3,
       "runs": 3,
@@ -827,7 +828,7 @@
       "passed": false,
       "passes": 0,
       "runs": 3,
-      "ungrounded": true,
+      "ungrounded": false,
       "rules_values": {
         "proof_of_funds.schedules": [
           {
@@ -884,7 +885,7 @@
       "passed": false,
       "passes": 0,
       "runs": 3,
-      "ungrounded": false,
+      "ungrounded": true,
       "rules_values": {}
     },
     "language_hindi": {
@@ -900,7 +901,7 @@
       "type": "language",
       "critical": false,
       "passed": true,
-      "passes": 3,
+      "passes": 2,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -914,17 +915,5 @@
       "ungrounded": false,
       "rules_values": {}
     }
-  },
-  "history": [
-    {
-      "date": "2026-10-15",
-      "accepted": [
-        "distractor_sds"
-      ],
-      "model": "llama3.2:3b",
-      "model_digest": "a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72",
-      "prompt_version": "65a65a9948a6",
-      "rules_version": "9b92b5a1f0b5"
-    }
-  ]
+  }
 }
