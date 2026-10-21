@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     TRACES_ENABLED: bool = True
     TRACE_RETENTION_DAYS: int = 30
 
+    # Triage (M1.2): off = no triage; shadow = triage every question and trace the decision, answers unchanged;
+    # on = route verified questions to the verified path (until M2 that path is today's pipeline)
+    AGENT_MODE: str = "shadow"
+
     # RAG generation budget
     RAG_TOP_K: int = 4                    # chunks retrieved per question
     RAG_CONTEXT_CHARS: int = 4000         # max source text given to the model (~1,000 tokens)
@@ -154,6 +158,13 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",")]
         return v
+
+    @validator("AGENT_MODE", pre=True, always=True)
+    def check_agent_mode(cls, v):
+        mode = str(v or "shadow").strip().lower()
+        if mode not in ("off", "shadow", "on"):
+            raise ValueError("AGENT_MODE must be off, shadow or on")
+        return mode
 
     @validator("REDIS_URL", "CELERY_BROKER_URL", "CELERY_RESULT_BACKEND", pre=True)
     def prefer_ipv4_loopback_for_redis(cls, v):

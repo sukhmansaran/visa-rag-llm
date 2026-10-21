@@ -98,10 +98,11 @@ async def test_answer_job_publishes_progress_and_answer(scripted, db_session):
     kinds = types(events)
     assert kinds[0] == "status" and kinds[-1] == "done"
     steps = [d["name"] for _, t, d in events if t == "step"]
-    assert steps[:7] == ["input_guardrail", "intent", "rules", "cache", "tourist_db", "retrieval", "evidence_gate"]
+    assert steps[:8] == ["input_guardrail", "triage", "intent", "rules", "cache", "tourist_db", "retrieval",
+                         "evidence_gate"]
     assert "generation" in steps
     # live progress: every pipeline step is published before the first answer chunk
-    assert kinds.index("chunk") > kinds.index("step") and kinds.index("chunk") > len([k for k in kinds[:8] if k == "step"])
+    assert kinds.index("chunk") > kinds.index("step") and kinds.index("chunk") > len([k for k in kinds[:9] if k == "step"])
     done = events[-1][2]
     assert done["full_response"] == ANSWER and done["metrics"]["trace_id"]
     assert (await jobs.get_job(job_id))["status"] == "done"
