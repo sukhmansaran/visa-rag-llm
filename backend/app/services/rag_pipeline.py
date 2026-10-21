@@ -25,6 +25,7 @@ from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
 from app.services.tracing import trace_step
+from app.services.triage import FAST, triage
 from app.services.prompt_registry import get_prompt
 
 logger = logging.getLogger(__name__)
@@ -149,6 +150,13 @@ class RAGPipeline:
             yield {"type": "done", "full_response": refusal, "metrics": finished_metrics()}
             return
 
+        # 0b. Triage (M1.2): decide fast vs verified from the question; traced, answers unchanged until M2
+        triage_decision = None
+        if settings.AGENT_MODE != "off":
+            with trace_step("triage", stage="question", mode=settings.AGENT_MODE) as step:
+                triage_decision = triage(query)
+                step.update(self._triage_summary(triage_decision))
+
         # 1. Intent Normalization
         with trace_step("intent") as step:
             intent_data = await intent_parser.parse_intent(query)
@@ -224,6 +232,14 @@ class RAGPipeline:
             conf_eval = self.calculate_algorithmic_confidence(chunks, has_tourist_db=bool(tourist_context or rule_facts))
             step.update(has_evidence=has_evidence, confidence=conf_eval["score"], level=conf_eval["level"],
                         passed=has_evidence and conf_eval["level"] != "INSUFFICIENT")
+        # Low retrieval confidence is the one triage signal known only now: trace it if it changes the path
+        if triage_decision is not None and not triage_decision.verified:
+            after_retrieval = triage(query, retrieval_level=conf_eval["level"])
+            if after_retrieval.verified:
+                triage_decision = after_retrieval
+                with trace_step("triage", stage="retrieval", mode=settings.AGENT_MODE) as step:
+                    step.update(self._triage_summary(triage_decision))
+
         metrics["confidence"] = conf_eval["score"]
         metrics["confidence_level"] = conf_eval["level"]
 
@@ -427,6 +443,13 @@ class RAGPipeline:
             })
 
         return citations
+
+    @staticmethod
+    def _triage_summary(decision) -> Dict[str, Any]:
+        """Trace fields for a triage decision. `routed` is the path actually taken: always fast in shadow mode;
+        in on mode the verified path is today's pipeline until M2, so answers are the same either way."""
+        routed = decision.path if settings.AGENT_MODE == "on" else FAST
+        return {"path": decision.path, "reasons": list(decision.reasons), "routed": routed}
 
     @staticmethod
     def calculate_algorithmic_confidence(

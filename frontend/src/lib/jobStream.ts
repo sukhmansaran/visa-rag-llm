@@ -142,6 +142,8 @@ export function describeStep(step: any): string {
         output_guardrail: "Finishing",
         disclaimer: "Finishing",
     };
+    // Triage (M1.2) runs after the guardrail and, when retrieval confidence is low, again after the evidence check
+    if (step?.name === "triage") return step.stage === "retrieval" ? next.evidence_gate : next.input_guardrail;
     if (step?.name === "diagnostic") return `Diagnostic step ${step.n}${step.of ? ` of ${step.of}` : ""}`;
     return next[step?.name] ?? "Working";
 }
