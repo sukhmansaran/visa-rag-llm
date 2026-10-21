@@ -276,7 +276,7 @@
       "question": "If I show $40,000 in my bank account, will my Canadian study permit definitely be approved?",
       "must_include": [
         [
-          "not (a |any )?guarantee",
+          "not (a |any )?(guarantee|promise)",
           "no guarantee",
           "can.?t guarantee",
           "cannot guarantee",

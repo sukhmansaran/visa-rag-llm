@@ -4,16 +4,16 @@
 # Every rule fact MUST maintain effective_from, last_verified, and an official source_url.
 # ==============================================================================
 
-version: "2026.3"
-last_updated: "2026-10-19"
+version: "2026.4"
+last_updated: "2026-10-21"
 
 proof_of_funds:
   rule_id: "IRCC-POF-SCHEDULES"
   title: "Minimum Living Funds for Study Permit Applicants (Outside Quebec, excluding tuition and transportation)"
   # effective_from of the CURRENT schedule (the section-level fields describe the schedule in force today)
   effective_from: "2026-09-01"
-  last_verified: "2026-10-19"
-  verified_by: "Outside-Quebec schedules checked against the canada.ca financial-support page on 2026-10-12; Quebec amounts corrected from quebec.ca and the 2024 single amount checked against IRCC's 2023-12-07 news release by an AI assistant on 2026-10-19; not yet checked by a person"
+  last_verified: "2026-10-21"
+  verified_by: "Outside-Quebec schedules checked against the canada.ca financial-support page on 2026-10-12; Quebec amounts corrected from quebec.ca and the 2024 single amount checked against IRCC's 2023-12-07 news release by an AI assistant on 2026-10-19; reviewed by the owner against the quoted sources on 2026-10-21 (docs/M0.13_RULES_REVIEW.md)"
   source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/get-documents/financial-support.html"
   statutory_basis: "75% of Statistics Canada Low-Income Cut-Off (LICO)"
   currency: "CAD"
@@ -68,8 +68,8 @@ student_direct_stream:
   rule_id: "IRCC-SDS-SUNSET-2024"
   title: "Student Direct Stream (SDS) Termination"
   effective_from: "2024-11-08"
-  last_verified: "2026-10-19"
-  verified_by: "Checked against the IRCC notice (source_url) by an AI assistant on 2026-10-15 and 2026-10-19 (cut-off '2:00 p.m. ET on November 8, 2024' quoted); not yet checked by a person"
+  last_verified: "2026-10-21"
+  verified_by: "Checked against the IRCC notice (source_url) by an AI assistant on 2026-10-15 and 2026-10-19 (cut-off '2:00 p.m. ET on November 8, 2024' quoted); reviewed by the owner against the quoted sources on 2026-10-21 (docs/M0.13_RULES_REVIEW.md)"
   # The former SDS program page no longer mentions SDS; the closure notice is the authoritative source.
   source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/news/notices/end-student-direct-stream-nigeria-student-express.html"
   is_active: false
@@ -80,8 +80,8 @@ post_graduation_work_permit:
   rule_id: "IRCC-PGWP-2024-REFORM"
   title: "Post-Graduation Work Permit (PGWP) Eligibility and Language Standards"
   effective_from: "2024-11-01"
-  last_verified: "2026-10-19"
-  verified_by: "Language and field-of-study rules checked against canada.ca on 2026-10-12; duration (about.html), 180-day window (eligibility.html) and working while waiting (apply.html) checked by an AI assistant on 2026-10-19; not yet checked by a person"
+  last_verified: "2026-10-21"
+  verified_by: "Language and field-of-study rules checked against canada.ca on 2026-10-12; duration (about.html), 180-day window (eligibility.html) and working while waiting (apply.html) checked by an AI assistant on 2026-10-19; reviewed by the owner against the quoted sources on 2026-10-21 (docs/M0.13_RULES_REVIEW.md)"
   source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/after-graduation/eligibility.html"
   duration_source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/work/after-graduation/about.html"
   statutory_basis: "IRCC Operational Instructions for the Post-Graduation Work Permit Program"
@@ -137,8 +137,8 @@ express_entry_stem:
   rule_id: "IRCC-EE-STEM-2023-2026"
   title: "Express Entry Federal Skilled Worker & STEM Category-Based Selection"
   effective_from: "2023-06-28"
-  last_verified: "2026-10-19"
-  verified_by: "FSW facts checked against federal-skilled-workers.html and the STEM category against category-based-selection.html by an AI assistant on 2026-10-19; not yet checked by a person"
+  last_verified: "2026-10-21"
+  verified_by: "FSW facts checked against federal-skilled-workers.html and the STEM category against category-based-selection.html by an AI assistant on 2026-10-19; reviewed by the owner against the quoted sources on 2026-10-21 (docs/M0.13_RULES_REVIEW.md)"
   source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/rounds-invitations/category-based-selection.html"
   fsw_source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/who-can-apply/federal-skilled-workers.html"
   statutory_basis: "Immigration and Refugee Protection Act (IRPA) Category-Based Selection Provisions"
@@ -174,8 +174,8 @@ visitor_visa:
   rule_id: "IRCC-TRV-STANDARD"
   title: "Temporary Resident Visa (TRV) and Electronic Travel Authorization (eTA)"
   effective_from: "2024-01-01"
-  last_verified: "2026-10-19"
-  verified_by: "Checked against about-visitor-visa.html, visit-canada/eligibility.html and study-without-permit.html by an AI assistant on 2026-10-19; not yet checked by a person"
+  last_verified: "2026-10-21"
+  verified_by: "Checked against about-visitor-visa.html, visit-canada/eligibility.html and study-without-permit.html by an AI assistant on 2026-10-19; reviewed by the owner against the quoted sources on 2026-10-21 (docs/M0.13_RULES_REVIEW.md)"
   source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/about-visitor-visa.html"
   statutory_basis: "Immigration and Refugee Protection Regulations (IRPR) Part 9"
   maximum_authorized_stay_months: 6      # "Most visitors"; the border officer may allow less or more
@@ -204,8 +204,8 @@ biometrics:
   rule_id: "IRCC-BIOMETRICS"
   title: "Biometrics (fingerprints and photo): who gives them and how long they are valid"
   effective_from: "2019-12-03"
-  last_verified: "2026-10-20"
-  verified_by: "Checked against who-needs-to-give.html, when-to-give-temporary-residence.html and express-entry/after-apply.html by an AI assistant on 2026-10-20; not yet checked by a person"
+  last_verified: "2026-10-21"
+  verified_by: "Checked against who-needs-to-give.html, when-to-give-temporary-residence.html and express-entry/after-apply.html by an AI assistant on 2026-10-20; reviewed by the owner against the quoted sources on 2026-10-21 (docs/M0.13_RULES_REVIEW.md)"
   source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/biometrics/who-needs-to-give.html"
   validity_source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/biometrics/when-to-give-temporary-residence.html"
   permanent_residence_source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/after-apply.html"
