@@ -58,6 +58,10 @@ GAP_PATTERNS = [
 ]
 PLACEHOLDER_CITATION = re.compile(r"\[Source N\]", re.IGNORECASE)
 NUMBER_RE = re.compile(r"\$?\d[\d,]*(?:\.\d+)?")
+# A single digit with a unit is a fact ("5 years", "3-year PGWP"), not list numbering (hardening 3: an answer
+# saying biometrics last "5 years" against sources saying 10 was not flagged)
+UNIT_NUMBER_RE = re.compile(r"(?<![\d.,])(\d)(?:\s*-\s*|\s+)(?:years?|months?|weeks?|days?|hours?)\b", re.IGNORECASE)
+MARKDOWN_RE = re.compile(r"\*\*|__|\*|`")
 FLAGS = re.IGNORECASE | re.DOTALL
 
 
@@ -71,14 +75,17 @@ def _baseline_prompt() -> str:
     return src[start:src.index('"""', start)]
 
 
-def _app_notice_numbers() -> set:
+def _without_app_notices(answer: str) -> str:
     """
-    Numbers in the fixed legal notices the app appends to answers (e.g. "Section 40 IRPA"). The model didn't
-    write them, so they are not invented numbers (a false alarm in the M0.14 gate run).
+    The answer minus the fixed legal notices the app appends (e.g. "Section 40 IRPA ... 5-year ban"). The model
+    didn't write them, so their numbers aren't invented (M0.14 false alarm). Removing the notice text, rather than
+    ignoring its numbers everywhere, keeps "5 years" written by the model checkable (hardening 3).
     """
     from app.services.guardrails import legal_disclaimer
-    notices = [v for k, v in vars(legal_disclaimer).items() if k.startswith("DISCLAIMER_") and isinstance(v, str)]
-    return _numbers(" ".join(notices))
+    for name, notice in vars(legal_disclaimer).items():
+        if name.startswith("DISCLAIMER_") and isinstance(notice, str):
+            answer = answer.replace(_plain(notice).strip(), "").replace(notice.strip(), "")
+    return answer
 
 
 def _numbers(text: str) -> set:
@@ -87,12 +94,19 @@ def _numbers(text: str) -> set:
         digits = raw.replace("$", "").replace(",", "").rstrip(".")
         if len(digits.replace(".", "")) >= 2:  # skip list numbering / single digits
             out.add(digits)
+    out.update(UNIT_NUMBER_RE.findall(text or ""))  # ...unless they carry a unit
     return out
+
+
+def _plain(text: str) -> str:
+    """The answer without markdown emphasis: "**before** it expires" must match like "before it expires"."""
+    return MARKDOWN_RE.sub("", text or "")
 
 
 def score(case: dict, answer: str, context: str, llm_called: bool, source: Optional[str] = None,
           rules_used: Optional[bool] = None) -> dict:
     """Score one answer. Returns pass/fail plus every component, so failures are explainable."""
+    answer = _plain(answer)
     groups = case.get("must_include", [])
     missing = [group for group in groups if not any(re.search(p, answer, FLAGS) for p in group)]
     coverage = 1.0 if not groups else round((len(groups) - len(missing)) / len(groups), 3)
@@ -108,9 +122,9 @@ def score(case: dict, answer: str, context: str, llm_called: bool, source: Optio
     if case.get("expect_rules") is not None and rules_used is not None:
         rules_ok = rules_used == case["expect_rules"]
 
-    ungrounded = sorted(_numbers(answer) - _numbers(context) - _numbers(case["question"])
-                        - _numbers(" ".join(t.get("content", "") for t in case.get("history", [])))
-                        - _app_notice_numbers()) if llm_called else []
+    history_text = " ".join(t.get("content", "") for t in case.get("history", []))
+    ungrounded = sorted(_numbers(_without_app_notices(answer)) - _numbers(context) - _numbers(case["question"])
+                        - _numbers(history_text)) if llm_called else []
     placeholder = bool(PLACEHOLDER_CITATION.search(answer or ""))
     passed = not missing and not forbidden and gap_ok is not False and blocked_ok is not False and rules_ok is not False
     return {"passed": passed, "coverage": coverage, "missing": missing, "forbidden": forbidden, "gap_ok": gap_ok,

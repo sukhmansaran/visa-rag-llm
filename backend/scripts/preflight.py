@@ -3,6 +3,7 @@ Check that everything Pendu needs is ready, and say how to fix what isn't (M0.17
 
     cd backend
     python scripts/preflight.py
+    python scripts/preflight.py --for-start   # as start_all.ps1 runs it: busy ports are a FAIL
 
 Each check is OK, WARN (Pendu runs, but something is off) or FAIL (Pendu can't run). Exit code 1 on any FAIL.
 Never prints secrets.
@@ -127,11 +128,16 @@ def _port_in_use(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
-async def check_ports() -> Check:
+async def check_ports(for_start: bool = False) -> Check:
+    """
+    Busy ports are a WARN for a plain check, but a FAIL before starting (hardening 3): a second API can't bind, and
+    the health check would then be answered by whatever old process holds the port, so "API is up" would be false.
+    """
     busy = [str(p) for p in (8000, 3000) if _port_in_use(p)]
     if busy:
-        return Check("Ports", WARN, f"already in use: {', '.join(busy)} (is Pendu already running?)",
-                     "Close the old Pendu windows, or another program on that port")
+        return Check("Ports", FAIL if for_start else WARN,
+                     f"already in use: {', '.join(busy)} (Pendu, or an old copy of it, is already running)",
+                     "Close the 'Pendu - ...' windows (or the program on that port), then try again")
     return Check("Ports", OK, "8000 and 3000 free")
 
 
@@ -154,7 +160,14 @@ async def run_checks(checks=None) -> List[Check]:
 
 
 def main() -> int:
-    results = asyncio.run(run_checks())
+    import functools
+
+    for_start = "--for-start" in sys.argv[1:]
+    checks = [functools.partial(check_ports, for_start=True) if c is check_ports and for_start else c for c in CHECKS]
+    for check in checks:
+        if isinstance(check, functools.partial):
+            check.__name__ = "check_ports"
+    results = asyncio.run(run_checks(checks))
     width = max(len(r.name) for r in results)
     for r in results:
         print(f"[{r.status:<4}] {r.name:<{width}}  {r.detail}")

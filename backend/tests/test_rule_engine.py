@@ -362,3 +362,26 @@ class TestFactsCorrectedInM013:
         assert "Letter of explanation: recommended, not required" in facts
         assert "Quebec Acceptance Certificate (CAQ)" in facts
         assert "provincial-attestation-letter.html" in facts and "/study-permit/provincial-attestation-letter.html" not in facts
+
+
+class TestBiometricsFacts:
+    """Hardening 3: answers said biometrics last "5 years" and children "under 18" are exempt (canada.ca: 10, 14)."""
+
+    def _facts(self, query):
+        return rule_engine.try_rule_answer("general", "canada", None, query=query) or ""
+
+    @pytest.mark.parametrize("query", [
+        "How long are biometrics valid?", "Who is exempt from giving biometrics based on age?",
+        "Do my kids need to give fingerprints?", "Do I need biometrics for Express Entry?",
+        "How much is the biometrics fee for a family?",
+    ])
+    def test_biometrics_questions_get_the_biometrics_facts(self, query):
+        assert "BIOMETRICS" in self._facts(query)
+
+    def test_the_facts_match_canada_ca(self):
+        facts = self._facts("How long are biometrics valid?")
+        assert "valid for 10 years" in facts
+        assert "children under the age of 14" in facts and "over the age of 79" in facts
+        assert "every permanent residence application" in facts
+        assert "CAN$85 per person" in facts and "CAN$170" in facts
+        assert "5 years" not in facts and "under 18" not in facts

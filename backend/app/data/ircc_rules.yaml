@@ -199,3 +199,37 @@ processing_times:
   # application type and country/visa office, so any stored number would quickly be wrong.
   stores_figures: false
 
+
+biometrics:
+  rule_id: "IRCC-BIOMETRICS"
+  title: "Biometrics (fingerprints and photo): who gives them and how long they are valid"
+  effective_from: "2019-12-03"
+  last_verified: "2026-10-20"
+  verified_by: "Checked against who-needs-to-give.html, when-to-give-temporary-residence.html and express-entry/after-apply.html by an AI assistant on 2026-10-20; not yet checked by a person"
+  source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/biometrics/who-needs-to-give.html"
+  validity_source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/biometrics/when-to-give-temporary-residence.html"
+  permanent_residence_source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/after-apply.html"
+  # Added in hardening 3: answers said biometrics are valid "5 years" and that children "under 18" are exempt.
+  # "Your biometrics are valid for 10 years." (temporary residence)
+  validity_years: 10
+  # "We can't issue a visa or permit more than 10 years from the last time you gave your biometrics."
+  permit_cannot_outlast_biometrics: true
+  # "You don't need to give your biometrics if you're ... a child under the age of 14 ... an applicant over the
+  # age of 79 ... There is no upper age exemption for asylum claimants."
+  exempt_under_age: 14
+  exempt_over_age: 79
+  asylum_claimants_upper_age_exemption: false
+  # "If you're between 14 and 79 years old, you need to give your ... biometrics for every permanent residence
+  # application you submit ... even if you gave your biometrics in the past and they're still valid."
+  permanent_residence_requires_new_biometrics_each_application: true
+  # "If you're visiting from visa-exempt country, you're exempt from giving biometrics when you apply to extend
+  # your stay." / "a visa-exempt national coming to Canada to visit only"
+  visa_exempt_visitors_exempt: true
+  # Fees (biometrics.html): "Individual applicant: CAN$85" / "Families applying at the same time: maximum total
+  # fee of CAN$170" / "Groups of 3 or more performing artists ... maximum total fee of CAN$255" / "There is no fee
+  # to give biometrics for a transit visa."
+  fees_source_url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/biometrics.html"
+  fee_individual_cad: 85
+  fee_family_max_cad: 170
+  fee_performing_artist_group_max_cad: 255
+  fee_transit_visa_cad: 0

@@ -648,6 +648,10 @@ class RuleEngine:
                 f"{rule.get('source_url', '')}"
             )
 
+        # 3c. Biometrics (hardening 3: answers invented "valid 5 years" and "children under 18 are exempt")
+        if re.search(r"\bbiometric|\bfingerprint", query_lower):
+            return self._biometrics_facts()
+
         # 4. Express Entry & Skilled Tech / Software Engineer Eligibility
         if re.search(r'\b(?:express entry|fsw|federal skilled worker|pr|permanent residence)\b', query_lower) or \
            (re.search(r'\b(?:software engineer|developer|programmer|python|tech)\b', query_lower) and re.search(r'\b(?:apply|eligible|eligibility|canada|entry)\b', query_lower)):
@@ -723,6 +727,28 @@ class RuleEngine:
     _STEM_QUESTION = re.compile(
         r"\bstem\b|categor|occupation|\bnoc\b|\bteer\b|software|developer|programmer|engineer|data scien|"
         r"\btech|\bdraws?\b|invitation|\bjob\b", re.IGNORECASE)
+
+    def _biometrics_facts(self) -> str:
+        bio = self.rules_data.get("biometrics", {})
+        return (
+            f"OFFICIAL IRCC REGULATORY FACTS — BIOMETRICS (fingerprints and photo) (verified {bio.get('last_verified', '')}):\n"
+            f"- Sources: {bio.get('source_url', '')} ; {bio.get('validity_source_url', '')}\n"
+            f"- Validity: biometrics are valid for {bio.get('validity_years')} years. Someone who gave biometrics within "
+            f"the last {bio.get('validity_years')} years usually does not need to give them again for a visitor visa, "
+            "study permit or work permit.\n"
+            f"- A visa or permit can't be issued for longer than {bio.get('validity_years')} years from the last time "
+            "biometrics were given; giving them again extends that.\n"
+            f"- Exempt because of age: children under the age of {bio.get('exempt_under_age')}, and applicants over the "
+            f"age of {bio.get('exempt_over_age')}. There is no upper age exemption for asylum claimants.\n"
+            f"- Permanent residence: anyone between {bio.get('exempt_under_age')} and {bio.get('exempt_over_age')} "
+            "years old must give biometrics for every permanent residence application, even if earlier biometrics are "
+            "still valid.\n"
+            "- Visa-exempt nationals coming only to visit, or extending a visit, don't need to give biometrics.\n"
+            f"- Fee: CAN${bio.get('fee_individual_cad')} per person; families applying at the same time pay a maximum "
+            f"total of CAN${bio.get('fee_family_max_cad')}; groups of 3 or more performing artists and their staff pay a "
+            f"maximum of CAN${bio.get('fee_performing_artist_group_max_cad')}; no fee for a transit visa "
+            f"({bio.get('fees_source_url', '')})."
+        )
 
     def _express_entry_facts(self, query: str = "") -> str:
         """FSW basics always; the STEM category list only when the question is about it (it crowds other answers)."""

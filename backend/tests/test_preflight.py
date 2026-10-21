@@ -35,7 +35,7 @@ async def test_nothing_else_runs_without_settings():
 
 
 def test_exit_code_and_output(monkeypatch, capsys):
-    async def checks():
+    async def checks(selected=None):
         return [Check("PostgreSQL", FAIL, "can't connect (ConnectionRefusedError)", "Start PostgreSQL 16"),
                 Check("Knowledge base", WARN, "empty", "run the ingestion"), Check("Redis", OK, "connected")]
 
@@ -47,7 +47,7 @@ def test_exit_code_and_output(monkeypatch, capsys):
 
 
 def test_warnings_alone_do_not_block_startup(monkeypatch, capsys):
-    async def checks():
+    async def checks(selected=None):
         return [Check("Ports", WARN, "already in use: 8000"), Check("Redis", OK, "connected")]
 
     monkeypatch.setattr(preflight, "run_checks", checks)
@@ -103,3 +103,12 @@ async def test_a_database_behind_on_migrations_is_a_failure(monkeypatch):
     """The test database is built without Alembic, so it has no revision: exactly the 'not migrated' case."""
     result = await preflight.check_database()
     assert result.status == FAIL and "alembic upgrade head" in result.fix
+
+
+@pytest.mark.asyncio
+async def test_busy_ports_block_a_start_but_only_warn_a_check(monkeypatch):
+    """Hardening 3: start_all reported "API is up" while an old API (wrong database) held port 8000."""
+    monkeypatch.setattr(preflight, "_port_in_use", lambda port: port == 8000)  # simulated: Pendu may be running
+    assert (await preflight.check_ports()).status == WARN
+    result = await preflight.check_ports(for_start=True)
+    assert result.status == FAIL and "8000" in result.detail and "3000" not in result.detail and "Close" in result.fix

@@ -115,8 +115,9 @@ def test_rule_engine_answers_contain_effective_dates_and_citations():
 # M0.13 (2026-10-19): an AI assistant checked every value in these sections against the official pages and
 # corrected the wrong ones (Quebec amounts, STEM occupations, visitor study rule, PGWP conditions); the
 # owner's review of that evidence is what remains, so they stay listed with that reason.
+# Hardening 3 (2026-10-20) added the biometrics section the same way.
 KNOWN_UNVERIFIED_SECTIONS = {"student_direct_stream", "express_entry_stem", "visitor_visa",
-                             "post_graduation_work_permit", "proof_of_funds"}
+                             "post_graduation_work_permit", "proof_of_funds", "biometrics"}
 
 
 def test_every_section_records_who_verified_it():

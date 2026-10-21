@@ -172,7 +172,7 @@
     {
       "id": "biometrics_validity",
       "type": "single",
-      "critical": false,
+      "critical": true,
       "question": "How long are my biometrics valid for Canadian immigration applications?",
       "must_include": [
         [
@@ -921,7 +921,7 @@
     {
       "id": "unanswerable_vac",
       "type": "unanswerable",
-      "critical": false,
+      "critical": true,
       "question": "Where is the nearest visa application centre to give my biometrics in Lagos?",
       "must_include": [],
       "must_not": [],

@@ -96,3 +96,27 @@ def test_numbers_in_the_apps_own_legal_notices_are_not_invented():
     assert eval_rag.score(CASE, answer, "", llm_called=True)["ungrounded_numbers"] == []
     # the model inventing the same number in its own text is still caught when it isn't a notice number
     assert eval_rag.score(CASE, "You need 12,345 CAD.", "", llm_called=True)["ungrounded_numbers"] == ["12345"]
+
+
+def test_markdown_does_not_break_patterns():
+    """A correct "apply at least 30 days **before** it expires" failed `before .{0,30}expir` (hardening 3)."""
+    case = {"question": "q", "must_include": [[r"before .{0,30}expir"], [r"don.?t need"]]}
+    answer = "Apply at least 30 days **before** it expires. You **don't** need a new letter."
+    assert eval_rag.score(case, answer, "30 days", llm_called=True)["passed"]
+
+
+def test_small_numbers_with_units_are_checked():
+    """ "Biometrics are valid for 5 years" against sources saying 10 years must be flagged (hardening 3)."""
+    case = {"question": "How long are biometrics valid?", "must_include": []}
+    s = eval_rag.score(case, "They are valid for **5 years** [Source 1].", "give them once every 10 years",
+                       llm_called=True)
+    assert s["ungrounded_numbers"] == ["5"]
+    ok = eval_rag.score(case, "A 3-year PGWP; step 1 is easy.", "you may get a PGWP valid for 3 years",
+                        llm_called=True)
+    assert ok["ungrounded_numbers"] == []  # "step 1" is numbering, "3-year" matches "3 years"
+
+
+def test_a_number_beside_an_app_notice_is_still_checked():
+    from app.services.guardrails.legal_disclaimer import DISCLAIMER_MISREPRESENTATION
+    s = eval_rag.score(CASE, "Wait 7 days." + DISCLAIMER_MISREPRESENTATION, "", llm_called=True)
+    assert s["ungrounded_numbers"] == ["7"]  # the notice's "5-year ban" and "Section 40" are ignored
