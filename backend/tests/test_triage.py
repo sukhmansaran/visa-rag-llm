@@ -37,6 +37,8 @@ def test_agrees_with_hand_labels():
     ("What is the current processing time?", "freshness"),
     ("Did the work hour limit change in 2025?", "freshness"),
     ("Is the Student Direct Stream still open?", "freshness"),
+    ("How long does Canada student visa processing take?", "freshness"),
+    ("What are the processing times for a visitor visa from India?", "freshness"),
     ("Students can work 40 hours, right?", "premise"),
     ("Since the funds are $10,000, how much do I need for two?", "premise"),
     ("How do I apply through the Student Direct Stream?", "premise"),
@@ -56,6 +58,18 @@ def test_signal(question, reason):
 ])
 def test_plain_questions_stay_fast(question):
     assert triage(question).path == FAST, triage(question)
+
+
+def test_the_chat_pages_suggested_questions_are_plain_fast_questions():
+    """Suggestions are what new users click first: none may be about a closed program or need verification
+    (the page suggested "the SDS program", closed by IRCC, until the M1 review)."""
+    import re
+
+    page = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "app" / "chat" / "page.tsx").read_text(encoding="utf-8")
+    suggestions = re.findall(r'handleQuickQuestion\("([^"]+)"\)', page)
+    assert len(suggestions) >= 3
+    for question in suggestions:
+        assert triage(question).path == FAST, (question, triage(question))
 
 
 def test_low_retrieval_confidence_sends_to_verified():

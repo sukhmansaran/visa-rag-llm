@@ -263,16 +263,16 @@ export default function ChatPage() {
                                 Financial Requirements
                             </button>
                             <button
-                                onClick={() => handleQuickQuestion("What documents do I need for the SDS program?")}
+                                onClick={() => handleQuickQuestion("How many hours can I work off campus while studying?")}
                                 className="text-xs px-3 py-1 bg-white dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700 hover:border-primary transition-colors"
                             >
-                                SDS Checklist
+                                Work Hours
                             </button>
                             <button
-                                onClick={() => handleQuickQuestion("How long does Canada student visa processing take?")}
+                                onClick={() => handleQuickQuestion("Do I need biometrics for a study permit?")}
                                 className="text-xs px-3 py-1 bg-white dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700 hover:border-primary transition-colors"
                             >
-                                Processing Time
+                                Biometrics
                             </button>
                         </div>
                     </div>

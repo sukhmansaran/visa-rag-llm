@@ -253,9 +253,50 @@ async def test_waiting_behind_others_is_not_mistaken_for_a_missing_worker(monkey
 
     await _check_unstarted(behind, await jobs.get_job(behind))
     assert (await jobs.get_job(behind))["status"] == "queued"
+
+    # A verified job running (however long) means the front one is simply next, not stuck
+    running = await jobs.create_job(12, path="verified")
+    await vq.started(running)
     await _check_unstarted(front, await jobs.get_job(front))
-    assert (await jobs.get_job(front))["status"] == "error"  # no worker took it: told, and the line moves up
+    assert (await jobs.get_job(front))["status"] == "queued"
+    # It just finished: the worker has been free for under the limit
+    await jobs.set_status(running, "done")
+    await vq.finished(running, 12)
+    await _check_unstarted(front, await jobs.get_job(front))
+    assert (await jobs.get_job(front))["status"] == "queued"
+    # The worker has been free longer than the limit and nobody took the front job: no verified worker
+    await jobs._redis().set(vq.IDLE_SINCE_KEY, str(time.time() - 5))
+    await _check_unstarted(front, await jobs.get_job(front))
+    assert (await jobs.get_job(front))["status"] == "error"  # told, and the line moves up
     assert (await queue_events(behind))[-1]["position"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_crashed_running_job_does_not_hold_the_front_forever(monkeypatch):
+    from app.api.v1.chat_jobs import _check_unstarted
+
+    monkeypatch.setattr(settings, "JOB_QUEUED_GIVE_UP_SECONDS", 1)
+    front = await jobs.create_job(14, path="verified")
+    await vq.admit(14, front)
+    await vq.publish_positions()
+    await jobs._redis().hset(jobs._job_key(front), "front_at", str(time.time() - 5))
+    await jobs._redis().zadd(vq.RUNNING_KEY, {"crashed-job": time.time() - 1})  # its lease ran out
+    await _check_unstarted(front, await jobs.get_job(front))
+    assert (await jobs.get_job(front))["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_a_verified_job_is_traced_as_routed_verified(scripted):
+    job_id = await jobs.create_job(None, path="verified")
+    assert await jobs.execute_answer_job(job_id, None, VERIFIED_QUESTION, path="verified") == "done"
+    triage_steps = [d for _, kind, d in await jobs.read_events(job_id) if kind == "step" and d["name"] == "triage"]
+    assert [(s["path"], s["routed"]) for s in triage_steps] == [("verified", "verified")]
+
+    fast_id = await jobs.create_job(None)
+    intent_cache.clear()
+    await jobs.execute_answer_job(fast_id, None, VERIFIED_QUESTION)
+    triage_steps = [d for _, kind, d in await jobs.read_events(fast_id) if kind == "step" and d["name"] == "triage"]
+    assert [s["routed"] for s in triage_steps] == ["fast"]
 
 
 # ---------------------------------------------------------------- running a verified job

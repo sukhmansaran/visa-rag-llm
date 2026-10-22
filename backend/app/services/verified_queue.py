@@ -17,6 +17,9 @@ Redis keys:
   verified:user:{id}:inflight    set   the user's queued or running verified jobs
   verified:user:{id}:hour        zset  the user's admitted jobs in the last hour, scored by time
   verified:avg_seconds           string  moving average of verified job durations (for the wait estimate)
+  verified:running               zset  verified jobs running now, scored by lease expiry (a crashed worker's
+                                       entry lapses after the job budget)
+  verified:idle_since            string  when a verified job last finished (the worker became free)
 """
 
 import logging
@@ -32,6 +35,8 @@ logger = logging.getLogger(__name__)
 QUEUE_KEY = "verified:queue"
 SEQ_KEY = "verified:seq"
 AVG_KEY = "verified:avg_seconds"
+RUNNING_KEY = "verified:running"
+IDLE_SINCE_KEY = "verified:idle_since"
 _AVG_WEIGHT = 0.3  # weight of the newest job time in the moving average
 
 
@@ -134,14 +139,33 @@ async def publish_positions() -> None:
 
 
 async def started(job_id: str) -> None:
-    await _redis().zrem(QUEUE_KEY, job_id)
+    redis = _redis()
+    await redis.zrem(QUEUE_KEY, job_id)
+    await redis.zadd(RUNNING_KEY, {job_id: time.time() + settings.ANSWER_JOB_BUDGET_SECONDS + 60})
     await publish_positions()
+
+
+async def front_wait_seconds(front_at: float) -> Optional[float]:
+    """
+    How long the job at the front has waited for a free verified worker: None while a verified job is running
+    (waiting behind it is normal, however long it takes), else the time since it reached the front or since
+    the worker became free, whichever is later. A long wait then means no verified worker is running.
+    """
+    redis = _redis()
+    now = time.time()
+    await redis.zremrangebyscore(RUNNING_KEY, "-inf", now)
+    if await redis.zcard(RUNNING_KEY):
+        return None
+    idle_since = await redis.get(IDLE_SINCE_KEY)
+    return now - max(front_at, float(idle_since) if idle_since else 0.0)
 
 
 async def finished(job_id: str, user_id: Optional[int], seconds: Optional[float] = None) -> None:
     """The job ended (any way): free the user's slot, update the wait estimate, move the line up."""
     redis = _redis()
     await redis.zrem(QUEUE_KEY, job_id)
+    if await redis.zrem(RUNNING_KEY, job_id):
+        await redis.set(IDLE_SINCE_KEY, str(time.time()), ex=settings.ANSWER_JOB_TTL_SECONDS)
     if user_id is not None:
         await redis.srem(_inflight_key(user_id), job_id)
     if seconds is not None and seconds > 0:

@@ -80,9 +80,16 @@ async def test_shadow_mode_traces_the_decision_but_stays_fast(scripted_pipeline,
 
 
 @pytest.mark.asyncio
-async def test_on_mode_records_the_verified_route(scripted_pipeline, monkeypatch):
+async def test_routed_is_the_path_actually_taken(scripted_pipeline, monkeypatch):
+    """`routed` is where the request really runs, not what triage would like: in on mode a verified question
+    answered directly (not by a verified job) still ran on the fast path."""
+    from app.services.triage import routed_as
+
     monkeypatch.setattr(settings, "AGENT_MODE", "on")
     _, _, steps = await run(VERIFIED_QUESTION, stream=False)
+    assert [(s["path"], s["routed"]) for s in steps] == [("verified", "fast")]
+    with routed_as("verified"):  # as the verified answer job runs it
+        _, _, steps = await run(VERIFIED_QUESTION, stream=False)
     assert [(s["path"], s["routed"]) for s in steps] == [("verified", "verified")]
     _, _, steps = await run(FAST_QUESTION, stream=False)
     assert [(s["path"], s["routed"]) for s in steps] == [("fast", "fast")]

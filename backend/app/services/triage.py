@@ -14,11 +14,32 @@ A question is VERIFIED when any of these hold (each adds a reason):
 Otherwise FAST. Labels and the agreement test: tests/data/triage_labels.json, tests/test_triage.py.
 """
 
+import contextvars
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import Iterator, Optional, Tuple
 
 FAST, VERIFIED = "fast", "verified"
+
+# The path this request actually runs on, set by whoever routed it (the verified answer job, M1.4); traces
+# report it as `routed`. Anything not routed (direct chat endpoints, fast jobs) runs on the fast path.
+_routed: contextvars.ContextVar[str] = contextvars.ContextVar("routed_path", default=FAST)
+
+
+@contextmanager
+def routed_as(path: str) -> Iterator[None]:
+    if path not in (FAST, VERIFIED):
+        raise ValueError(f"unknown path: {path}")
+    token = _routed.set(path)
+    try:
+        yield
+    finally:
+        _routed.reset(token)
+
+
+def routed_path() -> str:
+    return _routed.get()
 
 # Beyond legal_disclaimer's patterns: faking documents (any wording) and unauthorised work
 _EXTRA_LEGAL = re.compile(
@@ -42,6 +63,7 @@ _FRESHNESS = re.compile(
     r"|(?<!\bmy )(?<!\bour )\bcurrent\b"  # "the current processing time", not "my current permit"
     r"|\b(changed|changes to|has changed|new (rule|rules|policy|policies|law|laws|limit|cap|requirement|requirements))\b"
     r"|\bstill (open|available|valid|accepting|running|exists?)\b"
+    r"|\bprocessing (times?|take|takes)\b"  # processing times are live data: they change every week
     r"|\b20(2[4-9]|3\d)\b",
     re.IGNORECASE)
 
