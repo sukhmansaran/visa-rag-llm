@@ -5,7 +5,7 @@ import { Send, BookOpen, ChevronDown, ChevronUp, Database, Zap, Clock, ExternalL
 import Link from "next/link";
 import { MarkdownMessage } from "@/components/MarkdownMessage";
 import { isAuthenticated } from "@/lib/auth";
-import { cancelJob, describeStep, followJob, JobEvent, JobRequestError, startAnswerJob } from "@/lib/jobStream";
+import { cancelJob, describeQueue, describeStep, followJob, JobEvent, JobRequestError, startAnswerJob } from "@/lib/jobStream";
 
 
 interface Message {
@@ -78,6 +78,9 @@ export default function ChatPage() {
                     progress: describeStep(data),
                     steps: typeof data.n === "number" ? [...(m.steps || []), data.n] : m.steps,
                 }));
+                break;
+            case "queue":
+                updateLastAssistant(m => ({ ...m, progress: describeQueue(data) }));
                 break;
             case "status":
                 if (data.status === "waiting") updateLastAssistant(m => ({ ...m, progress: "Waiting for the answer service" }));
@@ -200,7 +203,9 @@ export default function ChatPage() {
         } catch (error: any) {
             const message = error instanceof JobRequestError && (error.status === 401 || error.status === 403)
                 ? "Your session has expired. Please [sign in again](/login?redirect=/chat)."
-                : `⚠️ Could not start the answer: ${error?.message || "Failed to fetch"}.`;
+                : error instanceof JobRequestError && error.status === 429
+                    ? `⚠️ ${error.message}`
+                    : `⚠️ Could not start the answer: ${error?.message || "Failed to fetch"}.`;
             updateLastAssistant(m => ({ ...m, content: message, streaming: false, progress: undefined, status: "error" }));
             setLoading(false);
         }

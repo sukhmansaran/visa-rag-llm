@@ -7,6 +7,10 @@ was writing an SOP queued *inside* Ollama with no tokens arriving, and its 90 s 
 the first word (reproduced: chat failed after 91 s while an SOP ran). Slots are now taken from Redis, shared
 by all processes, *before* the request is sent, so waiting never eats into Ollama timeouts.
 
+Priority (M1.4): a "normal" caller (fast-path answer) announces itself in a waiting set while it waits; a "low"
+caller (verified answer) takes a free slot only when nobody normal is waiting. Waiting entries are short leases
+refreshed on every poll, so a caller that dies stops blocking low callers within WAITING_LEASE_SECONDS.
+
 Each slot is a lease (sorted-set member scored by its expiry) renewed while the call runs, so a process that
 dies frees its slot within LEASE_SECONDS. If Redis is unavailable, acquire() returns None and the caller
 falls back to its per-process queue.
@@ -23,17 +27,30 @@ from app.core.loop_local import LoopLocal
 logger = logging.getLogger(__name__)
 
 SLOTS_KEY = "llm:slots"
+WAITING_KEY = "llm:waiting"  # normal-priority callers waiting for a slot
+WAITING_LEASE_SECONDS = 2.0
 LEASE_SECONDS = 60.0
 RENEW_EVERY_SECONDS = 20.0
 POLL_SECONDS = 0.2
 _REDIS_RETRY_SECONDS = 30.0
 
-# Atomically: drop expired leases, then take a slot if one is free.
+# Atomically: drop expired leases; a low caller yields to waiting normal callers; take a slot if one is free.
+# KEYS: slots, waiting. ARGV: now, limit, lease expiry, token, priority, waiting-lease expiry.
 _ACQUIRE = """
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', ARGV[1])
+if ARGV[5] == 'low' then
+    if redis.call('ZCARD', KEYS[2]) > 0 then
+        return 0
+    end
+end
 if redis.call('ZCARD', KEYS[1]) < tonumber(ARGV[2]) then
     redis.call('ZADD', KEYS[1], ARGV[3], ARGV[4])
+    redis.call('ZREM', KEYS[2], ARGV[4])
     return 1
+end
+if ARGV[5] ~= 'low' then
+    redis.call('ZADD', KEYS[2], ARGV[6], ARGV[4])
 end
 return 0
 """
@@ -65,28 +82,43 @@ class GlobalSlots:
         self._clients.set(None)
         self._retry_at = time.time() + _REDIS_RETRY_SECONDS
 
-    async def acquire(self, token: str, limit: int, timeout: float) -> Optional[bool]:
+    async def acquire(self, token: str, limit: int, timeout: float, priority: str = "normal") -> Optional[bool]:
         """
         Wait for a free slot. True once held; None if Redis is unavailable (caller falls back);
-        raises asyncio.TimeoutError if no slot frees up within `timeout` seconds.
+        raises asyncio.TimeoutError if no slot frees up within `timeout` seconds. `priority` "low" waits
+        while any "normal" caller is waiting.
         """
         client = await self._redis()
         if client is None:
             return None
         deadline = time.monotonic() + timeout
-        while True:
-            now = time.time()
-            try:
-                took = await client.eval(_ACQUIRE, 1, SLOTS_KEY, now, max(1, limit), now + LEASE_SECONDS, token)
-            except Exception:
-                logger.warning("[LLM SLOTS] Redis error while waiting for a slot; using the per-process queue", exc_info=True)
-                self._drop_client()
-                return None
-            if took:
-                return True
-            if time.monotonic() >= deadline:
-                raise asyncio.TimeoutError()
-            await asyncio.sleep(POLL_SECONDS)
+        try:
+            while True:
+                now = time.time()
+                try:
+                    took = await client.eval(_ACQUIRE, 2, SLOTS_KEY, WAITING_KEY, now, max(1, limit),
+                                             now + LEASE_SECONDS, token, priority, now + WAITING_LEASE_SECONDS)
+                except Exception:
+                    logger.warning("[LLM SLOTS] Redis error while waiting for a slot; using the per-process queue", exc_info=True)
+                    self._drop_client()
+                    return None
+                if took:
+                    return True
+                if time.monotonic() >= deadline:
+                    raise asyncio.TimeoutError()
+                await asyncio.sleep(POLL_SECONDS)
+        except BaseException:
+            await self._stop_waiting(token)  # timed out or cancelled: don't hold back low callers any longer
+            raise
+
+    async def _stop_waiting(self, token: str) -> None:
+        client = self._clients.get()
+        if client is None:
+            return
+        try:
+            await client.zrem(WAITING_KEY, token)
+        except Exception:
+            pass  # the waiting lease expires within WAITING_LEASE_SECONDS anyway
 
     async def renew(self, token: str) -> None:
         """Keep a held lease alive (runs in the background for the length of the call)."""

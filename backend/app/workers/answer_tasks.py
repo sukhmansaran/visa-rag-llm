@@ -26,6 +26,19 @@ def run_answer_job_task(job_id: str, user_id: Optional[int], query: str,
                      loop_factory=agent_loop_factory())
 
 
+@celery_app.task(name="app.workers.answer_tasks.run_verified_answer_job_task")
+def run_verified_answer_job_task(job_id: str, user_id: Optional[int], query: str,
+                                 context_metadata: Optional[Dict[str, Any]] = None,
+                                 chat_history: Optional[List[Dict[str, Any]]] = None,
+                                 session_id: Optional[str] = None) -> str:
+    """Verified-path answers (M1.4): own queue and worker, so fast answers never wait behind them."""
+    from app.services.answer_jobs import execute_answer_job
+
+    return run_async(_with_cleanup(execute_answer_job(job_id, user_id, query, context_metadata, chat_history, session_id,
+                                                      path="verified")),
+                     loop_factory=agent_loop_factory())
+
+
 @celery_app.task(name="app.workers.answer_tasks.run_diagnostic_job_task")
 def run_diagnostic_job_task(job_id: str, seconds: float, interval: float = 5.0) -> str:
     from app.services.answer_jobs import execute_diagnostic_job

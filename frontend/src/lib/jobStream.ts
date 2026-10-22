@@ -6,7 +6,7 @@
 
 import { apiFetch } from "@/lib/auth";
 
-export type JobEventType = "status" | "step" | "chunk" | "guardrail_blocked" | "done" | "error" | "cancelled";
+export type JobEventType = "status" | "queue" | "step" | "chunk" | "guardrail_blocked" | "done" | "error" | "cancelled";
 
 export interface JobEvent {
     id: string;
@@ -32,8 +32,20 @@ export async function startAnswerJob(body: {
     sessionId?: string | null;
 }): Promise<{ job_id: string; session_id: string }> {
     const response = await apiFetch("/api/v1/chat/jobs", { method: "POST", body: JSON.stringify(body) });
-    if (!response.ok) throw new JobRequestError(`Could not start the answer (HTTP ${response.status})`, response.status);
+    if (!response.ok) {
+        // A limit refusal (429, M1.4) explains itself; show the server's words
+        const detail = response.status === 429 ? await response.json().then(b => b?.detail).catch(() => null) : null;
+        throw new JobRequestError(typeof detail === "string" ? detail : `Could not start the answer (HTTP ${response.status})`,
+            response.status);
+    }
     return response.json();
+}
+
+/** Place in line for a verified answer (M1.4), e.g. "You're #2 in line, about 3 min". */
+export function describeQueue(data: { position?: number; eta_s?: number }): string {
+    const minutes = Math.max(1, Math.ceil((data.eta_s ?? 0) / 60));
+    const place = data.position === 1 ? "You're next in line" : `You're #${data.position} in line`;
+    return `${place}, about ${minutes} min`;
 }
 
 export async function cancelJob(jobId: string): Promise<void> {
