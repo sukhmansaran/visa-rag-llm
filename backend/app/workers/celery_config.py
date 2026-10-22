@@ -85,6 +85,7 @@ task_routes = {
     'app.workers.tasks.*': {'queue': 'default'},
     'app.workers.periodic_tasks.*': {'queue': 'default'},
     'app.workers.maintenance.*': {'queue': 'default'},
+    'app.workers.answer_tasks.run_verified_answer_job_task': {'queue': 'verified'},  # M1.4: own worker
     'app.workers.answer_tasks.*': {'queue': 'answers'},
 }
 

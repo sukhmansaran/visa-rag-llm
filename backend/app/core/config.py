@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     # Triage (M1.2): off = no triage; shadow = triage every question and trace the decision, answers unchanged;
     # on = route verified questions to the verified path (until M2 that path is today's pipeline)
     AGENT_MODE: str = "shadow"
+    # Verified-path queue (M1.4, used when AGENT_MODE=on): verified answers share one CPU, so they wait in line
+    VERIFIED_JOBS_IN_FLIGHT_PER_USER: int = 3   # 1 running + 2 waiting; more is refused (429)
+    VERIFIED_JOBS_PER_HOUR: int = 10            # per user; more is refused (429)
+    VERIFIED_JOB_ESTIMATE_SECONDS: float = 90.0  # wait estimate until real job times are measured
 
     # RAG generation budget
     RAG_TOP_K: int = 4                    # chunks retrieved per question

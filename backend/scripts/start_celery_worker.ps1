@@ -4,6 +4,7 @@
 #   .\scripts\start_celery_worker.ps1                                # one worker for every queue
 #   .\scripts\start_celery_worker.ps1 -Role answers -Name answers1   # recommended: chat answers only...
 #   .\scripts\start_celery_worker.ps1 -Role background -Name bg1     # ...plus one for everything else
+#   .\scripts\start_celery_worker.ps1 -Role verified -Name verified1 # ...plus one for verified answers (M1.4)
 #
 # --pool=solo: Celery's default prefork pool does not run on Windows. Solo runs one task at a time
 # per process, which is also what the per-task event loop / DB-pool cleanup in
@@ -12,9 +13,11 @@
 # Why two roles (2026-10-15 review, B7): with one solo worker, a long ingestion or crawl holds the only
 # process and chat answers wait behind it (and give up after JOB_QUEUED_GIVE_UP_SECONDS). An answers-only
 # worker keeps chat responsive. Model calls from both still share Ollama through the machine-wide slots.
+# Verified answers (AGENT_MODE=on, M1.4) get their own worker for the same reason: fast answers never wait
+# behind them. With one "-Role all" worker everything runs in one line, which is fine for a quick try only.
 param(
     [string]$Name = "worker1",
-    [ValidateSet("all", "answers", "background")]
+    [ValidateSet("all", "answers", "background", "verified")]
     [string]$Role = "all",
     [string]$LogLevel = "info"
 )
@@ -27,7 +30,8 @@ Set-Location $backend
 $queues = switch ($Role) {
     "answers"    { "answers" }
     "background" { "default,ingestion,changes,crawler" }
-    default      { "default,answers,ingestion,changes,crawler" }
+    "verified"   { "verified" }
+    default      { "default,answers,verified,ingestion,changes,crawler" }
 }
 Write-Host "Starting Celery worker '$Name' (role: $Role, queues: $queues)"
 

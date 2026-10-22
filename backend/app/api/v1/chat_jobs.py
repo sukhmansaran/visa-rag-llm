@@ -5,9 +5,13 @@ a reconnect), check its status, cancel it. Users can only see and control their 
 SSE format: each event is sent as `id: <stream id>`, `event: <type>`, `data: <json>`. A client that reconnects
 sends the last id it received in the `Last-Event-ID` header (or `?after=`) and gets only newer events.
 Idle streams send `: heartbeat` comments every SSE_HEARTBEAT_SECONDS so proxies keep them open.
+
+With AGENT_MODE=on, questions that triage marks verified go to the verified queue (M1.4): per-user limits (429
+when exceeded), a place in line streamed as "queue" events, their own worker. Everything else is the fast path.
 """
 
 import json
+import time
 import uuid
 from datetime import datetime
 from typing import Any, AsyncIterator, Dict, Optional
@@ -26,6 +30,7 @@ from app.core.security import get_current_admin_user, get_current_user
 from app.models.chat_message import ChatMessage
 from app.models.user import User
 from app.services import answer_jobs as jobs
+from app.services import verified_queue
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["Chat jobs"])
@@ -47,6 +52,36 @@ def _enqueue_failed(job_id: str) -> HTTPException:
                          detail="The answer service is temporarily unavailable. Please retry shortly.")
 
 
+def _answer_path(query: str) -> str:
+    """fast | verified. Verified only with AGENT_MODE=on, for a question the guardrail lets through (a refused
+    one is answered at once anyway) and that triage marks verified from its text."""
+    if settings.AGENT_MODE != "on":
+        return "fast"
+    from app.services.guardrails.input_guardrail import input_guardrail
+    from app.services.triage import triage
+
+    if not input_guardrail.evaluate(query).allowed:
+        return "fast"
+    return "verified" if triage(query).verified else "fast"
+
+
+def _limit_refusal(admission: verified_queue.Admission) -> HTTPException:
+    if admission.reason == "hourly":
+        minutes = max(1, -(-admission.retry_after_s // 60))
+        plural = "s" if minutes != 1 else ""
+        return HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(admission.retry_after_s)},
+            detail=(f"This question needs a careful, step-by-step check, and you have reached the limit of "
+                    f"{settings.VERIFIED_JOBS_PER_HOUR} of those per hour. Please try again in about "
+                    f"{minutes} minute{plural}."))
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=(f"This question needs a careful, step-by-step check, and you already have "
+                f"{settings.VERIFIED_JOBS_IN_FLIGHT_PER_USER} of those running or waiting. Please wait for one "
+                f"to finish (or stop it), then ask again."))
+
+
 @router.post("/chat/jobs", status_code=status.HTTP_202_ACCEPTED)
 async def create_answer_job(
     message: ChatMessageSchema,
@@ -54,7 +89,7 @@ async def create_answer_job(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Start answering `message` in the background. Follow it at `events_url`."""
-    from app.workers.answer_tasks import run_answer_job_task
+    from app.workers.answer_tasks import run_answer_job_task, run_verified_answer_job_task
 
     session_id = message.sessionId or str(uuid.uuid4())
     history_rows = (await db.execute(
@@ -64,32 +99,54 @@ async def create_answer_job(
     )).scalars().all()
     chat_history = [{"role": m.role, "content": m.content} for m in reversed(history_rows)]
 
-    db.add(ChatMessage(
-        user_id=current_user.id, role="user", content=PIIRedactor.redact(message.query), session_id=session_id,
-        message_metadata={"country": message.country, "university": message.university},
-    ))
-    await db.commit()
+    path = _answer_path(message.query)
+    job_id = await jobs.create_job(current_user.id, kind="answer", session_id=session_id, path=path)
+    admission = None
+    if path == "verified":
+        admission = await verified_queue.admit(current_user.id, job_id)
+        if not admission.admitted:
+            await jobs.delete_job(job_id)  # refused before anything was stored: the user can simply ask again
+            raise _limit_refusal(admission)
 
-    job_id = await jobs.create_job(current_user.id, kind="answer", session_id=session_id)
     try:
-        run_answer_job_task.apply_async(
+        db.add(ChatMessage(
+            user_id=current_user.id, role="user", content=PIIRedactor.redact(message.query), session_id=session_id,
+            message_metadata={"country": message.country, "university": message.university},
+        ))
+        await db.commit()
+    except BaseException:
+        if path == "verified":  # give the place in line back, or it would block the user and the line for an hour
+            await jobs.delete_job(job_id)
+            await verified_queue.finished(job_id, current_user.id)
+        raise
+
+    task, queue = (run_verified_answer_job_task, "verified") if path == "verified" else (run_answer_job_task, "answers")
+    try:
+        task.apply_async(
             args=[job_id, current_user.id, message.query,
                   {"country": message.country, "university": message.university}, chat_history, session_id],
-            queue="answers",
+            queue=queue,
         )
     except Exception:
         await jobs.set_status(job_id, "error")
         await jobs.publish(job_id, "error", {"reason": "not_queued"})
+        if path == "verified":
+            await verified_queue.finished(job_id, current_user.id)
         raise _enqueue_failed(job_id)
 
-    return {"job_id": job_id, "session_id": session_id, "status": "queued",
-            "events_url": f"{settings.API_V1_PREFIX}/chat/jobs/{job_id}/events"}
+    response = {"job_id": job_id, "session_id": session_id, "status": "queued", "path": path,
+                "events_url": f"{settings.API_V1_PREFIX}/chat/jobs/{job_id}/events"}
+    if admission is not None:
+        await verified_queue.publish_positions()  # the new job's first "queue" event
+        response["queue"] = {"position": admission.position, "eta_s": admission.eta_s}
+    return response
 
 
 @router.get("/chat/jobs/{job_id}")
 async def get_answer_job(job_id: str, current_user: User = Depends(get_current_user)) -> Dict[str, Any]:
     job = await _owned_job(job_id, current_user)
-    return {"job_id": job_id, **{k: job.get(k) for k in ("status", "kind", "session_id", "trace_id", "created_at", "updated_at")}}
+    return {"job_id": job_id, **{k: job.get(k) for k in ("status", "kind", "path", "session_id", "trace_id",
+                                                           "created_at", "updated_at")}}
 
 
 @router.post("/chat/jobs/{job_id}/cancel", status_code=status.HTTP_202_ACCEPTED)
@@ -98,6 +155,12 @@ async def cancel_answer_job(job_id: str, current_user: User = Depends(get_curren
     if job.get("status") in jobs.TERMINAL:
         return {"job_id": job_id, "status": job["status"]}
     await jobs.request_cancel(job_id)
+    if job.get("path") == "verified" and job.get("status") == "queued":
+        # Still waiting in line: end it now (its worker will skip it) so the line moves up straight away
+        await jobs.set_status(job_id, "cancelled")
+        await jobs.publish(job_id, "cancelled", {})
+        await verified_queue.finished(job_id, current_user.id)
+        return {"job_id": job_id, "status": "cancelled"}
     return {"job_id": job_id, "status": "cancel_requested"}
 
 
@@ -109,14 +172,24 @@ async def _check_unstarted(job_id: str, job: Dict[str, str]) -> None:
     """
     if job.get("status") != "queued":
         return
+    verified = job.get("path") == "verified"
     try:
-        waited = (datetime.utcnow() - datetime.fromisoformat(job["created_at"])).total_seconds()
+        if verified:
+            # Waiting behind other verified answers is expected (the user sees their place in line); only the
+            # job at the front waiting long means no verified worker is running
+            if job.get("queue_position") != "1" or not job.get("front_at"):
+                return
+            waited = time.time() - float(job["front_at"])
+        else:
+            waited = (datetime.utcnow() - datetime.fromisoformat(job["created_at"])).total_seconds()
     except (KeyError, ValueError):
         return
     if waited >= settings.JOB_QUEUED_GIVE_UP_SECONDS:
         await jobs.set_status(job_id, "error")
         await jobs.request_cancel(job_id)  # a worker that starts it late will skip it
         await jobs.publish(job_id, "error", {"reason": "not_started", "waited_s": round(waited)})
+        if verified:
+            await verified_queue.finished(job_id, int(job["user_id"]) if job.get("user_id") else None)
     elif waited >= settings.JOB_QUEUED_WARN_SECONDS and not job.get("waiting_announced"):
         await jobs.set_status(job_id, "queued", waiting_announced="1")
         await jobs.publish(job_id, "status", {"status": "waiting", "waited_s": round(waited)})

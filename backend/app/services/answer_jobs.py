@@ -2,12 +2,14 @@
 Answer jobs (M0.6b): an answer runs as a background job and publishes its progress as events.
 
 Redis keys (all expire after ANSWER_JOB_TTL_SECONDS):
-  job:{id}          hash   owner, status (queued | running | done | error | cancelled), timestamps, trace_id
+  job:{id}          hash   owner, status (queued | running | done | error | cancelled), path (fast | verified),
+                           timestamps, trace_id; verified jobs also queue_position, front_at (M1.4)
   job:{id}:events   stream one entry per event; stream ids only increase, so a reader that reconnects
                            resumes after the last id it saw (the SSE relay in M0.6c)
   job:{id}:cancel   string set to request cancellation
 
-Events: status, step (each pipeline step as it finishes), chunk, guardrail_blocked, done, error, cancelled.
+Events: status, queue (verified jobs: place in line, see verified_queue.py), step (each pipeline step as it
+finishes), chunk, guardrail_blocked, done, error, cancelled.
 The job is cancelled within ~0.5 s of the request, even mid-generation (closing the model stream stops
 Ollama), and is stopped at ANSWER_JOB_BUDGET_SECONDS (D3).
 """
@@ -61,15 +63,21 @@ def _cancel_key(job_id: str) -> str:
 
 # ---------------------------------------------------------------- store
 
-async def create_job(user_id: Optional[int], kind: str = "answer", session_id: Optional[str] = None) -> str:
+async def create_job(user_id: Optional[int], kind: str = "answer", session_id: Optional[str] = None,
+                     path: str = "fast") -> str:
     job_id = uuid.uuid4().hex
     key = _job_key(job_id)
     await _redis().hset(key, mapping={
-        "user_id": "" if user_id is None else str(user_id), "kind": kind, "status": "queued",
+        "user_id": "" if user_id is None else str(user_id), "kind": kind, "status": "queued", "path": path,
         "session_id": session_id or "", "created_at": datetime.utcnow().isoformat(),
     })
     await _redis().expire(key, settings.ANSWER_JOB_TTL_SECONDS)
     return job_id
+
+
+async def delete_job(job_id: str) -> None:
+    """Remove a job that was never started (e.g. refused by the verified-path limits)."""
+    await _redis().delete(_job_key(job_id), _events_key(job_id), _cancel_key(job_id))
 
 
 async def get_job(job_id: str) -> Optional[Dict[str, str]]:
@@ -175,8 +183,34 @@ async def _run_cancellable(job_id: str, work) -> str:
 async def execute_answer_job(job_id: str, user_id: Optional[int], query: str,
                              context_metadata: Optional[Dict[str, Any]] = None,
                              chat_history: Optional[List[Dict[str, Any]]] = None,
-                             session_id: Optional[str] = None) -> str:
+                             session_id: Optional[str] = None, path: str = "fast") -> str:
     """Run the chat pipeline for a job, publishing progress. Returns the final status."""
+    if path != "verified":
+        return await _execute_answer_job(job_id, user_id, query, context_metadata, chat_history, session_id)
+
+    # Verified path (M1.4): leave the line, run with low model-call priority, then free the user's place.
+    # Until M2 the verified path runs today's pipeline.
+    from app.services import verified_queue
+    from app.services.llm import llm_priority
+
+    started = time.monotonic()
+    final = None
+    try:
+        current = await get_job(job_id)
+        if not (current and current.get("status") in TERMINAL):
+            await verified_queue.started(job_id)
+        with llm_priority("low"):
+            final = await _execute_answer_job(job_id, user_id, query, context_metadata, chat_history, session_id)
+        return final
+    finally:
+        # Only finished answers teach the wait estimate (a job cancelled before it started took no time)
+        await verified_queue.finished(job_id, user_id, seconds=time.monotonic() - started if final == "done" else None)
+
+
+async def _execute_answer_job(job_id: str, user_id: Optional[int], query: str,
+                              context_metadata: Optional[Dict[str, Any]],
+                              chat_history: Optional[List[Dict[str, Any]]],
+                              session_id: Optional[str]) -> str:
     from app.services.rag_pipeline import rag_pipeline
     from app.services.tracing import TraceRecorder, activate_trace, save_trace
 

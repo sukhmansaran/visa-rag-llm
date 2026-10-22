@@ -14,9 +14,9 @@ def _role_queues() -> dict:
     from pathlib import Path
 
     script = (Path(__file__).resolve().parent.parent / "scripts" / "start_celery_worker.ps1").read_text(encoding="utf-8")
-    roles = dict(re.findall(r'"(answers|background)"\s*\{\s*"([\w,]+)"\s*\}', script))
+    roles = dict(re.findall(r'"(answers|background|verified)"\s*\{\s*"([\w,]+)"\s*\}', script))
     default = re.search(r'default\s*\{\s*"([\w,]+)"\s*\}', script)
-    assert len(roles) == 2 and default, "start_celery_worker.ps1 must map -Role answers/background/all to --queues"
+    assert len(roles) == 3 and default, "start_celery_worker.ps1 must map -Role answers/background/verified/all"
     roles["all"] = default.group(1)
     return {role: set(queues.split(",")) for role, queues in roles.items()}
 
@@ -52,11 +52,20 @@ def test_every_beat_entry_points_at_a_registered_task():
 
 
 def test_every_task_is_routed_to_a_queue_the_worker_consumes():
-    """Both setups (one `-Role all` worker, or `answers` + `background`) must run every task."""
+    """Both setups (one `-Role all` worker, or `answers` + `background` + `verified`) must run every task."""
     for setup, queues in {"all": ROLE_QUEUES["all"],
-                          "answers+background": ROLE_QUEUES["answers"] | ROLE_QUEUES["background"]}.items():
+                          "answers+background+verified": ROLE_QUEUES["answers"] | ROLE_QUEUES["background"]
+                          | ROLE_QUEUES["verified"]}.items():
         unrouted = {name: _queue_for(name) for name in _registered_tasks() if _queue_for(name) not in queues}
         assert not unrouted, f"{setup}: tasks routed to queues no worker consumes: {unrouted}"
+
+
+def test_verified_answers_have_their_own_queue_and_worker():
+    """Fast answers never wait behind verified ones (M1.4)."""
+    assert _queue_for("app.workers.answer_tasks.run_verified_answer_job_task") == "verified"
+    assert _queue_for("app.workers.answer_tasks.run_answer_job_task") == "answers"
+    assert ROLE_QUEUES["verified"] == {"verified"}
+    assert "verified" not in ROLE_QUEUES["answers"] | ROLE_QUEUES["background"]
 
 
 def test_answers_worker_serves_only_answers():

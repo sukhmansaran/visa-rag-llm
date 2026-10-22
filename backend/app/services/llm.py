@@ -119,6 +119,23 @@ def llm_request_scope() -> Iterator[Dict[str, Any]]:
         _reset(_request_scope, token)
 
 
+# Model-call priority (M1.4): "low" calls (verified answers) wait while any "normal" call (a fast-path answer)
+# is waiting, so a fast question is never stuck behind a line of verified calls. A call already generating is
+# never interrupted, so a fast call can still wait for the one in progress.
+_priority: contextvars.ContextVar[str] = contextvars.ContextVar("llm_priority", default="normal")
+
+
+@contextmanager
+def llm_priority(level: str) -> Iterator[None]:
+    if level not in ("normal", "low"):
+        raise ValueError(f"unknown model-call priority: {level}")
+    token = _priority.set(level)
+    try:
+        yield
+    finally:
+        _reset(_priority, token)
+
+
 # Failures a different model can fix. Not: Ollama unreachable (same server) or queue timeout (busy, not broken).
 _FAILOVER_REASONS = {"timeout", "empty_response"}
 
@@ -224,7 +241,8 @@ class OllamaService:
         held = None
         if settings.LLM_GLOBAL_QUEUE:
             try:
-                held = await global_slots.acquire(token, settings.LLM_MAX_CONCURRENT_CALLS, settings.LLM_QUEUE_TIMEOUT_SECONDS)
+                held = await global_slots.acquire(token, settings.LLM_MAX_CONCURRENT_CALLS,
+                                                  settings.LLM_QUEUE_TIMEOUT_SECONDS, priority=_priority.get())
             except asyncio.TimeoutError:
                 stats.queue_wait_s = round(time.perf_counter() - started, 3)
                 raise self._queue_timeout()
