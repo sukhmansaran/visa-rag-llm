@@ -136,7 +136,7 @@ cd backend
 ```
 It checks PostgreSQL (and migrations), Redis, Ollama (and the pinned model builds), settings, the knowledge base,
 frontend packages and free ports, and stops with the fix if something is missing. Then it opens a window each for
-the API, the two workers, the scheduler and the frontend, waits for the API, and prints the URLs.
+the API, the three workers, the scheduler and the frontend, waits for the API, and prints the URLs.
 `python scripts/preflight.py` runs just the checks.
 
 ### 1. Backend
@@ -179,6 +179,7 @@ Run each in its own terminal:
 cd backend
 .\scripts\start_celery_worker.ps1 -Role answers -Name answers1   # chat answers
 .\scripts\start_celery_worker.ps1 -Role background -Name bg1     # ingestion, crawling, maintenance
+.\scripts\start_celery_worker.ps1 -Role verified -Name verified1 # verified answers (idle unless AGENT_MODE=on)
 .\scripts\start_celery_beat.ps1                                  # schedules periodic jobs; run exactly one
 ```
 Workers use `--pool=solo` (Windows has no prefork), so each runs one task at a time. Keeping answers on
@@ -187,6 +188,12 @@ with no `-Role` serves every queue, which is fine for a quick try.
 
 The web chat needs the answers worker: without one, the chat shows "Waiting for the answer service" and
 gives up after 3 minutes. The direct `/chat/answer` API endpoints don't use workers.
+
+`AGENT_MODE` (in `backend/.env`) controls triage, which decides whether a question needs the slower verified
+path: `shadow` (the default) only records the decision in the request trace; `on` sends verified questions to
+their own queue and worker, with a place in line shown in the chat and per-user limits
+(`VERIFIED_JOBS_IN_FLIGHT_PER_USER`, `VERIFIED_JOBS_PER_HOUR`); `off` skips triage. Questions not in English
+get a fixed reply (Pendu answers in English only for now) without a model call.
 
 ---
 

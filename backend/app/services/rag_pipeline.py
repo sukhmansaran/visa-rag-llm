@@ -25,7 +25,7 @@ from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
 from app.services.tracing import trace_step
-from app.services.triage import FAST, triage
+from app.services.triage import routed_path, triage
 from app.services.prompt_registry import get_prompt
 
 logger = logging.getLogger(__name__)
@@ -446,10 +446,10 @@ class RAGPipeline:
 
     @staticmethod
     def _triage_summary(decision) -> Dict[str, Any]:
-        """Trace fields for a triage decision. `routed` is the path actually taken: always fast in shadow mode;
-        in on mode the verified path is today's pipeline until M2, so answers are the same either way."""
-        routed = decision.path if settings.AGENT_MODE == "on" else FAST
-        return {"path": decision.path, "reasons": list(decision.reasons), "routed": routed}
+        """Trace fields for a triage decision. `path` is what triage decided; `routed` is the path this request
+        actually runs on (verified only for verified answer jobs, AGENT_MODE=on). Until M2 the verified path
+        is today's pipeline, so answers are the same either way."""
+        return {"path": decision.path, "reasons": list(decision.reasons), "routed": routed_path()}
 
     @staticmethod
     def calculate_algorithmic_confidence(

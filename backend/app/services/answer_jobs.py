@@ -192,6 +192,7 @@ async def execute_answer_job(job_id: str, user_id: Optional[int], query: str,
     # Until M2 the verified path runs today's pipeline.
     from app.services import verified_queue
     from app.services.llm import llm_priority
+    from app.services.triage import VERIFIED, routed_as
 
     started = time.monotonic()
     final = None
@@ -199,7 +200,7 @@ async def execute_answer_job(job_id: str, user_id: Optional[int], query: str,
         current = await get_job(job_id)
         if not (current and current.get("status") in TERMINAL):
             await verified_queue.started(job_id)
-        with llm_priority("low"):
+        with llm_priority("low"), routed_as(VERIFIED):
             final = await _execute_answer_job(job_id, user_id, query, context_metadata, chat_history, session_id)
         return final
     finally:

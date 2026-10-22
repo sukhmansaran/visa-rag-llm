@@ -11,7 +11,6 @@ when exceeded), a place in line streamed as "queue" events, their own worker. Ev
 """
 
 import json
-import time
 import uuid
 from datetime import datetime
 from typing import Any, AsyncIterator, Dict, Optional
@@ -176,10 +175,12 @@ async def _check_unstarted(job_id: str, job: Dict[str, str]) -> None:
     try:
         if verified:
             # Waiting behind other verified answers is expected (the user sees their place in line); only the
-            # job at the front waiting long means no verified worker is running
+            # job at the front waiting long for a free worker means no verified worker is running
             if job.get("queue_position") != "1" or not job.get("front_at"):
                 return
-            waited = time.time() - float(job["front_at"])
+            waited = await verified_queue.front_wait_seconds(float(job["front_at"]))
+            if waited is None:
+                return  # a verified job is running: this one is next
         else:
             waited = (datetime.utcnow() - datetime.fromisoformat(job["created_at"])).total_seconds()
     except (KeyError, ValueError):
