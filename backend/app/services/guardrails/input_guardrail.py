@@ -12,6 +12,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 from app.core.visa_constitution import ViolationType, REFUSAL_MESSAGES
+from app.services.guardrails.language_check import check_language
 
 
 @dataclass
@@ -262,6 +263,17 @@ class InputGuardrail:
                         refusal_message=REFUSAL_MESSAGES[ViolationType.CODE_REQUEST],
                         reason="Programming or code generation request detected",
                     )
+
+        # 2b. Language check (M1.3, D6): English only for now. After the safety checks, so an attack in another
+        # language is still refused as an attack; before the scope checks, which only understand English.
+        language = check_language(query_stripped)
+        if not language.english:
+            return GuardrailResult(
+                allowed=False,
+                violation=ViolationType.UNSUPPORTED_LANGUAGE,
+                refusal_message=REFUSAL_MESSAGES[ViolationType.UNSUPPORTED_LANGUAGE],
+                reason=f"Question language: {language.language or 'unknown'} ({language.method})",
+            )
 
         # 3. Explicit Out-of-Scope Patterns Check
         for pattern in self.OUT_OF_SCOPE_PATTERNS:

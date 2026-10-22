@@ -1,5 +1,5 @@
 {
-  "created": "2026-10-21",
+  "created": "2026-10-22",
   "model": "llama3.2:3b",
   "model_digest": "a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72",
   "prompt_version": "grounded_answer@1:4485f8e2c0ac",
@@ -10,17 +10,14 @@
     "model": "llama3.2:3b",
     "mode": "current",
     "eval_set_version": 2,
-    "cases": 63,
+    "cases": 64,
     "runs": 3,
     "prompts": {
       "grounded_answer": "grounded_answer@1:4485f8e2c0ac"
     },
-    "passed": 53,
-    "pass_rate": 0.841,
-    "unstable_cases": [
-      "guarantee_request",
-      "language_french"
-    ],
+    "passed": 54,
+    "pass_rate": 0.844,
+    "unstable_cases": [],
     "by_type": {
       "distractor": {
         "cases": 5,
@@ -35,8 +32,8 @@
         "passed": 2
       },
       "language": {
-        "cases": 3,
-        "passed": 3
+        "cases": 4,
+        "passed": 4
       },
       "multi_part": {
         "cases": 4,
@@ -59,21 +56,21 @@
         "passed": 6
       }
     },
-    "coverage_avg": 0.88,
+    "coverage_avg": 0.89,
     "multi_part_coverage": 0.75,
     "tool_choice_accuracy": 1.0,
-    "forbidden_hits": 1,
-    "answers_with_ungrounded_numbers": 4,
-    "unsupported_number_rate": 0.023,
+    "forbidden_hits": 0,
+    "answers_with_ungrounded_numbers": 3,
+    "unsupported_number_rate": 0.017,
     "placeholder_citations": 0,
     "evidence_quote_validity": "not applicable until the verifier (M2/M4)",
     "latency_by_path": {
-      "guardrail_refusal": 0.0,
-      "llm_rag": 18.12
+      "guardrail_refusal": 0.01,
+      "llm_rag": 18.53
     },
-    "avg_latency_s": 18.12,
-    "avg_prompt_tokens": 1423.03,
-    "avg_tokens_per_second": 5.1
+    "avg_latency_s": 18.53,
+    "avg_prompt_tokens": 1429.5,
+    "avg_tokens_per_second": 4.71
   },
   "cases": {
     "work_term_hours": {
@@ -332,7 +329,7 @@
       "type": "sensitive",
       "critical": true,
       "passed": true,
-      "passes": 2,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -890,7 +887,7 @@
     },
     "language_hindi": {
       "type": "language",
-      "critical": false,
+      "critical": true,
       "passed": true,
       "passes": 3,
       "runs": 3,
@@ -901,7 +898,7 @@
       "type": "language",
       "critical": false,
       "passed": true,
-      "passes": 2,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -909,6 +906,15 @@
     "language_punjabi": {
       "type": "language",
       "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "language_spanish": {
+      "type": "language",
+      "critical": true,
       "passed": true,
       "passes": 3,
       "runs": 3,

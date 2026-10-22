@@ -28,6 +28,7 @@ celery==5.3.4
 
 # Vector databases
 numpy==1.26.4
+py3langid==0.2.2  # language check (M1.3): local language ID, numpy only (0.3.0 needs numpy>=2)
 chromadb==0.5.23        # 0.5.x has pre-built Windows wheels. Its open advisories (CVE-2026-45830/45831/45833)
                         # affect Chroma *server* auth/tenancy only; this app embeds Chroma in-process.
 posthog==5.4.0          # chromadb 0.5 calls posthog.capture() with the pre-6.0 signature; newer posthog
@@ -36,7 +37,7 @@ posthog==5.4.0          # chromadb 0.5 calls posthog.capture() with the pre-6.0 
 
 # Web scraping
 playwright==1.63.0
-pypdf==6.20.0
+pypdf==6.21.1
 beautifulsoup4==4.12.2
 html2text==2020.1.16
 

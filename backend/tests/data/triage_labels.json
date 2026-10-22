@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Hand labels for M1.1 triage: which eval questions need the verified path. Labelled from the question's meaning by these rules (any one is enough): legal_risk (refusal, misrepresentation, inadmissibility, enforcement, appeal), several_topics (a second question about a different topic), eligibility (the asker's own eligibility or outcome: can I get / can I apply as / will I be approved or banned), freshness (now, current, last year, changed, a year, still open), premise (a claim to confirm: right?/correct?/since ..., or a discontinued program). Low retrieval confidence is a runtime signal and is not labelled here. The 3 non-English cases are excluded: the M1.3 language check answers them before triage.",
+  "about": "Hand labels for M1.1 triage: which eval questions need the verified path. Labelled from the question's meaning by these rules (any one is enough): legal_risk (refusal, misrepresentation, inadmissibility, enforcement, appeal), several_topics (a second question about a different topic), eligibility (the asker's own eligibility or outcome: can I get / can I apply as / will I be approved or banned), freshness (now, current, last year, changed, a year, still open), premise (a claim to confirm: right?/correct?/since ..., or a discontinued program). Low retrieval confidence is a runtime signal and is not labelled here. The non-English cases are excluded: the M1.3 language check answers them before triage.",
   "labels": {
     "work_term_hours": {"path": "fast"},
     "work_break_hours": {"path": "fast"},
