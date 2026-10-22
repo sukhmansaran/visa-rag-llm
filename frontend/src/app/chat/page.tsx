@@ -86,7 +86,8 @@ export default function ChatPage() {
                 updateLastAssistant(m => ({ ...m, content: m.content + (data.content || ""), streaming: true }));
                 break;
             case "guardrail_blocked":
-                updateLastAssistant(m => ({ ...m, guardrail_blocked: true }));
+                // The English-only reply (M1.3) is a polite notice, not a blocked request: no firewall badge
+                if (data.violation !== "UNSUPPORTED_LANGUAGE") updateLastAssistant(m => ({ ...m, guardrail_blocked: true }));
                 break;
             case "done":
                 updateLastAssistant(m => ({

@@ -16,6 +16,7 @@ class ViolationType(str, Enum):
     PROMPT_INJECTION = "PROMPT_INJECTION"
     MALICIOUS_REQUEST = "MALICIOUS_REQUEST"
     INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+    UNSUPPORTED_LANGUAGE = "UNSUPPORTED_LANGUAGE"
 
 
 class AllowedIntent(str, Enum):
@@ -62,6 +63,10 @@ REFUSAL_MESSAGES: Dict[ViolationType, str] = {
         "I could not find sufficient authoritative information in official immigration records "
         "to answer this question reliably. Please check official IRCC documentation on "
         "Canada.ca or consult a licensed immigration consultant (RCIC)."
+    ),
+    ViolationType.UNSUPPORTED_LANGUAGE: (
+        "Thank you for your question. Pendu currently answers in English only, because its answers can only be "
+        "checked reliably in English for now. Please ask your question again in English and I will be glad to help."
     ),
 }
 
