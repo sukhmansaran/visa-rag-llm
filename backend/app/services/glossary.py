@@ -105,11 +105,17 @@ def lookup(name: str) -> Optional[Term]:
     return None
 
 
-def find_terms(text: str) -> List[Term]:
-    """Terms mentioned in text, in order of first mention, each once."""
-    hits: Dict[str, int] = {}
+def term_mentions(text: str) -> List[Tuple[Term, int, str]]:
+    """(term, position, words as written) for each term's first mention in text, in order of mention."""
+    hits: Dict[str, Tuple[int, str]] = {}
     for pattern, term in _matchers():
         match = pattern.search(text or "")
-        if match and (term.acronym not in hits or match.start() < hits[term.acronym]):
-            hits[term.acronym] = match.start()
-    return [glossary()[acronym] for acronym, _ in sorted(hits.items(), key=lambda kv: kv[1])]
+        if match and (term.acronym not in hits or match.start() < hits[term.acronym][0]):
+            hits[term.acronym] = (match.start(), match.group(0))
+    ordered = sorted(hits.items(), key=lambda kv: kv[1][0])
+    return [(glossary()[acronym], start, words) for acronym, (start, words) in ordered]
+
+
+def find_terms(text: str) -> List[Term]:
+    """Terms mentioned in text, in order of first mention, each once."""
+    return [term for term, _, _ in term_mentions(text)]

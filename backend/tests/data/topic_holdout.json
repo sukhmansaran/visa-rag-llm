@@ -1,0 +1,228 @@
+{
+  "version": 3,
+  "about": "Questions written after the detector's patterns, to measure M2.1 beyond the evaluation set. round_1: the first held-out set; its 4 misses (cash/account, work during a break, 'attestation letter', 'extended') led to general vocabulary additions, so it is no longer held out. round_2: written after those additions; its misses led to mapping glossary terms (any spelling, e.g. 'post-grad work permit') to topics and a few vocabulary additions, so it is no longer held out either (recall before those changes: 82.6%). round_3: written after them and never used to change a pattern: the reported held-out figure. Traps: a job offer is not working while studying; a fee is not proof of funds; a passing 'study permit' is not the application topic. Same taxonomy as topic_labels.json.",
+  "round_1": {
+    "How much cash should I keep in my account for one year of study in Toronto?": [
+      "funds"
+    ],
+    "Is a GIC mandatory, and how many hours a week can students work?": [
+      "funds",
+      "work"
+    ],
+    "Can international students work full-time during winter break?": [
+      "work"
+    ],
+    "Do I need a SIN before starting my on-campus job?": [
+      "work"
+    ],
+    "My college says I need an attestation letter from Ontario. What is that?": [
+      "pal"
+    ],
+    "Does a TAL work the same way as a PAL?": [
+      "pal"
+    ],
+    "Where can I give my fingerprints in Delhi?": [
+      "biometrics"
+    ],
+    "I gave biometrics in 2022 for a visitor visa. Do I need to give them again for my study permit?": [
+      "biometrics",
+      "visitor_visa"
+    ],
+    "How long is a post graduation work permit after a 16-month diploma?": [
+      "pgwp"
+    ],
+    "Can my PGWP be extended?": [
+      "pgwp",
+      "extension"
+    ],
+    "My permit expires next month. How do I extend my stay as a student?": [
+      "extension"
+    ],
+    "I lost status two months ago. Can I restore my status?": [
+      "extension"
+    ],
+    "Does my mother need a TRV or an eTA to visit me in Canada?": [
+      "visitor_visa"
+    ],
+    "How long can my parents stay on a super visa?": [
+      "visitor_visa"
+    ],
+    "What CRS score do I need to get an ITA?": [
+      "express_entry"
+    ],
+    "Is my NOC code TEER 2 eligible for the Canadian Experience Class?": [
+      "express_entry"
+    ],
+    "Do I need an ECA if I studied in Canada?": [
+      "express_entry"
+    ],
+    "What CLB do I need for Express Entry, and is PTE accepted?": [
+      "language_tests",
+      "express_entry"
+    ],
+    "Can I use TEF results instead of IELTS?": [
+      "language_tests"
+    ],
+    "How long does it take to process a visitor visa from Nigeria?": [
+      "processing_times",
+      "visitor_visa"
+    ],
+    "What are the processing times for a PGWP right now?": [
+      "processing_times",
+      "pgwp"
+    ],
+    "My study permit was rejected. Can I apply again?": [
+      "study_permit"
+    ],
+    "Do I need a letter of acceptance before I apply for a study permit?": [
+      "study_permit"
+    ],
+    "Does a job offer give me extra points under the Federal Skilled Worker Program?": [
+      "express_entry"
+    ],
+    "How much is the application fee for a study permit?": [],
+    "Can my spouse get an open work permit while I study?": [],
+    "What is the Start-up Visa program?": [],
+    "Can I bring my dog to Canada?": [],
+    "How much money do I need, do I need a PAL, and do I need biometrics?": [
+      "funds",
+      "pal",
+      "biometrics"
+    ],
+    "Do I need medical exams for a study permit from India?": []
+  },
+  "round_2": {
+    "What is the minimum balance I need to show the visa officer?": [
+      "funds"
+    ],
+    "Do I have to show my parents' income tax returns as financial support?": [
+      "funds"
+    ],
+    "How many hours can I do at my part-time job during exams?": [
+      "work"
+    ],
+    "Can I work as a teaching assistant at my university without a work permit?": [
+      "work"
+    ],
+    "Is the PAL different for Quebec, where they use a CAQ?": [
+      "pal"
+    ],
+    "Are biometrics needed for a 14-year-old?": [
+      "biometrics"
+    ],
+    "How many years will my post-grad work permit last after a 2-year master's?": [
+      "pgwp"
+    ],
+    "Is there a deadline to apply for my PGWP after I get my final marks?": [
+      "pgwp"
+    ],
+    "What should I do if my study permit will expire before my program ends?": [
+      "extension"
+    ],
+    "Can I stay in Canada while my extension is being processed?": [
+      "extension"
+    ],
+    "My brother wants to visit Canada for my graduation. What visa does he need?": [
+      "visitor_visa"
+    ],
+    "Does a US green card holder need an eTA to fly to Toronto?": [
+      "visitor_visa"
+    ],
+    "How do I create an Express Entry profile?": [
+      "express_entry"
+    ],
+    "How are CRS points calculated for a master's degree?": [
+      "express_entry"
+    ],
+    "What CELPIP score is CLB 9?": [
+      "language_tests"
+    ],
+    "Does IRCC accept the IELTS General Training test taken online?": [
+      "language_tests"
+    ],
+    "How many weeks is the current processing time for study permits?": [
+      "processing_times"
+    ],
+    "What happens after my study permit is approved?": [
+      "study_permit"
+    ],
+    "Can I appeal if my study permit application is refused?": [
+      "study_permit"
+    ],
+    "What documents prove my ties to my home country for a visitor visa?": [
+      "visitor_visa"
+    ],
+    "Do I need a job offer for Canadian Experience Class?": [
+      "express_entry"
+    ],
+    "What are the fees for a work permit?": [],
+    "How do I get a bank account in Canada as a student?": [],
+    "Can I change my college after arriving in Canada?": [],
+    "How much money do I need and how many hours can I work while studying?": [
+      "funds",
+      "work"
+    ]
+  },
+  "round_3": {
+    "How much do I need in my savings account for a family of four?": [
+      "funds"
+    ],
+    "Can I count my scholarship as proof of financial support?": [
+      "funds"
+    ],
+    "Am I allowed to drive for Uber while studying full-time?": [
+      "work"
+    ],
+    "How many hours can I work in co-op placements?": [
+      "work"
+    ],
+    "Which provinces issue attestation letters?": [
+      "pal"
+    ],
+    "Do I need to redo biometrics if I renew my permit?": [
+      "biometrics"
+    ],
+    "Is the post-graduation work permit open or tied to an employer?": [
+      "pgwp"
+    ],
+    "Can I get a PGWP after an online program?": [
+      "pgwp"
+    ],
+    "How early can I apply to extend my study permit?": [
+      "extension"
+    ],
+    "My visa expires in two weeks; can I still apply to stay longer?": [
+      "extension"
+    ],
+    "Can my sister come to Canada as a tourist for my convocation?": [
+      "visitor_visa"
+    ],
+    "Do Mexican citizens need an eTA?": [
+      "visitor_visa"
+    ],
+    "How long does an ITA stay valid in Express Entry?": [
+      "express_entry"
+    ],
+    "Do I need an ECA for a Canadian diploma under FSW?": [
+      "express_entry"
+    ],
+    "Is CELPIP-General accepted for permanent residence?": [
+      "language_tests"
+    ],
+    "Which language tests does IRCC accept for French?": [
+      "language_tests"
+    ],
+    "How long are IRCC processing times for visitor visas from Pakistan?": [
+      "processing_times",
+      "visitor_visa"
+    ],
+    "Why was my study permit refused if I had a letter of acceptance?": [
+      "study_permit"
+    ],
+    "What is the TFWP and do I need an LMIA?": [],
+    "How much money do I need, and can I extend my study permit later?": [
+      "funds",
+      "extension"
+    ]
+  }
+}
