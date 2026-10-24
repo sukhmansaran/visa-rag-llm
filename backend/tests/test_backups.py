@@ -85,3 +85,31 @@ async def test_a_backup_restores_with_the_same_row_counts(db_session, tmp_path):
     dump.with_suffix(".manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     tampered = backup_now.verify_restore(dump)
     assert not tampered["ok"] and tampered["mismatches"]["sources"] == {"backup": 99, "restored": 3}
+
+
+# ---------------------------------------------------------------- client tool / server versions (2026-10-24)
+
+@pytest.mark.parametrize("tool,server,refused", [(16, 16, False), (15, 16, False), (17, 16, True), (18, 16, True)])
+def test_a_pg_restore_newer_than_the_server_is_refused_with_the_fix(monkeypatch, tool, server, refused):
+    """CI broke when ubuntu-latest moved to newer client tools: pg_restore 17+ sets transaction_timeout, which
+    PostgreSQL 16 rejects. The check refuses up front and says which tools to install."""
+    monkeypatch.setattr(backup_now, "_tool_major", lambda name: tool)
+    monkeypatch.setattr(backup_now, "_server_major", lambda url, env: server)
+    if refused:
+        with pytest.raises(backup_now.PgToolError, match=f"pg_restore {tool} is newer than the PostgreSQL 16"):
+            backup_now._check_restore_tool(None, {})
+    else:
+        backup_now._check_restore_tool(None, {})
+
+
+def test_a_failing_tool_reports_its_own_error():
+    script = "import sys; sys.stderr.write('could not connect to server'); sys.exit(2)"
+    with pytest.raises(backup_now.PgToolError, match=r"failed \(exit 2\): could not connect to server"):
+        backup_now._run([sys.executable, "-c", script])
+
+
+@pytest.mark.skipif(not _pg_tools_available(), reason="PostgreSQL client tools not installed")
+def test_the_installed_tools_match_the_server():
+    """Here and in CI: the tools found must be able to restore into the server the tests use."""
+    url, env = backup_now._connection()
+    backup_now._check_restore_tool(url, env)

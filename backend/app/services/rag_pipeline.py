@@ -25,6 +25,7 @@ from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
 from app.services.tracing import trace_step
+from app.services.topics import detect_topics
 from app.services.triage import routed_path, triage
 from app.services.prompt_registry import get_prompt
 
@@ -156,6 +157,7 @@ class RAGPipeline:
             with trace_step("triage", stage="question", mode=settings.AGENT_MODE) as step:
                 triage_decision = triage(query)
                 step.update(self._triage_summary(triage_decision))
+                step["topics"] = list(detect_topics(query).topics)  # M2.1: real questions' topics, before M2.2
 
         # 1. Intent Normalization
         with trace_step("intent") as step:

@@ -17,7 +17,7 @@ permissions:
 jobs:
   backend:
     name: Backend Quality & Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # pinned: ubuntu-latest moves images (and PostgreSQL client tools) without notice
     defaults:
       run:
         working-directory: backend
@@ -210,7 +210,7 @@ jobs:
 
   frontend:
     name: Frontend Lint & Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # pinned: ubuntu-latest moves images (and PostgreSQL client tools) without notice
     defaults:
       run:
         working-directory: frontend

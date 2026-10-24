@@ -111,7 +111,8 @@ async def test_low_retrieval_confidence_is_traced_after_the_evidence_gate(script
 async def test_the_trace_never_carries_the_question(scripted_pipeline, monkeypatch):
     monkeypatch.setattr(settings, "AGENT_MODE", "shadow")
     _, _, steps = await run(VERIFIED_QUESTION, stream=False)
-    assert set(steps[0]) == {"name", "ms", "stage", "mode", "path", "reasons", "routed"}
+    assert set(steps[0]) == {"name", "ms", "stage", "mode", "path", "reasons", "routed", "topics"}
+    assert steps[0]["topics"] == ["pgwp", "work"]  # topic names only, never the question
 
 
 @pytest.mark.parametrize("value,expected", [("Shadow", "shadow"), (" ON ", "on"), ("off", "off"), (None, "shadow")])

@@ -45,6 +45,45 @@ _COUNT_SQL = (
 )
 
 
+class PgToolError(RuntimeError):
+    """A PostgreSQL client tool failed; the message carries the tool's own error output."""
+
+
+def _run(args: List[str], env: Optional[Dict[str, str]] = None) -> subprocess.CompletedProcess:
+    """Run a PostgreSQL tool; on failure raise with its stderr (the password travels in PGPASSWORD, never args)."""
+    result = subprocess.run(args, env=env, capture_output=True, text=True)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()[-1500:]
+        raise PgToolError(f"{Path(args[0]).stem} failed (exit {result.returncode}): {detail}")
+    return result
+
+
+def _tool_major(name: str) -> int:
+    """Major version of a client tool: 'pg_restore (PostgreSQL) 16.4' -> 16."""
+    match = re.search(r"(\d+)(?:\.\d+)?", _run([_pg_tool(name), "--version"]).stdout)
+    if not match:
+        raise PgToolError(f"could not read the {name} version")
+    return int(match.group(1))
+
+
+def _server_major(url, env) -> int:
+    return int(_psql(url, env, "SHOW server_version_num", database="postgres").strip()) // 10000
+
+
+def _check_restore_tool(url, env) -> None:
+    """
+    A pg_restore newer than the server writes settings the server doesn't know (pg_restore 17+ sets
+    transaction_timeout, which PostgreSQL 16 rejects), so restores fail with exit 1. Refuse up front with the fix.
+    (Found 2026-10-24 when GitHub's ubuntu-latest image moved to newer PostgreSQL client tools.)
+    """
+    tool, server = _tool_major("pg_restore"), _server_major(url, env)
+    if tool > server:
+        raise PgToolError(
+            f"pg_restore {tool} is newer than the PostgreSQL {server} server and its restores fail there. Install "
+            f"the PostgreSQL {server} client tools (Windows: they come with PostgreSQL {server}; Ubuntu: "
+            f"postgresql-client-{server}) and put them first on PATH.")
+
+
 def _pg_tool(name: str) -> str:
     found = shutil.which(name)
     if found:
@@ -72,9 +111,7 @@ def _pg_args(url, database: Optional[str] = None) -> List[str]:
 
 
 def _psql(url, env, sql: str, database: Optional[str] = None) -> str:
-    out = subprocess.run([_pg_tool("psql"), *_pg_args(url, database), "-At", "-v", "ON_ERROR_STOP=1", "-c", sql],
-                         env=env, check=True, capture_output=True, text=True)
-    return out.stdout
+    return _run([_pg_tool("psql"), *_pg_args(url, database), "-At", "-v", "ON_ERROR_STOP=1", "-c", sql], env).stdout
 
 
 def table_counts(url, env, database: Optional[str] = None) -> Dict[str, int]:
@@ -110,9 +147,8 @@ def backup(label: str, backup_dir_override: Path = None, keep: Optional[int] = N
 
     dump_path = folder / f"{url.database}_{label}_{stamp}.dump"
     counts = table_counts(url, env)
-    subprocess.run([_pg_tool("pg_dump"), *_pg_args(url), "-Fc", "-f", str(dump_path)],
-                   env=env, check=True, capture_output=True, text=True)
-    listing = subprocess.run([_pg_tool("pg_restore"), "-l", str(dump_path)], check=True, capture_output=True, text=True)
+    _run([_pg_tool("pg_dump"), *_pg_args(url), "-Fc", "-f", str(dump_path)], env)
+    listing = _run([_pg_tool("pg_restore"), "-l", str(dump_path)])
     if "TABLE DATA" not in listing.stdout:
         raise RuntimeError(f"Backup {dump_path} has no table data")
 
@@ -186,11 +222,11 @@ def verify_restore(dump_path: Path) -> Dict:
     manifest_path = Path(dump_path).with_suffix(".manifest.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
 
+    _check_restore_tool(url, env)
     _psql(url, env, f'DROP DATABASE IF EXISTS "{RESTORE_CHECK_DB}" WITH (FORCE)', database="postgres")
     _psql(url, env, f'CREATE DATABASE "{RESTORE_CHECK_DB}"', database="postgres")
     try:
-        subprocess.run([_pg_tool("pg_restore"), *_pg_args(url, RESTORE_CHECK_DB), "--no-owner", str(dump_path)],
-                       env=env, check=True, capture_output=True, text=True)
+        _run([_pg_tool("pg_restore"), *_pg_args(url, RESTORE_CHECK_DB), "--no-owner", str(dump_path)], env)
         restored = table_counts(url, env, RESTORE_CHECK_DB)
     finally:
         _psql(url, env, f'DROP DATABASE IF EXISTS "{RESTORE_CHECK_DB}" WITH (FORCE)', database="postgres")
