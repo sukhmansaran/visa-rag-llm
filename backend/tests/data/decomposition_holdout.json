@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "about": "Held-out decomposition questions for M2.2, written after the validators (facts, repair, part limit) were added and never used to change them. Same format as decomposition_cases.json. The reported held-out coverage comes from one run.",
+  "cases": [
+    {"id": "h_funds_children", "question": "My husband and two kids will join me. How much money do we need, and do the kids need biometrics?",
+     "parts": [{"topics": ["funds"], "facts": []}, {"topics": ["biometrics"], "facts": ["kids"]}]},
+    {"id": "h_pgwp_hours", "question": "How long will my PGWP be after an 18-month diploma, and can I work full-time while waiting for it?",
+     "parts": [{"topics": ["pgwp"], "facts": ["18"]}, {"topics": [], "facts": ["full-time"]}]},
+    {"id": "h_pal_gic", "question": "Is a PAL needed for a master's in British Columbia and is a GIC mandatory?",
+     "parts": [{"topics": ["pal"], "facts": ["master"]}, {"topics": ["funds"], "facts": []}]},
+    {"id": "h_ielts_crs", "question": "What IELTS score gives CLB 9, and how many CRS points is that worth?",
+     "parts": [{"topics": ["language_tests"], "facts": ["9"]}, {"topics": ["express_entry"], "facts": []}]},
+    {"id": "h_visitor_three", "question": "For my parents' visit, do they need a visitor visa, do they need biometrics, and how long can they stay?",
+     "parts": [{"topics": ["visitor_visa"], "facts": ["parents"]}, {"topics": ["biometrics"], "facts": []}, {"topics": [], "facts": ["stay"]}]},
+    {"id": "h_extend_restore", "question": "My permit expired last week. Can I restore my status, and how much does it cost?",
+     "parts": [{"topics": ["extension"], "facts": []}, {"topics": [], "facts": ["cost"]}]},
+    {"id": "h_work_sin", "question": "Can I work on campus from my first day, and do I need a SIN for that?",
+     "parts": [{"topics": ["work"], "facts": ["on campus"]}, {"topics": ["work"], "facts": []}]},
+    {"id": "h_processing_bio", "question": "How long does processing take for a study permit from Nigeria, and where do I give biometrics?",
+     "parts": [{"topics": ["processing_times"], "facts": ["nigeria"]}, {"topics": ["biometrics"], "facts": []}]},
+    {"id": "h_cec_language", "question": "Do I qualify for the Canadian Experience Class with 1 year of work, and which language tests are accepted?",
+     "parts": [{"topics": ["express_entry"], "facts": ["1 year"]}, {"topics": ["language_tests"], "facts": []}]},
+    {"id": "h_single", "question": "Do children under 14 need to give biometrics for a visitor visa?",
+     "parts": [{"topics": ["biometrics"], "facts": ["14"]}]}
+  ]
+}

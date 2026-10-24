@@ -15,7 +15,7 @@ from app.services.prompt_registry import (PROMPTS_DIR, Prompt, PromptError, all_
 
 SERVICES = Path(__file__).resolve().parent.parent / "app" / "services"
 LIVE_PROMPTS = {"grounded_answer", "sop_draft", "itinerary", "change_summary", "visa_extraction",
-                "program_extraction", "fact_summary"}
+                "program_extraction", "fact_summary", "decomposition"}
 
 
 @pytest.fixture(autouse=True)
