@@ -271,6 +271,10 @@ class RetrievalService:
         Wraps content in strict boundary headers and footers to ensure LLM treats content as passive data.
         Truncates chunks that exceed the remaining budget rather than dropping them (A11).
         Sets `_included_in_context` on each chunk dict to track inclusion for citations.
+
+        Sources are numbered per page, in order of first inclusion: two chunks from the same page share a
+        number, so [Source N] in an answer is exactly the Nth entry of the citation list (build_citations lists
+        one entry per page). Each included chunk gets `_source_number`.
         """
         if not chunks:
             return ""
@@ -283,11 +287,13 @@ class RetrievalService:
         # Reset inclusion flags
         for chunk in chunks:
             chunk["_included_in_context"] = False
+            chunk.pop("_source_number", None)
 
         context_parts = [context_header]
         current_length = len(context_header) + len(context_footer)
+        numbers: Dict[str, int] = {}  # page url -> its source number
 
-        for i, chunk in enumerate(chunks):
+        for chunk in chunks:
             raw_text = chunk.get('text', '')
             clean_text = self.sanitize_chunk_text(raw_text)
             metadata = chunk.get('metadata', {})
@@ -296,7 +302,8 @@ class RetrievalService:
             date_retrieved = metadata.get('scraped_at') or chunk.get('scraped_at', 'N/A')
             title = metadata.get('title') or chunk.get('title', 'Official IRCC Document')
 
-            block_prefix = f"[Source {i+1}] (Tier {tier} - {title})\n"
+            number = numbers.get(url, len(numbers) + 1)
+            block_prefix = f"[Source {number}] (Tier {tier} - {title})\n"
             block_suffix = f"\nURL: {url} (Retrieved: {date_retrieved})\n\n"
             full_source_block = f"{block_prefix}{clean_text}{block_suffix}"
 
@@ -304,6 +311,7 @@ class RetrievalService:
                 context_parts.append(full_source_block)
                 current_length += len(full_source_block)
                 chunk["_included_in_context"] = True
+                chunk["_source_number"] = numbers.setdefault(url, number)
             else:
                 # Remaining character budget for this chunk
                 remaining_budget = max_context_length - current_length
@@ -317,6 +325,7 @@ class RetrievalService:
                     context_parts.append(truncated_block)
                     current_length += len(truncated_block)
                     chunk["_included_in_context"] = True
+                    chunk["_source_number"] = numbers.setdefault(url, number)
                 break
 
         # If no chunks were actually included, return empty string so no false delimiters are emitted
