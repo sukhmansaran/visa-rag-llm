@@ -17,6 +17,7 @@ class SourceCitation(BaseModel):
     snippet: str
     scraped_at: str
     title: str | None = None
+    number: int | None = None  # the [Source N] that cites this page in the answer
 
 
 class ChatResponse(BaseModel):

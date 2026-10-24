@@ -335,6 +335,8 @@ export default function ChatPage() {
                                                 className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-xs font-medium text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700 transition-colors"
                                             >
                                                 <ExternalLink className="h-3 w-3" />
+                                                {/* Matches [Source N] in the answer */}
+                                                {typeof src.number === "number" && <span className="text-slate-400">{src.number}</span>}
                                                 <span>{src.title || "Official IRCC Document"}</span>
                                             </a>
                                         ))}

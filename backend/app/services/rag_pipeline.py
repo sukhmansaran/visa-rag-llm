@@ -410,7 +410,10 @@ class RAGPipeline:
     ) -> List[Dict[str, Any]]:
         """
         Build structured source citations matching SourceCitation schema:
-        url, snippet, scraped_at, title.
+        url, snippet, scraped_at, title, number.
+
+        One citation per page. `number` is the page's [Source N] in the model context (prepare_context numbers
+        per page in the same order), and the list is in that order, so [Source N] is the Nth citation.
         """
         citations: List[Dict[str, Any]] = []
         seen_urls = set()
@@ -432,7 +435,9 @@ class RAGPipeline:
                 "snippet": snippet,
                 "scraped_at": scraped_at,
                 "title": title,
+                "number": chunk.get("_source_number") or len(citations) + 1,
             })
+        citations.sort(key=lambda c: c["number"])
 
         if tourist_context and not citations:
             citations.append({

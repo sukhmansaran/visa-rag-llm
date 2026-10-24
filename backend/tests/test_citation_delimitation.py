@@ -107,6 +107,48 @@ class TestStructuredCitationMapping:
         assert citations[0]["url"] == "https://www.canada.ca/rules"
 
 
+def _chunk(page: str, text: str) -> dict:
+    return {"text": text, "authority_tier": 1,
+            "metadata": {"url": f"https://www.canada.ca/{page}.html", "title": page.title(), "scraped_at": "2026-10-01"}}
+
+
+class TestSourceNumbersMatchTheCitationList:
+    """[Source N] in an answer must be the Nth listed source. Numbering every chunk while listing one entry per
+    page broke this whenever a page contributed two chunks (an answer cited [Source 3] with 2 sources listed)."""
+
+    def test_chunks_from_the_same_page_share_a_number(self):
+        chunks = [_chunk("work", "Off campus: 24 hours."), _chunk("pal", "A PAL is needed."),
+                  _chunk("work", "Breaks: unlimited hours."), _chunk("funds", "Show $22,895.")]
+        context = retrieval_service.prepare_context(chunks)
+        assert context.count("[Source 1] (Tier 1 - Work)") == 2
+        assert "[Source 2] (Tier 1 - Pal)" in context and "[Source 3] (Tier 1 - Funds)" in context
+        assert "[Source 4]" not in context
+        assert [c["_source_number"] for c in chunks] == [1, 2, 1, 3]
+
+    def test_the_nth_citation_is_source_n(self):
+        chunks = [_chunk("work", "Off campus: 24 hours."), _chunk("work", "Breaks: unlimited hours."),
+                  _chunk("pal", "A PAL is needed."), _chunk("funds", "Show $22,895.")]
+        retrieval_service.prepare_context(chunks)
+        citations = rag_pipeline.build_citations([c for c in chunks if c["_included_in_context"]])
+        assert [(c["number"], c["title"]) for c in citations] == [(1, "Work"), (2, "Pal"), (3, "Funds")]
+        assert [SourceCitation(**c).number for c in citations] == [1, 2, 3]  # the API schema keeps the number
+
+    def test_a_chunk_left_out_for_length_takes_no_number(self):
+        chunks = [_chunk("work", "W" * 300), _chunk("pal", "P" * 5000), _chunk("funds", "F" * 300)]
+        context = retrieval_service.prepare_context(chunks, max_context_length=700)
+        included = [c for c in chunks if c["_included_in_context"]]
+        citations = rag_pipeline.build_citations(included)
+        assert [c["number"] for c in citations] == list(range(1, len(citations) + 1))
+        for c in citations:
+            assert f"[Source {c['number']}] (Tier 1 - {c['title']})" in context
+
+    def test_numbers_are_reset_between_questions(self):
+        chunks = [_chunk("pal", "A PAL is needed."), _chunk("work", "Off campus: 24 hours.")]
+        retrieval_service.prepare_context(chunks)
+        retrieval_service.prepare_context(chunks[1:])
+        assert chunks[1]["_source_number"] == 1 and "_source_number" in chunks[1]
+
+
 @pytest.mark.asyncio
 class TestStrictRAGOnlyAndZeroHallucination:
     """Test Sub-task 2.3.1: Strict RAG-Only Zero Hallucination Enforcement."""
