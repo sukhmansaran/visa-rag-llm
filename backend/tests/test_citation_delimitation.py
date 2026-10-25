@@ -113,34 +113,39 @@ def _chunk(page: str, text: str) -> dict:
 
 
 class TestSourceNumbersMatchTheCitationList:
-    """[Source N] in an answer must be the Nth listed source. Numbering every chunk while listing one entry per
-    page broke this whenever a page contributed two chunks (an answer cited [Source 3] with 2 sources listed)."""
+    """Every [Source N] in an answer must be a listed page. The list shows one entry per page, so a page whose
+    chunks were sources 1 and 3 lists both numbers. (Listing pages without their numbers made an answer cite
+    [Source 3] with 2 links; numbering per page in the context instead cost 3 evaluation cases, 2026-10-24.)"""
 
-    def test_chunks_from_the_same_page_share_a_number(self):
+    def test_each_chunk_is_its_own_source_in_the_context(self):
+        """Exactly what the model saw at the 54/64 baseline: one label per chunk, in order."""
         chunks = [_chunk("work", "Off campus: 24 hours."), _chunk("pal", "A PAL is needed."),
                   _chunk("work", "Breaks: unlimited hours."), _chunk("funds", "Show $22,895.")]
         context = retrieval_service.prepare_context(chunks)
-        assert context.count("[Source 1] (Tier 1 - Work)") == 2
-        assert "[Source 2] (Tier 1 - Pal)" in context and "[Source 3] (Tier 1 - Funds)" in context
-        assert "[Source 4]" not in context
-        assert [c["_source_number"] for c in chunks] == [1, 2, 1, 3]
+        for n, title in enumerate(["Work", "Pal", "Work", "Funds"], 1):
+            assert f"[Source {n}] (Tier 1 - {title})" in context
+        assert [c["_source_number"] for c in chunks] == [1, 2, 3, 4]
 
-    def test_the_nth_citation_is_source_n(self):
-        chunks = [_chunk("work", "Off campus: 24 hours."), _chunk("work", "Breaks: unlimited hours."),
-                  _chunk("pal", "A PAL is needed."), _chunk("funds", "Show $22,895.")]
+    def test_a_page_lists_every_number_it_was(self):
+        chunks = [_chunk("work", "Off campus: 24 hours."), _chunk("pal", "A PAL is needed."),
+                  _chunk("work", "Breaks: unlimited hours."), _chunk("funds", "Show $22,895.")]
         retrieval_service.prepare_context(chunks)
         citations = rag_pipeline.build_citations([c for c in chunks if c["_included_in_context"]])
-        assert [(c["number"], c["title"]) for c in citations] == [(1, "Work"), (2, "Pal"), (3, "Funds")]
-        assert [SourceCitation(**c).number for c in citations] == [1, 2, 3]  # the API schema keeps the number
+        assert [(c["numbers"], c["number"], c["title"]) for c in citations] == [
+            ([1, 3], 1, "Work"), ([2], 2, "Pal"), ([4], 4, "Funds")]
+        assert [SourceCitation(**c).numbers for c in citations] == [[1, 3], [2], [4]]  # the API keeps them
 
-    def test_a_chunk_left_out_for_length_takes_no_number(self):
-        chunks = [_chunk("work", "W" * 300), _chunk("pal", "P" * 5000), _chunk("funds", "F" * 300)]
-        context = retrieval_service.prepare_context(chunks, max_context_length=700)
-        included = [c for c in chunks if c["_included_in_context"]]
-        citations = rag_pipeline.build_citations(included)
-        assert [c["number"] for c in citations] == list(range(1, len(citations) + 1))
+    def test_every_source_number_in_the_context_maps_to_a_listed_page(self):
+        import re
+        chunks = [_chunk("work", "W" * 300), _chunk("work", "X" * 300), _chunk("pal", "P" * 5000),
+                  _chunk("funds", "F" * 300)]
+        context = retrieval_service.prepare_context(chunks, max_context_length=1400)
+        citations = rag_pipeline.build_citations([c for c in chunks if c["_included_in_context"]])
+        labelled = {int(n) for n in re.findall(r"\[Source (\d+)\]", context)}
+        assert labelled == {n for c in citations for n in c["numbers"]}
         for c in citations:
-            assert f"[Source {c['number']}] (Tier 1 - {c['title']})" in context
+            for n in c["numbers"]:
+                assert f"[Source {n}] (Tier 1 - {c['title']})" in context
 
     def test_numbers_are_reset_between_questions(self):
         chunks = [_chunk("pal", "A PAL is needed."), _chunk("work", "Off campus: 24 hours.")]

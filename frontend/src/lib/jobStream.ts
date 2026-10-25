@@ -145,6 +145,7 @@ export function describeStep(step: any): string {
     const next: Record<string, string> = {
         input_guardrail: "Understanding the question",
         intent: "Applying official rules",
+        decomposition: "Applying official rules", // M2.3: verified questions with several parts, split first
         rules: "Checking recent answers",
         cache: "Checking travel records",
         tourist_db: "Searching official sources",
