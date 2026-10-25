@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     # RAG generation budget
     RAG_TOP_K: int = 4                    # chunks retrieved per question
     RAG_CONTEXT_CHARS: int = 4000         # max source text given to the model (~1,000 tokens)
+    RAG_MULTI_PART_CONTEXT_CHARS: int = 6000  # verified questions with several parts (M2.3): shared between parts
     RAG_MAX_ANSWER_TOKENS: int = 450      # answer length cap (~7 tok/s on CPU -> ~1 min)
     RAG_TEMPERATURE: float = 0.0          # deterministic answers; >0 only adds run-to-run variation
     

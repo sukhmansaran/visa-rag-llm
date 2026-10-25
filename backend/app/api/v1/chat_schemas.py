@@ -17,7 +17,8 @@ class SourceCitation(BaseModel):
     snippet: str
     scraped_at: str
     title: str | None = None
-    number: int | None = None  # the [Source N] that cites this page in the answer
+    number: int | None = None          # the first [Source N] that cites this page in the answer
+    numbers: list[int] | None = None   # every [Source N] that is this page (one per chunk of it in the context)
 
 
 class ChatResponse(BaseModel):

@@ -25,11 +25,15 @@ from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
 from app.services.tracing import trace_step
+from app.services.decomposition import decompose, needs_split
 from app.services.topics import detect_topics
-from app.services.triage import routed_path, triage
+from app.services.triage import VERIFIED, routed_path, triage
 from app.services.prompt_registry import get_prompt
 
 logger = logging.getLogger(__name__)
+
+# [Source N] (Tier T - title) ... URL: ... (Retrieved: ...) around each chunk in the context (prepare_context)
+_CHUNK_FRAMING_CHARS = 200
 
 
 # The grounded-answer prompt lives in app/prompts/grounded_answer.yaml (M0.12).
@@ -167,9 +171,27 @@ class RAGPipeline:
             intent = intent_data.get("intent", "general")
             step.update(intent=intent, country=country, visa_type=visa_type)
 
+        # 1b. Decomposition (M2.3): a verified question that asks several things gets rules and sources per part
+        parts: List[str] = []
+        if routed_path() == VERIFIED:
+            with trace_step("decomposition") as step:
+                if needs_split(query):
+                    split = await decompose(query)
+                    step.update(split.summary())
+                    if len(split.sub_questions) > 1:
+                        parts = list(split.sub_questions)
+                else:
+                    step.update(method="single", parts=1)
+
         # 2. Extract Authoritative Rule Engine Facts
         with trace_step("rules") as step:
-            rule_facts = rule_engine.try_rule_answer(intent, country, visa_type, query=query)
+            if parts:
+                # the rule engine answers with the first rule that matches, so a two-part question got only one
+                # part's facts (funds + work hours -> work hours only): ask it once per part
+                rule_facts = await self._rule_facts_per_part(parts, country, visa_type, intent)
+                step["parts"] = len(parts)
+            else:
+                rule_facts = rule_engine.try_rule_answer(intent, country, visa_type, query=query)
             guarantee_fact = rule_engine.approval_guarantee_fact(query)
             if guarantee_fact:
                 rule_facts = (rule_facts + "\n\n" + guarantee_fact) if rule_facts else guarantee_fact
@@ -178,7 +200,8 @@ class RAGPipeline:
                 rule_facts = (rule_facts + "\n\n" + closed_program_fact) if rule_facts else closed_program_fact
             step.update(rule_facts=bool(rule_facts), guarantee_fact=bool(guarantee_fact),
                         closed_program_fact=bool(closed_program_fact))
-        rules_version = await self._answer_cache_version()
+        # The path is part of the key: a fast-path answer must not stand in for a verified one, nor the reverse
+        rules_version = f"{await self._answer_cache_version()}:{routed_path()}"
 
         # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)
         with trace_step("cache") as step:
@@ -210,13 +233,20 @@ class RAGPipeline:
         chunks = []
         with trace_step("retrieval", top_k=settings.RAG_TOP_K) as step:
             try:
-                chunks = await retrieval_service.retrieve(
-                    query=query,
-                    country=country,
-                    visa_type=visa_type,
-                    intent=intent,
-                    top_k=settings.RAG_TOP_K,
-                )
+                if parts:
+                    part_chunks = [await retrieval_service.retrieve(query=part, country=country, visa_type=visa_type,
+                                                                    intent=intent, top_k=settings.RAG_TOP_K)
+                                   for part in parts]
+                    chunks = self._merge_part_chunks(part_chunks, settings.RAG_MULTI_PART_CONTEXT_CHARS)
+                    step["parts"] = [len(c) for c in part_chunks]
+                else:
+                    chunks = await retrieval_service.retrieve(
+                        query=query,
+                        country=country,
+                        visa_type=visa_type,
+                        intent=intent,
+                        top_k=settings.RAG_TOP_K,
+                    )
             except Exception as e:
                 logger.warning(f"[RAG_PIPELINE] Retrieval error: {e}")
                 step["retrieval_error"] = type(e).__name__
@@ -253,8 +283,13 @@ class RAGPipeline:
             return
 
         # 7. Grounded Generation
-        combined_context, sources = self._build_grounded_context(rule_facts, chunks, tourist_context)
-        system_prompt, user_prompt = get_prompt("grounded_answer").render(query=query)
+        context_chars = settings.RAG_MULTI_PART_CONTEXT_CHARS if parts else settings.RAG_CONTEXT_CHARS
+        combined_context, sources = self._build_grounded_context(rule_facts, chunks, tourist_context, context_chars)
+        question_text = query
+        if parts:  # name the parts so the answer covers each one
+            question_text = (f"{query}\n\nThis question has {len(parts)} parts. Answer each one:\n"
+                             + "\n".join(f"{n}. {part}" for n, part in enumerate(parts, 1)))
+        system_prompt, user_prompt = get_prompt("grounded_answer").render(query=question_text)
         generation_args = dict(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -365,11 +400,48 @@ class RAGPipeline:
             "metrics": finished_metrics(),
         }
 
+    @staticmethod
+    async def _rule_facts_per_part(parts: List[str], country: str, visa_type: str, intent: str) -> Optional[str]:
+        """Rule facts for each part (with the part's own intent), each distinct block once."""
+        blocks: List[str] = []
+        for part in parts:
+            part_intent = await intent_parser.parse_intent(part)
+            block = rule_engine.try_rule_answer(part_intent.get("intent", intent), country,
+                                                part_intent.get("visa_type", visa_type), query=part)
+            if block and block not in blocks:
+                blocks.append(block)
+        return "\n\n".join(blocks) or None
+
+    @staticmethod
+    def _merge_part_chunks(part_chunks: List[List[Dict[str, Any]]], budget: int) -> List[Dict[str, Any]]:
+        """
+        One context from each part's retrieval: parts in order, each up to an equal share of `budget` characters
+        of source text (always its best chunk), a chunk already taken by an earlier part not repeated. Without
+        shares, the first part's chunks would fill the context and later parts get no sources.
+        """
+        share = budget // max(1, len(part_chunks))
+        merged: List[Dict[str, Any]] = []
+        seen = set()
+        for chunks in part_chunks:
+            used = 0
+            for chunk in chunks:
+                key = ((chunk.get("metadata") or {}).get("url") or chunk.get("url"), chunk.get("text"))
+                if key in seen:
+                    continue
+                size = len(chunk.get("text") or "") + _CHUNK_FRAMING_CHARS
+                if used and used + size > share:
+                    break
+                seen.add(key)
+                merged.append(chunk)
+                used += size
+        return merged
+
     def _build_grounded_context(
         self,
         rule_facts: str,
         chunks: List[Dict[str, Any]],
         tourist_context: str,
+        max_chars: Optional[int] = None,
     ) -> tuple[str, List[Dict[str, Any]]]:
         """Assemble the model context (rule facts, retrieved chunks, tourist records) and the citations for it."""
         context_blocks = []
@@ -377,7 +449,7 @@ class RAGPipeline:
             context_blocks.append(f"### IMMUTABLE OFFICIAL STATUTORY FACTS (Binding Regulatory Calculations):\n{rule_facts}")
 
         if chunks:
-            chunk_context = retrieval_service.prepare_context(chunks, max_context_length=settings.RAG_CONTEXT_CHARS)
+            chunk_context = retrieval_service.prepare_context(chunks, max_context_length=max_chars or settings.RAG_CONTEXT_CHARS)
             if chunk_context:
                 context_blocks.append(chunk_context)
 
@@ -412,33 +484,40 @@ class RAGPipeline:
     ) -> List[Dict[str, Any]]:
         """
         Build structured source citations matching SourceCitation schema:
-        url, snippet, scraped_at, title, number.
+        url, snippet, scraped_at, title, number, numbers.
 
-        One citation per page. `number` is the page's [Source N] in the model context (prepare_context numbers
-        per page in the same order), and the list is in that order, so [Source N] is the Nth citation.
+        One citation per page. `numbers` are all the [Source N] labels its chunks had in the model context (each
+        chunk is its own source there), `number` the first; the list is in order of `number`. So every [Source N]
+        in an answer is the page whose `numbers` contain N, e.g. a page shown as "1, 3".
         """
         citations: List[Dict[str, Any]] = []
-        seen_urls = set()
+        by_url: Dict[str, Dict[str, Any]] = {}
 
-        for chunk in chunks:
+        for position, chunk in enumerate(chunks, 1):
             metadata = chunk.get("metadata", {})
             url = metadata.get("url") or chunk.get("url") or "https://www.canada.ca"
-            if url in seen_urls:
+            number = chunk.get("_source_number") or position
+            if url in by_url:
+                by_url[url]["numbers"].append(number)
                 continue
-            seen_urls.add(url)
 
             raw_text = chunk.get("text", "")
             snippet = raw_text[:200].strip() if raw_text else ""
             scraped_at = str(metadata.get("scraped_at") or chunk.get("scraped_at") or "")
             title = metadata.get("title") or chunk.get("title") or "Official IRCC Document"
 
-            citations.append({
+            by_url[url] = {
                 "url": url,
                 "snippet": snippet,
                 "scraped_at": scraped_at,
                 "title": title,
-                "number": chunk.get("_source_number") or len(citations) + 1,
-            })
+                "number": number,
+                "numbers": [number],
+            }
+            citations.append(by_url[url])
+        for citation in citations:
+            citation["numbers"].sort()
+            citation["number"] = citation["numbers"][0]
         citations.sort(key=lambda c: c["number"])
 
         if tourist_context and not citations:

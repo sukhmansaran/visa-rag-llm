@@ -45,6 +45,7 @@ from app.services import rag_pipeline as rag_module  # noqa: E402
 from app.services.cache_service import intent_cache  # noqa: E402
 from app.services.llm import llm_service  # noqa: E402
 from app.services.tracing import TraceRecorder, activate_trace  # noqa: E402
+from app.services.triage import FAST, VERIFIED, routed_as, triage  # noqa: E402
 
 EVAL_SET = BACKEND / "tests" / "data" / "rag_eval_set.json"
 GAP_PATTERNS = [
@@ -145,12 +146,21 @@ async def _ask(case: dict, stream: bool) -> Dict[str, Any]:
     return {"answer": done.get("full_response", ""), "sources": done.get("sources", []), "metrics": done.get("metrics", {})}
 
 
+def _route(question: str) -> str:
+    """The path the API would give this question (chat_jobs._answer_path): verified only with AGENT_MODE=on."""
+    if settings.AGENT_MODE != "on":
+        return FAST
+    from app.services.guardrails.input_guardrail import input_guardrail
+    return VERIFIED if input_guardrail.evaluate(question).allowed and triage(question).verified else FAST
+
+
 async def run_case(case: dict, stream: bool, captured: dict) -> dict:
     intent_cache.clear()
     captured.clear()
     trace = TraceRecorder("eval", query=case["question"])
+    path = _route(case["question"])
     t0 = time.perf_counter()
-    with activate_trace(trace):
+    with activate_trace(trace), routed_as(path):
         r = await _ask(case, stream)
     latency = time.perf_counter() - t0
     metrics = r.get("metrics", {})
@@ -160,7 +170,7 @@ async def run_case(case: dict, stream: bool, captured: dict) -> dict:
     s = score(case, r["answer"], captured.get("context", ""), metrics.get("llm_called", False),
               metrics.get("source"), rules_used)
     return {
-        "latency_s": round(latency, 1), "source": metrics.get("source"), "llm_called": metrics.get("llm_called"),
+        "latency_s": round(latency, 1), "route": path, "source": metrics.get("source"), "llm_called": metrics.get("llm_called"),
         "citations": [c.get("url") for c in r.get("sources", [])], "answer": r["answer"], **s,
         "prompt_tokens": llm.prompt_tokens if llm else None, "output_tokens": llm.output_tokens if llm else None,
         "prompt_s": llm.prompt_s if llm else None, "generation_s": llm.generation_s if llm else None,
@@ -278,7 +288,8 @@ def summarise(model: str, results: List[dict], baseline: bool, stream: bool, run
 
 
 def _mode_name(baseline: bool, stream: bool) -> str:
-    return ("baseline" if baseline else "current") + ("_stream" if stream else "")
+    return (("baseline" if baseline else "current") + ("_stream" if stream else "")
+            + ("_agent" if settings.AGENT_MODE == "on" else ""))
 
 
 def select_cases(args) -> list:
@@ -308,7 +319,11 @@ async def main(argv=None) -> List[dict]:
     ap.add_argument("--stream", action="store_true", help="evaluate the streaming path (process_query_stream)")
     ap.add_argument("--out", default="", help="write the report here instead of logs/")
     ap.add_argument("--system-prompt-file", default="", help="evaluate this system prompt instead of the pipeline's")
+    ap.add_argument("--agent-mode", choices=["off", "shadow", "on"], default=None,
+                    help="AGENT_MODE for this run; 'on' routes each case as the API would (verified path, M2.3)")
     args = ap.parse_args(argv)
+    if args.agent_mode:
+        settings.AGENT_MODE = args.agent_mode
     system_prompt = Path(args.system_prompt_file).read_text(encoding="utf-8") if args.system_prompt_file else None
 
     cases = select_cases(args)
