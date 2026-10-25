@@ -26,6 +26,7 @@ from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
 from app.services.tracing import trace_step
 from app.services.decomposition import decompose, needs_split
+from app.services.follow_up import resolve as resolve_follow_up
 from app.services.topics import detect_topics
 from app.services.triage import VERIFIED, routed_path, triage
 from app.services.prompt_registry import get_prompt
@@ -154,6 +155,14 @@ class RAGPipeline:
             yield {"type": "chunk", "content": refusal}
             yield {"type": "done", "full_response": refusal, "metrics": finished_metrics()}
             return
+
+        # 0a. Follow-up (M2.4): a message that leans on the previous question ("And if my spouse comes with me?")
+        # becomes a standalone question for everything below; the conversation still goes to the answer step
+        if chat_history:
+            with trace_step("follow_up") as step:
+                resolution = await resolve_follow_up(query, chat_history)
+                step.update(resolution.summary())
+            query = resolution.question
 
         # 0b. Triage (M1.2): decide fast vs verified from the question; traced, answers unchanged until M2
         triage_decision = None

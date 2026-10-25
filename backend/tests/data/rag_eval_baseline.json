@@ -1,5 +1,5 @@
 {
-  "created": "2026-10-22",
+  "created": "2026-10-26",
   "model": "llama3.2:3b",
   "model_digest": "a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72",
   "prompt_version": "grounded_answer@1:4485f8e2c0ac",
@@ -10,22 +10,24 @@
     "model": "llama3.2:3b",
     "mode": "current",
     "eval_set_version": 2,
-    "cases": 64,
+    "cases": 68,
     "runs": 3,
     "prompts": {
       "grounded_answer": "grounded_answer@1:4485f8e2c0ac"
     },
-    "passed": 54,
-    "pass_rate": 0.844,
-    "unstable_cases": [],
+    "passed": 55,
+    "pass_rate": 0.809,
+    "unstable_cases": [
+      "followup_biometrics_validity_3turn"
+    ],
     "by_type": {
       "distractor": {
         "cases": 5,
         "passed": 4
       },
       "follow_up": {
-        "cases": 3,
-        "passed": 0
+        "cases": 7,
+        "passed": 1
       },
       "freshness": {
         "cases": 2,
@@ -56,21 +58,21 @@
         "passed": 6
       }
     },
-    "coverage_avg": 0.89,
+    "coverage_avg": 0.86,
     "multi_part_coverage": 0.75,
     "tool_choice_accuracy": 1.0,
     "forbidden_hits": 0,
     "answers_with_ungrounded_numbers": 3,
-    "unsupported_number_rate": 0.017,
+    "unsupported_number_rate": 0.016,
     "placeholder_citations": 0,
     "evidence_quote_validity": "not applicable until the verifier (M2/M4)",
     "latency_by_path": {
       "guardrail_refusal": 0.01,
-      "llm_rag": 18.53
+      "llm_rag": 17.17
     },
-    "avg_latency_s": 18.53,
-    "avg_prompt_tokens": 1429.5,
-    "avg_tokens_per_second": 4.71
+    "avg_latency_s": 17.17,
+    "avg_prompt_tokens": 1414.61,
+    "avg_tokens_per_second": 5.13
   },
   "cases": {
     "work_term_hours": {
@@ -883,6 +885,90 @@
       "passes": 0,
       "runs": 3,
       "ungrounded": true,
+      "rules_values": {}
+    },
+    "followup_funds_child_3turn": {
+      "type": "follow_up",
+      "critical": true,
+      "passed": false,
+      "passes": 0,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {
+        "proof_of_funds.schedules": [
+          {
+            "effective_from": "2026-09-01",
+            "effective_to": null,
+            "verified": true,
+            "rates_by_family_size": {
+              "1": 23448,
+              "2": 29192,
+              "3": 35888,
+              "4": 43572,
+              "5": 49419,
+              "6": 55736,
+              "7": 62054
+            },
+            "additional_family_member_cad": 6318
+          },
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2026-08-31",
+            "verified": true,
+            "rates_by_family_size": {
+              "1": 22895,
+              "2": 28502,
+              "3": 35040,
+              "4": 42543,
+              "5": 48252,
+              "6": 54420,
+              "7": 60589
+            },
+            "additional_family_member_cad": 6170
+          },
+          {
+            "effective_from": "2024-01-01",
+            "effective_to": "2024-12-31",
+            "verified": false,
+            "rates_by_family_size": {
+              "1": 20635,
+              "2": 25690,
+              "3": 31583,
+              "4": 38346,
+              "5": 43492,
+              "6": 49051,
+              "7": 54611
+            },
+            "additional_family_member_cad": 5559
+          }
+        ]
+      }
+    },
+    "followup_pgwp_language": {
+      "type": "follow_up",
+      "critical": false,
+      "passed": false,
+      "passes": 0,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "followup_work_break": {
+      "type": "follow_up",
+      "critical": false,
+      "passed": true,
+      "passes": 3,
+      "runs": 3,
+      "ungrounded": false,
+      "rules_values": {}
+    },
+    "followup_biometrics_validity_3turn": {
+      "type": "follow_up",
+      "critical": false,
+      "passed": false,
+      "passes": 1,
+      "runs": 3,
+      "ungrounded": false,
       "rules_values": {}
     },
     "language_hindi": {

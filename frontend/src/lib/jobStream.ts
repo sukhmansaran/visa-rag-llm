@@ -144,6 +144,7 @@ export async function followJob(
 export function describeStep(step: any): string {
     const next: Record<string, string> = {
         input_guardrail: "Understanding the question",
+        follow_up: "Understanding the question", // M2.4: a follow-up rewritten as a standalone question
         intent: "Applying official rules",
         decomposition: "Applying official rules", // M2.3: verified questions with several parts, split first
         rules: "Checking recent answers",

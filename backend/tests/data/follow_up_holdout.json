@@ -1,0 +1,362 @@
+{
+  "version": 3,
+  "about": "Held-out conversations for M2.4 (deterministic rewrites, no model). Each: earlier user turns, the new message, and what a correct standalone rewrite must contain: topics (M2.1 taxonomy) and words (lowercase substrings). 'standalone': true = must be left unchanged. round_1 was written after the first rules: 7/12; its misses led to general additions (bare phrases after 'And', 'too/also', fragments, carrying every missing topic, family members adding up, a chain bug where carried acronyms were refused), so it is no longer held out. round_2 was written after those changes with stricter words: 10/10 by labels but 6/10 by reading them (a lost 'if', 'on campus' added beside 'off campus', 'in Manitoba' dropped), which led to keeping 'if', swapping a modifier of the same noun and replacing a phrase only up to the next one; so it is no longer held out either. round_3 was written after those changes and never used to change a rule: the reported figure, checked by labels and by reading.",
+  "round_1": [
+    {
+      "turns": [
+        "How much money do I need as a single student?"
+      ],
+      "message": "What about for a family of four?",
+      "topics": [
+        "funds"
+      ],
+      "words": [
+        "four"
+      ]
+    },
+    {
+      "turns": [
+        "Do I need biometrics for a study permit?"
+      ],
+      "message": "Where do I give them in Delhi?",
+      "topics": [
+        "biometrics"
+      ],
+      "words": [
+        "delhi"
+      ]
+    },
+    {
+      "turns": [
+        "How long is a PGWP after a 2-year master's?"
+      ],
+      "message": "And after a 1-year diploma?",
+      "topics": [
+        "pgwp"
+      ],
+      "words": [
+        "1-year",
+        "diploma"
+      ]
+    },
+    {
+      "turns": [
+        "Can I work off campus as a student?"
+      ],
+      "message": "How many hours per week?",
+      "topics": [
+        "work"
+      ],
+      "words": [
+        "hours"
+      ]
+    },
+    {
+      "turns": [
+        "Do I need a PAL for a college program in Ontario?"
+      ],
+      "message": "What if I study in Quebec instead?",
+      "topics": [
+        "pal"
+      ],
+      "words": [
+        "quebec"
+      ]
+    },
+    {
+      "turns": [
+        "How long is a visitor visa valid?"
+      ],
+      "message": "Can my parents apply for it together?",
+      "topics": [
+        "visitor_visa"
+      ],
+      "words": [
+        "parents"
+      ]
+    },
+    {
+      "turns": [
+        "Which IELTS test do I need for Express Entry?",
+        "How long are the results valid?"
+      ],
+      "message": "Is CELPIP accepted too?",
+      "topics": [
+        "language_tests"
+      ],
+      "words": [
+        "celpip"
+      ]
+    },
+    {
+      "turns": [
+        "How much money do I need as a single student?",
+        "What if my wife comes?"
+      ],
+      "message": "And our two kids?",
+      "topics": [
+        "funds"
+      ],
+      "words": [
+        "wife",
+        "kids"
+      ]
+    },
+    {
+      "turns": [
+        "Can I extend my study permit from inside Canada?"
+      ],
+      "message": "How much does it cost?",
+      "topics": [
+        "extension"
+      ],
+      "words": [
+        "cost"
+      ]
+    },
+    {
+      "turns": [
+        "Do I need biometrics for a study permit?"
+      ],
+      "message": "How much is the fee for a family of three?",
+      "topics": [
+        "biometrics"
+      ],
+      "words": [
+        "three"
+      ]
+    },
+    {
+      "turns": [
+        "How much money do I need as a single student?"
+      ],
+      "message": "Do I need a PAL for a master's in BC?",
+      "standalone": true
+    },
+    {
+      "turns": [
+        "How long is a PGWP after a 2-year diploma?"
+      ],
+      "message": "How many hours can I work off campus during classes?",
+      "standalone": true
+    }
+  ],
+  "round_2": [
+    {
+      "turns": [
+        "How much money do I need for one year as a student in Toronto?"
+      ],
+      "message": "And if I bring my husband?",
+      "topics": [
+        "funds"
+      ],
+      "words": [
+        "husband"
+      ]
+    },
+    {
+      "turns": [
+        "Can I work off campus during my studies?"
+      ],
+      "message": "What about on campus?",
+      "topics": [
+        "work"
+      ],
+      "words": [
+        "on campus"
+      ]
+    },
+    {
+      "turns": [
+        "Do I need a PAL for a bachelor's degree in Manitoba?"
+      ],
+      "message": "What about for a master's?",
+      "topics": [
+        "pal"
+      ],
+      "words": [
+        "master"
+      ]
+    },
+    {
+      "turns": [
+        "How long can I stay in Canada on a visitor visa?"
+      ],
+      "message": "Can it be extended?",
+      "topics": [
+        "visitor_visa"
+      ],
+      "words": [
+        "extend"
+      ]
+    },
+    {
+      "turns": [
+        "What CLB do I need for Express Entry?"
+      ],
+      "message": "Does TEF count for that?",
+      "topics": [
+        "language_tests",
+        "express_entry"
+      ],
+      "words": [
+        "tef"
+      ]
+    },
+    {
+      "turns": [
+        "Do I need biometrics for a visitor visa?",
+        "How much do they cost?"
+      ],
+      "message": "Are seniors over 79 exempt?",
+      "topics": [
+        "biometrics"
+      ],
+      "words": [
+        "79"
+      ]
+    },
+    {
+      "turns": [
+        "How long is the PGWP after a 2-year college program?"
+      ],
+      "message": "What if I studied part-time in my last term?",
+      "topics": [
+        "pgwp"
+      ],
+      "words": [
+        "part-time"
+      ]
+    },
+    {
+      "turns": [
+        "How many hours can I work during a regular semester?"
+      ],
+      "message": "And during reading week?",
+      "topics": [
+        "work"
+      ],
+      "words": [
+        "reading week"
+      ]
+    },
+    {
+      "turns": [
+        "Do I need a GIC for my study permit?"
+      ],
+      "message": "How much should it be?",
+      "topics": [
+        "funds"
+      ],
+      "words": [
+        "gic"
+      ]
+    },
+    {
+      "turns": [
+        "Can I apply for a PGWP if my program was 8 months long?"
+      ],
+      "message": "How many hours can I work off campus while waiting for my PGWP?",
+      "standalone": true
+    }
+  ],
+  "round_3": [
+    {
+      "turns": [
+        "How much money do I need to study in Vancouver?"
+      ],
+      "message": "What if my parents send me money every month?",
+      "topics": [
+        "funds"
+      ],
+      "words": [
+        "parents"
+      ]
+    },
+    {
+      "turns": [
+        "Can I work full-time during winter break?"
+      ],
+      "message": "And during the summer?",
+      "topics": [
+        "work"
+      ],
+      "words": [
+        "summer"
+      ]
+    },
+    {
+      "turns": [
+        "Do I need a PAL for a diploma in Alberta?"
+      ],
+      "message": "What about a PhD?",
+      "topics": [
+        "pal"
+      ],
+      "words": [
+        "phd"
+      ]
+    },
+    {
+      "turns": [
+        "How long does a visitor visa take to process from India?"
+      ],
+      "message": "What about from Brazil?",
+      "topics": [
+        "visitor_visa",
+        "processing_times"
+      ],
+      "words": [
+        "brazil"
+      ]
+    },
+    {
+      "turns": [
+        "What CRS score do I need for an ITA?"
+      ],
+      "message": "How can I improve it?",
+      "topics": [
+        "express_entry"
+      ],
+      "words": [
+        "improve"
+      ]
+    },
+    {
+      "turns": [
+        "Do I need to give biometrics for a work permit?"
+      ],
+      "message": "What if I gave them 3 years ago?",
+      "topics": [
+        "biometrics"
+      ],
+      "words": [
+        "3 years"
+      ]
+    },
+    {
+      "turns": [
+        "How long is a PGWP after a 1-year master's?"
+      ],
+      "message": "Can my wife work while I'm on it?",
+      "topics": [
+        "pgwp"
+      ],
+      "words": [
+        "wife"
+      ]
+    },
+    {
+      "turns": [
+        "How do I extend my study permit?"
+      ],
+      "message": "When should I apply?",
+      "topics": [
+        "extension"
+      ],
+      "words": [
+        "apply"
+      ]
+    }
+  ]
+}

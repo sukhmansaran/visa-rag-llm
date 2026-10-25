@@ -1029,6 +1029,121 @@
       "rules_keys": []
     },
     {
+      "id": "followup_funds_child_3turn",
+      "type": "follow_up",
+      "critical": true,
+      "question": "What if our child comes too?",
+      "must_include": [
+        [
+          "35,?888"
+        ]
+      ],
+      "must_not": [],
+      "history": [
+        {
+          "role": "user",
+          "content": "How much money do I need as a single student?"
+        },
+        {
+          "role": "assistant",
+          "content": "A single applicant needs 23,448 CAD for living expenses [Source 1]."
+        },
+        {
+          "role": "user",
+          "content": "And if my spouse comes with me?"
+        },
+        {
+          "role": "assistant",
+          "content": "With your spouse, you need 29,192 CAD for living expenses [Source 1]."
+        }
+      ],
+      "rules_keys": [
+        "proof_of_funds.schedules"
+      ]
+    },
+    {
+      "id": "followup_pgwp_language",
+      "type": "follow_up",
+      "critical": false,
+      "question": "Do I need language test results for it?",
+      "must_include": [
+        [
+          "CLB 5",
+          "NCLC 5"
+        ]
+      ],
+      "must_not": [],
+      "history": [
+        {
+          "role": "user",
+          "content": "How long can my PGWP be after a 2-year college diploma?"
+        },
+        {
+          "role": "assistant",
+          "content": "A program of 2 years or longer can lead to a PGWP of up to 3 years [Source 1]."
+        }
+      ],
+      "rules_keys": []
+    },
+    {
+      "id": "followup_work_break",
+      "type": "follow_up",
+      "critical": false,
+      "question": "What about during my summer break?",
+      "must_include": [
+        [
+          "unlimited",
+          "no limit",
+          "full[- ]time",
+          "any number of hours"
+        ]
+      ],
+      "must_not": [],
+      "history": [
+        {
+          "role": "user",
+          "content": "How many hours can I work off campus during classes?"
+        },
+        {
+          "role": "assistant",
+          "content": "You can work up to 24 hours per week off campus during regular sessions [Source 1]."
+        }
+      ],
+      "rules_keys": []
+    },
+    {
+      "id": "followup_biometrics_validity_3turn",
+      "type": "follow_up",
+      "critical": false,
+      "question": "And how long are they valid?",
+      "must_include": [
+        [
+          "10 years",
+          "ten years"
+        ]
+      ],
+      "must_not": [],
+      "history": [
+        {
+          "role": "user",
+          "content": "Do I need to give biometrics for a study permit?"
+        },
+        {
+          "role": "assistant",
+          "content": "Most applicants need to give biometrics [Source 1]."
+        },
+        {
+          "role": "user",
+          "content": "How much does it cost?"
+        },
+        {
+          "role": "assistant",
+          "content": "Biometrics cost CAD 85 for one person [Source 1]."
+        }
+      ],
+      "rules_keys": []
+    },
+    {
       "id": "language_hindi",
       "type": "language",
       "critical": true,
