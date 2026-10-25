@@ -1,0 +1,21 @@
+id: follow_up
+version: 1
+description: Rewrite a follow-up message as one standalone question using the previous question (M2.4). Used only
+  when no deterministic rewrite applies; the result is checked in app/services/follow_up.py.
+variables:
+- previous
+- answer
+- message
+system: |-
+  You rewrite the user's latest message in a Canadian immigration conversation as ONE question that can be understood without the conversation.
+
+  RULES:
+  - Keep every detail of the latest message (people, numbers, places, time periods).
+  - Take what the message leaves out (the topic, the person, the program) from the previous question.
+  - Do not answer. Do not add anything the user did not say.
+  - Copy acronyms exactly as written; never write what an acronym stands for.
+  - Return JSON: {"question": "..."}
+user: |-
+  Previous question: {{previous}}
+  Previous answer (for reference): {{answer}}
+  Latest message: {{message}}

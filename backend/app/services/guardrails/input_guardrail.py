@@ -335,6 +335,13 @@ class InputGuardrail:
         ]
         return any(re.search(p, query_lower) for p in eligibility_patterns)
 
+    @staticmethod
+    def _leans_on_previous_question(query: str, chat_history: List[Dict[str, Any]]) -> bool:
+        from app.services.follow_up import needs_resolution
+
+        previous = next((m.get("content", "") for m in reversed(chat_history) if m.get("role") == "user"), "")
+        return bool(previous) and needs_resolution(query, previous)
+
     def _is_valid_contextual_follow_up(self, query: str, chat_history: Optional[List[Dict[str, Any]]]) -> bool:
         """
         Checks if a brief query is a valid follow-up to an existing visa conversation.
@@ -361,6 +368,10 @@ class InputGuardrail:
             recent_contents = " ".join([m.get("content", "") for m in chat_history[-4:]])
             recent_is_visa = any(p.search(recent_contents) for p in self.VISA_WHITELIST_REGEXES)
             if recent_is_visa and (has_follow_up_cue or has_referential_pronoun):
+                return True
+            # The follow-up resolver's own definition (M2.4): "What if our child comes too?" leans on the previous
+            # question; refusing it here as off-topic meant the resolver never saw it
+            if recent_is_visa and self._leans_on_previous_question(query, chat_history):
                 return True
 
         return has_follow_up_cue and bool(chat_history)
