@@ -308,6 +308,7 @@ class RAGPipeline:
             results = await self._evidence_answers(parts or [query], rule_facts, chunks, context_chars)
             metrics["evidence"] = {status: sum(r.status == status for r in results)
                                    for status in ("verified", "not_covered", "unverified", "invalid")}
+            metrics["evidence"]["partial"] = sum(r.partial for r in results)
             # A question built on a premise ("The funds are $10,000, right?", a closed program) that got nothing
             # verified: the model said "not covered" because no source states the false claim, instead of
             # correcting it. That "not covered" isn't trusted; the answer is written as before, from the rule facts.

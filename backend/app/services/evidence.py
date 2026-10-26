@@ -47,10 +47,13 @@ class PartResult:
     quote: str = ""
     source_number: int = -1
     problems: Tuple[str, ...] = field(default_factory=tuple)
+    partial: bool = False           # M4.2: the model check doubted a claim (shown as "partially verified")
+    claims: int = 0                 # claims checked (M4.1/M4.2)
 
     def summary(self) -> Dict[str, Any]:
         """Trace fields: no user text."""
-        return {"status": self.status, "source": self.source_number, "problems": list(self.problems)}
+        return {"status": self.status, "source": self.source_number, "problems": list(self.problems),
+                "partial": self.partial, "claims": self.claims}
 
 
 def evidence_context(rule_facts: Optional[str], chunk_context: str) -> str:
@@ -115,10 +118,34 @@ async def answer_part(part: str, context: str, sources: Dict[int, str], rule_fac
     if problems:
         corrected = _correct_source(reply, sources, part, rule_facts, problems)
         if corrected is not None:  # a real quote cited under the wrong number: keep it, under the right number
-            return PartResult(part, "verified", answer, reply.evidence_quote.strip(), corrected,
-                              tuple(problems) + (f"source: corrected to [Source {corrected}]",))
-    status = "unverified" if problems else "verified"
-    return PartResult(part, status, answer, reply.evidence_quote.strip(), reply.source_number, tuple(problems))
+            result = PartResult(part, "verified", answer, reply.evidence_quote.strip(), corrected,
+                                tuple(problems) + (f"source: corrected to [Source {corrected}]",))
+            return await _check_claims(result, sources)
+        return PartResult(part, "unverified", answer, reply.evidence_quote.strip(), reply.source_number, tuple(problems))
+    return await _check_claims(PartResult(part, "verified", answer, reply.evidence_quote.strip(), reply.source_number),
+                               sources)
+
+
+async def _check_claims(result: PartResult, sources: Dict[int, str]) -> PartResult:
+    """M4.1/M4.2 on a part whose evidence passed: each claim's code check against the cited passage blocks; the
+    model check (VERIFY_CLAIMS_WITH_MODEL) only marks the part partially verified."""
+    from dataclasses import replace
+
+    from app.core.config import settings
+    from app.services.claims import check_claim, code_check, split_claims
+
+    passage = sources.get(result.source_number, "")
+    claims = split_claims(result.answer) or [result.answer]
+    blocked = [f"claim: {p}" for claim in claims for p in code_check(claim, passage, result.part)]
+    if blocked:
+        return replace(result, status="unverified", problems=result.problems + tuple(blocked), claims=len(claims))
+    doubted = False
+    if settings.VERIFY_CLAIMS_WITH_MODEL:
+        for claim in claims:
+            if not (await check_claim(claim, passage)).ok:
+                doubted = True
+                break  # one doubt is enough to label the part; saves the remaining calls
+    return replace(result, partial=doubted, claims=len(claims))
 
 
 def _correct_source(reply: EvidenceAnswer, sources: Dict[int, str], part: str, rule_facts: Optional[str],
@@ -152,7 +179,8 @@ def compose(results: List[PartResult]) -> str:
             cite = "" if result.source_number == RULES_SOURCE else f" [Source {result.source_number}]"
             quote = result.quote.strip(' "')
             answer = _CITATION.sub("", result.answer).strip()  # only the checked citation is shown
-            text = f'{answer}{cite}\n> "{quote}"'
+            label = " (partially verified)" if result.partial else ""
+            text = f'{answer}{cite}{label}\n> "{quote}"'
         elif result.status == "not_covered":
             text = NOT_COVERED_TEXT.format(part=result.part)
         else:
