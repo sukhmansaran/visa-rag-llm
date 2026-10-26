@@ -193,6 +193,13 @@ class InputGuardrail:
         re.compile(rf"\b{_INTENT_LEAD}\s+(?:\w+\s+){{0,2}}?(?:sneak|smuggle)\s+(?:\w+\s+){{0,3}}?(?:into|across|over)\b", re.IGNORECASE),
         re.compile(rf"\b{_INTENT_LEAD}\s+cross\s+(?:the\s+)?border\s+(?:illegally|without\s+(?:a\s+)?(?:visa|papers|documents|being\s+caught))", re.IGNORECASE),
         re.compile(r"\bwithout\s+getting\s+caught\b", re.IGNORECASE),
+        # Hiding one's immigration or criminal history from an application: intent-led only, so "Do I have to
+        # declare my refusal?" and "What happens if I forgot to mention it?" still get answers (the monitor missed
+        # "How do I hide my previous visa refusal from the US...", M4.5)
+        re.compile(rf"\b{_INTENT_LEAD}\s+(?:\w+\s+){{0,2}}?(?:hide|conceal|cover\s+up|omit|leave\s+out|keep\s+quiet\s+about|"
+                   r"not\s+(?:mention|disclose|declare|tell\s+(?:them|ircc|the\s+officer)\s+about))\s+(?:\w+\s+){0,4}?"
+                   r"(?:refus\w*|reject\w*|denials?|denied\s+visas?|criminal\s+(?:record|history|charges?)|convictions?|"
+                   r"arrests?|deport\w*|removal\s+orders?|overstay\w*|inadmissib\w*)\b", re.IGNORECASE),
     ]
 
     # --- 4b. EXPLICIT OUT-OF-SCOPE PATTERNS ---
