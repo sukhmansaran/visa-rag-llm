@@ -122,14 +122,15 @@ async def test_blocked_question_ends_cleanly(fake_llm):
 
 
 @pytest.mark.asyncio
-async def test_model_outage_becomes_an_error_event(scripted, db_session):
+async def test_model_outage_finishes_with_a_labelled_answer(scripted, db_session):
     scripted._rules.clear()
     scripted.when(r".", AIServiceUnavailableError("down", details={"reason": "timeout"}))
     job_id = await jobs.create_job(user_id=None)
-    # the streaming pipeline turns model errors into an error chunk and still finishes
+    # M4.7: the job still finishes, with the official rule figures and a note that the assistant is unavailable
     assert await jobs.execute_answer_job(job_id, None, QUESTION) == "done"
     events = await events_of(job_id)
-    assert "error occurred" in events[-1][2]["full_response"]
+    assert "temporarily unavailable" in events[-1][2]["full_response"]
+    assert events[-1][2]["metrics"]["degraded"] == {"model": "unavailable", "fallback": "rules"}
 
 
 @pytest.mark.asyncio

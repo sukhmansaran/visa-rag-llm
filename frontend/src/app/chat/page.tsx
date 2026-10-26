@@ -5,7 +5,10 @@ import { Send, BookOpen, ChevronDown, ChevronUp, Database, Zap, Clock, ExternalL
 import Link from "next/link";
 import { MarkdownMessage } from "@/components/MarkdownMessage";
 import { isAuthenticated } from "@/lib/auth";
-import { cancelJob, describeQueue, describeStep, followJob, JobEvent, JobRequestError, startAnswerJob } from "@/lib/jobStream";
+import {
+    cancelJob, describeQueue, describeStep, followJob, JobEvent, JobRequestError, JobsUnavailableError, startAnswerJob,
+    streamDirectAnswer,
+} from "@/lib/jobStream";
 
 
 interface Message {
@@ -149,6 +152,26 @@ export default function ChatPage() {
         }
     };
 
+    /** Jobs unavailable (Redis down, M4.7): answer over the direct stream, without a queue or progress steps. */
+    const runDirect = async (body: Parameters<typeof streamDirectAnswer>[0]) => {
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        updateLastAssistant(m => ({ ...m, progress: "Answering directly (progress updates are unavailable)" }));
+        try {
+            const session = await streamDirectAnswer(body, handleJobEvent, controller.signal);
+            if (session) setSessionId(session);
+            updateLastAssistant(m => m.status === "running"
+                ? { ...m, content: m.content + errorText(undefined), streaming: false, progress: undefined, status: "error" }
+                : m);
+        } catch (error: any) {
+            if (error?.name === "AbortError") return;
+            updateLastAssistant(m => ({ ...m, content: `⚠️ Could not get an answer: ${error?.message || "Failed to fetch"}.`,
+                streaming: false, progress: undefined, status: "error" }));
+        } finally {
+            setLoading(false);
+        }
+    };
+
     // After a reload, re-attach to the answer that was running (its id is kept in the URL)
     useEffect(() => {
         const jobId = new URL(window.location.href).searchParams.get(JOB_PARAM);
@@ -190,17 +213,22 @@ export default function ChatPage() {
 
         setMessages(prev => [...prev, { role: "assistant", content: "", streaming: true, status: "running", progress: "Starting" }]);
         setLoading(true);
+        const body = {
+            query: textToSend,
+            country: profile?.country || "Canada",
+            university: profile?.university || null,
+            sessionId: sessionId,
+        };
         try {
-            const job = await startAnswerJob({
-                query: textToSend,
-                country: profile?.country || "Canada",
-                university: profile?.university || null,
-                sessionId: sessionId,
-            });
+            const job = await startAnswerJob(body);
             setSessionId(job.session_id);
             setJobInUrl(job.job_id);
             await runJob(job.job_id);
         } catch (error: any) {
+            if (error instanceof JobsUnavailableError) {
+                await runDirect(body);
+                return;
+            }
             const message = error instanceof JobRequestError && (error.status === 401 || error.status === 403)
                 ? "Your session has expired. Please [sign in again](/login?redirect=/chat)."
                 : error instanceof JobRequestError && error.status === 429

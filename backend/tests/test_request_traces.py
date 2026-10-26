@@ -194,13 +194,29 @@ async def test_model_outage_is_traced_as_an_error(client, db_session, scripted_p
     scripted_pipeline._rules.clear()
     scripted_pipeline.when(r".", AIServiceUnavailableError("down", details={"reason": "timeout"}))
     token = await signup(client, "trace-error@example.com")
-    r = await client.post("/api/v1/chat/answer", json={"query": QUESTION}, headers={"Authorization": f"Bearer {token}"})
+    question = "Can I study a short course in Canada without a permit? Email me at jane.doe@example.com"  # no rules
+    r = await client.post("/api/v1/chat/answer", json={"query": question}, headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 503
 
     rows = await traces(db_session)
     assert len(rows) == 1 and rows[0].status == "error"
     assert "AIServiceUnavailableError" in rows[0].error
     assert next(s for s in rows[0].steps if s["name"] == "generation")["error"] == "AIServiceUnavailableError"
+    assert next(s for s in rows[0].steps if s["name"] == "degraded")["fallback"] is None
+
+
+@pytest.mark.asyncio
+async def test_model_outage_with_rule_figures_is_traced_as_degraded(client, db_session, scripted_pipeline):
+    """M4.7: a question the rules cover is answered with their figures, labelled, and the trace says why."""
+    scripted_pipeline._rules.clear()
+    scripted_pipeline.when(r".", AIServiceUnavailableError("down", details={"reason": "timeout"}))
+    token = await signup(client, "trace-degraded@example.com")
+    r = await client.post("/api/v1/chat/answer", json={"query": QUESTION}, headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200 and "temporarily unavailable" in r.json()["advice_text"]
+
+    rows = await traces(db_session)
+    assert next(s for s in rows[0].steps if s["name"] == "generation")["error"] == "AIServiceUnavailableError"
+    assert next(s for s in rows[0].steps if s["name"] == "degraded")["fallback"] == "rules"
 
 
 @pytest.mark.asyncio

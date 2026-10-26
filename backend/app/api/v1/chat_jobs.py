@@ -18,6 +18,7 @@ from typing import Any, AsyncIterator, Dict, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from redis.exceptions import RedisError
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,6 +50,15 @@ def _enqueue_failed(job_id: str) -> HTTPException:
     logger.error(f"[JOB {job_id}] could not be queued", exc_info=True)
     return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                          detail="The answer service is temporarily unavailable. Please retry shortly.")
+
+
+def _jobs_unavailable() -> HTTPException:
+    """Redis down (M4.7): no job store, queue or progress stream. Nothing was stored, so the client can ask the
+    direct streaming endpoint (/chat/answer/stream, the fast path) instead; JOBS_UNAVAILABLE tells it to."""
+    logger.error("[JOBS] Redis unavailable; the client should fall back to the direct answer stream", exc_info=True)
+    return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                         detail={"error_code": "JOBS_UNAVAILABLE",
+                                 "message": "Progress updates are unavailable right now; answering directly."})
 
 
 def _answer_path(query: str) -> str:
@@ -99,10 +109,12 @@ async def create_answer_job(
     chat_history = [{"role": m.role, "content": m.content} for m in reversed(history_rows)]
 
     path = _answer_path(message.query)
-    job_id = await jobs.create_job(current_user.id, kind="answer", session_id=session_id, path=path)
-    admission = None
-    if path == "verified":
-        admission = await verified_queue.admit(current_user.id, job_id)
+    try:
+        job_id = await jobs.create_job(current_user.id, kind="answer", session_id=session_id, path=path)
+        admission = await verified_queue.admit(current_user.id, job_id) if path == "verified" else None
+    except RedisError:
+        raise _jobs_unavailable()
+    if admission is not None:
         if not admission.admitted:
             await jobs.delete_job(job_id)  # refused before anything was stored: the user can simply ask again
             raise _limit_refusal(admission)

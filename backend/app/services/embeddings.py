@@ -8,6 +8,7 @@ import asyncio
 import httpx
 
 from app.core.config import settings
+from app.core.exceptions import AIServiceUnavailableError
 
 
 class EmbeddingService:
@@ -51,13 +52,14 @@ class EmbeddingService:
 
                 return embedding
 
-            except httpx.ConnectError:
-                raise Exception(
-                    f"Cannot connect to Ollama at {self.base_url}. "
-                    "Make sure Ollama is running (`ollama serve`)."
-                )
+            # Ollama down or timing out is the model service being unavailable (M4.7), not an empty search
+            except (httpx.ConnectError, httpx.NetworkError):
+                raise AIServiceUnavailableError(
+                    f"Cannot connect to Ollama at {self.base_url}. Make sure Ollama is running (`ollama serve`).",
+                    details={"reason": "embedding_unreachable"})
             except httpx.TimeoutException:
-                raise Exception("Ollama embedding request timed out.")
+                raise AIServiceUnavailableError("Ollama embedding request timed out.",
+                                                details={"reason": "embedding_timeout"})
 
     async def generate_embeddings_batch(
         self,
