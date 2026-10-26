@@ -183,7 +183,10 @@ async def test_unified_pipeline_guardrail_interception_stream():
 async def test_unified_pipeline_express_entry_tech_eligibility():
     """Verify tech professionals asking about Express Entry get grounded evaluation from verified rules via LLM."""
     query = "I am a software engineer with 3 years of Python experience. Can I apply for Express Entry?"
-    with patch("app.services.llm.llm_service.generate_answer", new_callable=AsyncMock) as mock_llm:
+    # Rule facts alone are the evidence here; retrieval is stubbed so the test doesn't need a running embedding
+    # model (without one, the search fails as "model unavailable", M4.7, not as "no sources")
+    with patch("app.services.retrieval.retrieval_service.retrieve", new_callable=AsyncMock, return_value=[]), \
+         patch("app.services.llm.llm_service.generate_answer", new_callable=AsyncMock) as mock_llm:
         # A correct answer (M0.13): software engineers are not on the current STEM category list
         mock_llm.return_value = (
             "With 3 years of experience as a software engineer (TEER 1, NOC 21231) you can meet the Federal "
