@@ -16,6 +16,9 @@ os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 # The monitor model (M4.5) adds a model call to verified and uncertain messages; tests that script the model would all
 # need a reply for it. Off by default here; tests/test_monitor.py switches it on.
 os.environ.setdefault("MONITOR_ENABLED", "false")
+# The verified-answer cache (M4.6) lives in Redis across tests; one test's answer would be served to the next.
+# Off by default here; tests/test_verified_cache.py switches it on with an in-memory Redis.
+os.environ.setdefault("VERIFIED_CACHE_ENABLED", "false")
 
 from urllib.parse import urlparse
 

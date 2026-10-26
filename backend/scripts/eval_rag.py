@@ -361,6 +361,8 @@ async def main(argv=None) -> List[dict]:
     args = ap.parse_args(argv)
     if args.agent_mode:
         settings.AGENT_MODE = args.agent_mode
+    # Every case must be answered, not served from an earlier run's verified-answer cache (M4.6)
+    settings.VERIFIED_CACHE_ENABLED = False
     system_prompt = Path(args.system_prompt_file).read_text(encoding="utf-8") if args.system_prompt_file else None
 
     cases = select_cases(args)

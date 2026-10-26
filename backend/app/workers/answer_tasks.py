@@ -7,12 +7,14 @@ from app.workers.celery_app import celery_app
 
 
 async def _with_cleanup(coro):
+    from app.services import verified_cache
     from app.services.answer_jobs import close_redis
 
     try:
         return await coro
     finally:
         await close_redis()
+        await verified_cache.close()
 
 
 @celery_app.task(name="app.workers.answer_tasks.run_answer_job_task")
