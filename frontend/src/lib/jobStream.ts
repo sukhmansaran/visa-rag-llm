@@ -25,6 +25,50 @@ export class JobRequestError extends Error {
     }
 }
 
+/** No job store, queue or progress stream (Redis down, M4.7); nothing was stored: answer with streamDirectAnswer. */
+export class JobsUnavailableError extends JobRequestError {
+    constructor(message: string) {
+        super(message, 503);
+    }
+}
+
+/**
+ * The fallback when jobs are unavailable (M4.7): the direct streaming endpoint, which answers on the fast path
+ * with no queue and no progress steps. Its `data:` events are passed on as job events; returns the session id.
+ */
+export async function streamDirectAnswer(
+    body: { query: string; country?: string | null; university?: string | null; sessionId?: string | null },
+    onEvent: (event: JobEvent) => void,
+    signal?: AbortSignal,
+): Promise<string | null> {
+    const response = await apiFetch("/api/v1/chat/answer/stream", { method: "POST", body: JSON.stringify(body), signal });
+    if (!response.ok || !response.body) throw new JobRequestError(`Could not start the answer (HTTP ${response.status})`, response.status);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let sessionId: string | null = null;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() ?? "";
+        for (const block of blocks) {
+            const data = block.split("\n").filter(line => line.startsWith("data: ")).map(line => line.slice(6)).join("");
+            if (!data) continue;
+            let event: any;
+            try {
+                event = JSON.parse(data);
+            } catch {
+                continue;
+            }
+            if (event.type === "session") sessionId = event.session_id ?? sessionId;
+            else onEvent({ id: "", type: event.type, data: event });
+        }
+    }
+    return sessionId;
+}
+
 export async function startAnswerJob(body: {
     query: string;
     country?: string | null;
@@ -32,6 +76,10 @@ export async function startAnswerJob(body: {
     sessionId?: string | null;
 }): Promise<{ job_id: string; session_id: string }> {
     const response = await apiFetch("/api/v1/chat/jobs", { method: "POST", body: JSON.stringify(body) });
+    if (response.status === 503) {
+        const detail = await response.json().then(b => b?.detail).catch(() => null);
+        if (detail?.error_code === "JOBS_UNAVAILABLE") throw new JobsUnavailableError(detail.message);
+    }
     if (!response.ok) {
         // A limit refusal (429, M1.4) explains itself; show the server's words
         const detail = response.status === 429 ? await response.json().then(b => b?.detail).catch(() => null) : null;
@@ -159,6 +207,7 @@ export function describeStep(step: any): string {
         output_guardrail: "Finishing",
         disclaimer: "Finishing",
         verified_cache_store: "Finishing",
+        degraded: "Finishing", // M4.7: the model was unavailable; answered without it
     };
     // Triage (M1.2) runs after the guardrail and, when retrieval confidence is low, again after the evidence check
     if (step?.name === "triage") return step.stage === "retrieval" ? next.evidence_gate : next.input_guardrail;

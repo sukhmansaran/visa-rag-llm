@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 from app.core.config import settings
+from app.core.exceptions import AIServiceUnavailableError
 from app.core.visa_constitution import LEGAL_DISCLAIMER, REFUSAL_MESSAGES, ViolationType
 from app.services.intent_parser import intent_parser
 from app.services.rule_engine import rule_engine, get_rules_content_hash
@@ -65,6 +66,30 @@ UNVERIFIED_EVIDENCE_REFUSAL = (
     "Please consult official government portals (such as Immigration, Refugees and Citizenship Canada at https://www.canada.ca) "
     "or consult a licensed Regulated Canadian Immigration Consultant (RCIC)."
 )
+
+# Graceful degradation (M4.7, principle 12)
+MODEL_UNAVAILABLE_MESSAGE = (
+    "The assistant is temporarily unavailable, so I can't answer right now. Please try again in a few minutes. "
+    "For urgent questions, see Immigration, Refugees and Citizenship Canada at https://www.canada.ca."
+)
+MODEL_UNAVAILABLE_CACHED_NOTE = (
+    "\n\nNote: the assistant is temporarily unavailable, so this is an earlier answer to the same question. "
+    "It wasn't checked again just now."
+)
+MODEL_UNAVAILABLE_RULES_INTRO = (
+    "The assistant is temporarily unavailable, so I can't write a full answer right now. These are the official "
+    "figures from the rules this assistant uses that relate to your question:\n\n"
+)
+MODEL_UNAVAILABLE_RULES_OUTRO = "\n\nPlease try again in a few minutes for a full answer."
+MODEL_INTERRUPTED_NOTE = "\n\nThe assistant became unavailable before this answer was finished. Please try again."
+MONITOR_UNAVAILABLE_NOTE = (
+    "\n\nPartially verified: the safety-check model was unavailable, so your question was checked by code rules only."
+)
+
+
+def _monitor_unavailable(metrics: Dict[str, Any]) -> bool:
+    """The monitor was due to check this message and couldn't (M4.5 records it as available=False)."""
+    return (metrics.get("monitor") or {}).get("available", True) is False
 
 
 class RAGPipeline:
@@ -128,7 +153,62 @@ class RAGPipeline:
         stream: bool,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
-        The one implementation of the chat pipeline (M0.3).
+        The pipeline with graceful degradation (M4.7): if the model service is down or times out before any
+        answer text was sent, answer without it: an earlier answer to the same question, else the official rule
+        figures for it, else a clear "temporarily unavailable" message. The non-streaming endpoint gets
+        AIServiceUnavailableError (HTTP 503 with that message) when there is nothing to answer with.
+        """
+        state: Dict[str, Any] = {}
+        sent_text = False
+        try:
+            async for event in self._answer_events(query, context_metadata, chat_history, db, stream, state):
+                sent_text = sent_text or event["type"] == "chunk"
+                yield event
+        except AIServiceUnavailableError as e:
+            if sent_text or "metrics" not in state:  # text already sent can't be taken back
+                raise
+            with trace_step("degraded", dependency="model", reason=(e.details or {}).get("reason")) as step:
+                fallback = await self._model_unavailable_answer(state, chat_history)
+                step["fallback"] = fallback[2] if fallback else None
+            if fallback is None and not stream:
+                raise AIServiceUnavailableError(MODEL_UNAVAILABLE_MESSAGE, details=e.details) from e
+            answer, sources, kind = fallback or (MODEL_UNAVAILABLE_MESSAGE, [], "none")
+            metrics = state["metrics"]
+            metrics["source"] = "model_unavailable" if kind == "none" else f"model_unavailable_{kind}"
+            metrics["degraded"] = {"model": "unavailable", "fallback": kind}
+            yield {"type": "chunk", "content": answer}
+            yield {"type": "done", "full_response": answer, "sources": sources, "metrics": state["finished_metrics"]()}
+
+    async def _model_unavailable_answer(self, state: Dict[str, Any], chat_history: Optional[List[Dict[str, Any]]],
+                                        ) -> Optional[tuple]:
+        """(answer, sources, "cached" | "rules") without a model call, or None."""
+        if "cache_args" not in state:
+            return None
+        country, visa_type, intent, query = state["cache_args"]
+        if not chat_history:  # like the answer cache itself: a conversation's answer depends on the conversation
+            # the fast path's answer: the verified path never stores one there, and a fast answer beats none
+            version = f"{await self._answer_cache_version()}:fast"
+            cached = intent_cache.get_entry(country, visa_type, intent, version=version, query=query)
+            if cached:
+                return cached["response"] + MODEL_UNAVAILABLE_CACHED_NOTE, cached["sources"], "cached"
+        rule_facts = state.get("rule_facts")
+        if rule_facts:
+            _, sources = self._build_grounded_context(rule_facts, [], "")
+            return MODEL_UNAVAILABLE_RULES_INTRO + rule_facts + MODEL_UNAVAILABLE_RULES_OUTRO, sources, "rules"
+        return None
+
+    async def _answer_events(
+        self,
+        query: str,
+        context_metadata: Optional[Dict[str, Any]],
+        chat_history: Optional[List[Dict[str, Any]]],
+        db: Optional[AsyncSession],
+        stream: bool,
+        state: Dict[str, Any],
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        The one implementation of the chat pipeline (M0.3). `state` keeps what an answer without the model
+        needs (M4.7): metrics, the cache key parts, the rule facts.
 
         Yields events: {"type": "guardrail_blocked"}, {"type": "chunk"} (one or more) and a final
         {"type": "done", "full_response", "sources", "metrics"}. Only answer generation differs by mode:
@@ -149,6 +229,7 @@ class RAGPipeline:
         def finished_metrics() -> Dict[str, Any]:
             metrics["latency_ms"] = int((time.perf_counter() - start_time) * 1000)
             return metrics
+        state.update(metrics=metrics, finished_metrics=finished_metrics)
 
         # 0. Deterministic Input Guardrail Firewall Check
         with trace_step("input_guardrail") as step:
@@ -258,6 +339,7 @@ class RAGPipeline:
                         closed_program_fact=bool(closed_program_fact))
         # The path is part of the key: a fast-path answer must not stand in for a verified one, nor the reverse
         rules_version = f"{await self._answer_cache_version()}:{routed_path()}"
+        state.update(cache_args=(country, visa_type, intent, query), rule_facts=rule_facts)
 
         # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)
         with trace_step("cache") as step:
@@ -304,6 +386,9 @@ class RAGPipeline:
                         intent=intent,
                         top_k=settings.RAG_TOP_K,
                     )
+            except AIServiceUnavailableError as e:
+                step["retrieval_error"] = type(e).__name__
+                raise  # the embedding model is down: no search happened, so "no sources" would be wrong
             except Exception as e:
                 logger.warning(f"[RAG_PIPELINE] Retrieval error: {e}")
                 step["retrieval_error"] = type(e).__name__
@@ -428,14 +513,16 @@ class RAGPipeline:
                 metrics["risk_categories"] = []
             if sensitive and not disclaimer_eval.is_high_risk:
                 answer += LEGAL_DISCLAIMER  # M4.4: always, even if the answer's wording didn't trigger the detector
+            monitor_ran = not _monitor_unavailable(metrics)
+            if not monitor_ran:
+                answer += MONITOR_UNAVAILABLE_NOTE  # M4.7: checked by code only
 
             self._record_usage(metrics, user_prompt, combined_context, answer)
 
-            # Cache grounded result only if validation passed without leakage
-            if val_res.is_valid and routed_path() != VERIFIED:
+            # Cache grounded result only if validation passed without leakage, and the monitor checked the question
+            if val_res.is_valid and routed_path() != VERIFIED and monitor_ran:
                 intent_cache.set(country, visa_type, intent, answer, version=rules_version, query=query,
                                  sources=sources)
-            monitor_ran = (metrics.get("monitor") or {}).get("available", True) is not False
             if verified_cache_key and evidence_answer is not None and val_res.is_valid and monitor_ran:
                 with trace_step("verified_cache_store") as step:
                     step["stored"] = await verified_cache.put(verified_cache_key, answer, sources,
@@ -488,9 +575,20 @@ class RAGPipeline:
                     metrics["high_risk_topic_detected"] = False
                     metrics["risk_categories"] = []
 
-                normalized_full = normalize_markdown_output(full_response)
-                intent_cache.set(country, visa_type, intent, normalized_full, version=rules_version, query=query,
-                                 sources=sources)
+                if _monitor_unavailable(metrics):
+                    full_response += MONITOR_UNAVAILABLE_NOTE  # M4.7: checked by code only; not cached
+                    yield {"type": "chunk", "content": MONITOR_UNAVAILABLE_NOTE}
+                else:
+                    normalized_full = normalize_markdown_output(full_response)
+                    intent_cache.set(country, visa_type, intent, normalized_full, version=rules_version,
+                                     query=query, sources=sources)
+        except AIServiceUnavailableError as e:
+            if not full_response:
+                raise  # nothing sent yet: _events answers without the model
+            logger.error(f"[RAG_PIPELINE] model unavailable mid-answer: {e}")
+            metrics["degraded"] = {"model": "interrupted"}
+            full_response += MODEL_INTERRUPTED_NOTE
+            yield {"type": "chunk", "content": MODEL_INTERRUPTED_NOTE}
         except Exception as e:
             logger.error(f"[RAG_PIPELINE] LLM stream error: {e}", exc_info=True)
             err_msg = "An error occurred while generating the answer from official sources."

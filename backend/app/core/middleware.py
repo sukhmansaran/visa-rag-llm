@@ -4,6 +4,7 @@ import uuid
 from typing import Callable
 from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
+from redis.exceptions import RedisError
 from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 from app.core.exceptions import AppException, app_exception_to_http_exception
@@ -60,6 +61,14 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         except AppException as exc:
             http_exc = app_exception_to_http_exception(exc)
             return JSONResponse(status_code=http_exc.status_code, content=http_exc.detail)
+        except RedisError as exc:
+            # Redis down (M4.7): a service is temporarily unavailable, not a server bug
+            logger.error(f"Redis unavailable: {exc}")
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"error_code": "REDIS_UNAVAILABLE",
+                         "message": "A service this needs is temporarily unavailable. Please try again shortly."},
+            )
         except Exception as exc:
             logger.error(f"Unexpected server error: {str(exc)}", exc_info=True)
             request_id = getattr(request.state, "request_id", None) or request_id_ctx.get()

@@ -9,6 +9,7 @@ import urllib.parse
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
+from app.core.exceptions import AIServiceUnavailableError
 from app.services.vector_store import vector_store
 from app.services.embeddings import embed_text
 from app.services.source_status import inactive_source_ids
@@ -36,6 +37,8 @@ class RetrievalService:
         # Generate query embedding
         try:
             query_embedding = await embed_text(query)
+        except AIServiceUnavailableError:
+            raise  # the model service is down: the caller must not read this as "no sources" (M4.7)
         except Exception as e:
             logger.warning(f"[RETRIEVAL] Error generating query embedding: {e}")
             return []
