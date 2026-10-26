@@ -145,6 +145,7 @@ export function describeStep(step: any): string {
     const next: Record<string, string> = {
         input_guardrail: "Understanding the question",
         follow_up: "Understanding the question", // M2.4: a follow-up rewritten as a standalone question
+        verified_cache: "Understanding the question", // M4.6: no recent verified answer to this question
         intent: "Applying official rules",
         decomposition: "Applying official rules", // M2.3: verified questions with several parts, split first
         rules: "Checking recent answers",
@@ -157,6 +158,7 @@ export function describeStep(step: any): string {
         generation: "Checking the answer",
         output_guardrail: "Finishing",
         disclaimer: "Finishing",
+        verified_cache_store: "Finishing",
     };
     // Triage (M1.2) runs after the guardrail and, when retrieval confidence is low, again after the evidence check
     if (step?.name === "triage") return step.stage === "retrieval" ? next.evidence_gate : next.input_guardrail;

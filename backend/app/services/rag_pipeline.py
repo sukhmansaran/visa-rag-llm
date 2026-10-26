@@ -27,7 +27,8 @@ from app.services.guardrails.monitor import classify as monitor_classify
 from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
-from app.services.tracing import trace_step
+from app.services.tracing import current_trace, trace_step
+from app.services import verified_cache
 from app.services.decomposition import decompose, needs_split
 from app.services.evidence import PartResult, answer_part, compose, evidence_context, source_texts
 from app.services.iteration import better, refine_query
@@ -174,6 +175,24 @@ class RAGPipeline:
                 step.update(resolution.summary())
             query = resolution.question
 
+        # 0a''. Verified-answer cache (M4.6): before any model call, so a repeated verified question comes back in
+        # under a second. Entries exist only for answers that passed the monitor and the evidence checks.
+        verified_cache_key = None
+        if routed_path() == VERIFIED and settings.VERIFIED_CACHE_ENABLED:
+            with trace_step("verified_cache") as step:
+                trace = current_trace()
+                verified_cache_key = await verified_cache.key_for(query, context_metadata,
+                                                                  trace.user_id if trace else None)
+                hit = await verified_cache.get(verified_cache_key) if verified_cache_key else None
+                step.update(hit=bool(hit), cacheable=verified_cache_key is not None)
+            if hit:
+                metrics["source"] = "verified_cache"
+                metrics["evidence"] = hit.get("evidence")
+                yield {"type": "chunk", "content": hit["answer"]}
+                yield {"type": "done", "full_response": hit["answer"], "sources": hit.get("sources", []),
+                       "metrics": finished_metrics()}
+                return
+
         # 0a'. Monitor model (M4.5): the guardrail's second layer, for messages the regex layer allowed but marked
         # uncertain and for every verified-path message; refuses only confident harmful / injection verdicts
         if settings.MONITOR_ENABLED and (guardrail_res.uncertain or routed_path() == VERIFIED):
@@ -243,8 +262,9 @@ class RAGPipeline:
         # 3. Cache Check (query-specific; bypass for multi-turn sessions; versioned by rules content hash)
         with trace_step("cache") as step:
             cached = intent_cache.get_entry(country, visa_type, intent, version=rules_version, query=query)
-            step.update(hit=bool(cached), used=bool(cached and not chat_history))
-        if cached and not chat_history:
+            use_cached = bool(cached and not chat_history and routed_path() != VERIFIED)  # verified: its own cache
+            step.update(hit=bool(cached), used=use_cached)
+        if use_cached:
             metrics["source"] = "cache"
             yield {"type": "chunk", "content": cached["response"]}
             yield {"type": "done", "full_response": cached["response"], "sources": cached["sources"],
@@ -412,9 +432,14 @@ class RAGPipeline:
             self._record_usage(metrics, user_prompt, combined_context, answer)
 
             # Cache grounded result only if validation passed without leakage
-            if val_res.is_valid:
+            if val_res.is_valid and routed_path() != VERIFIED:
                 intent_cache.set(country, visa_type, intent, answer, version=rules_version, query=query,
                                  sources=sources)
+            monitor_ran = (metrics.get("monitor") or {}).get("available", True) is not False
+            if verified_cache_key and evidence_answer is not None and val_res.is_valid and monitor_ran:
+                with trace_step("verified_cache_store") as step:
+                    step["stored"] = await verified_cache.put(verified_cache_key, answer, sources,
+                                                              metrics.get("evidence") or {})
 
             yield {"type": "chunk", "content": answer}
             yield {"type": "done", "full_response": answer, "sources": sources, "metrics": finished_metrics()}

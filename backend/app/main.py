@@ -48,6 +48,8 @@ async def lifespan(app: FastAPI):
     await llm_service.close()
     from app.services.answer_jobs import close_redis as close_job_redis
     await close_job_redis()
+    from app.services import verified_cache
+    await verified_cache.close()
     from app.services.llm_slots import global_slots
     await global_slots.close()
     await close_db()

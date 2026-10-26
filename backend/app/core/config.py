@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     # unless this much of the request has already passed
     VERIFIED_MAX_ROUNDS: int = 2
     VERIFIED_RETRY_BEFORE_SECONDS: float = 150.0
+    # Verified-answer cache (M4.6, Redis): keyed by the question and every version an answer depends on
+    VERIFIED_CACHE_ENABLED: bool = True
+    VERIFIED_CACHE_TTL_SECONDS: int = 7 * 24 * 3600
 
     # Triage (M1.2): off = no triage; shadow = triage every question and trace the decision, answers unchanged;
     # on = route verified questions to the verified path (until M2 that path is today's pipeline)
