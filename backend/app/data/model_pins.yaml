@@ -20,4 +20,12 @@ models:
       knowledge base'
     uses:
     - embeddings
+  qwen3:4b:
+    accepted_at: '2026-10-26T11:42:40'
+    digest: 359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7
+    note: 'M4.5 monitor (owner decision 2026-10-26): eval_monitor on CPU, 0/95 legitimate
+      questions refused, 8/12 harmful/injection caught, harmful/injection >= 0.8 only;
+      answer models unchanged'
+    uses:
+    - monitor
 version: 1

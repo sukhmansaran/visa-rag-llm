@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     LLM_MODEL_PLANNER: Optional[str] = None    # question analysis / decomposition
     LLM_MODEL_ANSWER: Optional[str] = None     # grounded answer writing
     LLM_MODEL_VERIFIER: Optional[str] = None   # claim checks against sources
+    # Input guardrail second layer (M4.5): qwen3:4b refused 0/95 legitimate questions and caught 8/12 harmful or
+    # injection messages the regex layer misses; llama3.2:3b caught 2/12, phi4-mini refused 2 legitimate questions
+    LLM_MODEL_MONITOR: Optional[str] = "qwen3:4b"
+    MONITOR_ENABLED: bool = True
+    MONITOR_DENY_CONFIDENCE: float = 0.8   # refuse only harmful / injection verdicts at least this confident
     # Backup model (M0.4b): answers instead when the primary times out, errors (5xx/404) or replies empty.
     # At most one swap per request; empty = no failover.
     LLM_FALLBACK_MODEL: Optional[str] = None

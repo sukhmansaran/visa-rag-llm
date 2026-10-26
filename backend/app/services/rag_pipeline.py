@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 from app.core.config import settings
-from app.core.visa_constitution import LEGAL_DISCLAIMER
+from app.core.visa_constitution import LEGAL_DISCLAIMER, REFUSAL_MESSAGES, ViolationType
 from app.services.intent_parser import intent_parser
 from app.services.rule_engine import rule_engine, get_rules_content_hash
 from app.services.cache_service import intent_cache
@@ -23,6 +23,7 @@ from app.services.retrieval import retrieval_service
 from app.services.vector_store import vector_store
 from app.services.llm import llm_service
 from app.services.guardrails.input_guardrail import input_guardrail
+from app.services.guardrails.monitor import classify as monitor_classify
 from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
@@ -172,6 +173,24 @@ class RAGPipeline:
                 resolution = await resolve_follow_up(query, chat_history)
                 step.update(resolution.summary())
             query = resolution.question
+
+        # 0a'. Monitor model (M4.5): the guardrail's second layer, for messages the regex layer allowed but marked
+        # uncertain and for every verified-path message; refuses only confident harmful / injection verdicts
+        if settings.MONITOR_ENABLED and (guardrail_res.uncertain or routed_path() == VERIFIED):
+            with trace_step("monitor") as step:
+                verdict = await monitor_classify(query, threshold=settings.MONITOR_DENY_CONFIDENCE)
+                step.update(verdict.summary())
+            metrics["monitor"] = verdict.summary()
+            if verdict.denied and verdict.category in ("harmful", "injection"):
+                violation = (ViolationType.MALICIOUS_REQUEST if verdict.category == "harmful"
+                             else ViolationType.PROMPT_INJECTION)
+                metrics["source"] = "guardrail_refusal"
+                refusal = REFUSAL_MESSAGES[violation]
+                yield {"type": "guardrail_blocked", "violation": violation.value,
+                       "reason": f"Monitor model: {verdict.category} ({verdict.confidence:.2f})"}
+                yield {"type": "chunk", "content": refusal}
+                yield {"type": "done", "full_response": refusal, "metrics": finished_metrics()}
+                return
 
         # 0b. Triage (M1.2): decide fast vs verified from the question; traced, answers unchanged until M2
         triage_decision = None
@@ -336,7 +355,7 @@ class RAGPipeline:
                 # M4.4: a sensitive answer (refusal, misrepresentation, guarantees...) holds only parts that passed
                 # the code checks: never the written-as-before fallback (premise or unreadable output). A part the
                 # model check doubted stays, labelled "partially verified": dropping it removed a correct "approvals
-                # can never be guaranteed" answer (owner decision 2026-10-28; the model doubts 21-25% of correct
+                # can never be guaranteed" answer (owner decision 2026-10-26; the model doubts 21-25% of correct
                 # claims). The legal disclaimer is always added below.
                 metrics["evidence"]["sensitive"] = True
                 evidence_answer = compose(results)

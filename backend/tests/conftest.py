@@ -13,6 +13,9 @@ import os
 # The shared app is exercised by many tests from one client IP; rate limiting is covered by
 # tests/test_rate_limit.py, which mounts the middleware on its own app.
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+# The monitor model (M4.5) adds a model call to verified and uncertain messages; tests that script the model would all
+# need a reply for it. Off by default here; tests/test_monitor.py switches it on.
+os.environ.setdefault("MONITOR_ENABLED", "false")
 
 from urllib.parse import urlparse
 

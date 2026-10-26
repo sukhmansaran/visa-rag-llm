@@ -7,7 +7,7 @@ Claim check evaluation (M4.2) on tests/data/entailment_cases.json with the real 
 Two layers (see app/services/claims.py): the code check blocks, the model check only marks a part "partially
 verified". Reported: unsupported claims blocked by code / flagged by the model / either; correct claims blocked by
 code (must be 0) and flagged by the model; unreadable model outputs; time per claim.
-Re-scoped done-criterion (owner decision 2026-10-27): no correct claim blocked, and >= 90% of unsupported claims
+Re-scoped done-criterion (owner decision 2026-10-26): no correct claim blocked, and >= 90% of unsupported claims
 blocked or flagged. Exit code 0 when both hold.
 """
 

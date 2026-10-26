@@ -9,7 +9,7 @@ M4.2 Two layers per claim, against the passage it cites (the chunk, or the rule 
                      everyone" only if the passage says it too; a claim failing this is not shown as verified
      model (advises) structured_call -> {supported: yes | partial | no}; anything but "yes" marks the part
                      "partially verified", never removes it.
-     Why the model only advises (owner decision 2026-10-27, deviation from the roadmap's done-criterion): on
+     Why the model only advises (owner decision 2026-10-26, deviation from the roadmap's done-criterion): on
      tests/data/entailment_cases.json every local model rejected 21-25% of correct claims (target < 5%):
      llama3.2:3b 6/24, qwen3:4b 5/24, phi4-mini 6/24; qwen3 thinking mode took over 180 s per claim.
 """

@@ -54,7 +54,7 @@ async def test_a_verified_sensitive_answer_carries_the_disclaimer(scripted):
 
 @pytest.mark.asyncio
 async def test_a_doubted_part_stays_labelled_in_a_sensitive_answer(scripted):
-    """Owner decision 2026-10-28: code-verified is enough; dropping doubted parts removed a correct
+    """Owner decision 2026-10-26: code-verified is enough; dropping doubted parts removed a correct
     'approvals can never be guaranteed' answer (the model doubts 21-25% of correct claims)."""
     scripted.when(r"Question: My study permit was refused", GOOD)
     scripted.when(r"Claim:", {"supported": "partial", "reason": "not sure"})
