@@ -15,8 +15,8 @@
     "prompts": {
       "grounded_answer": "grounded_answer@1:4485f8e2c0ac"
     },
-    "passed": 55,
-    "pass_rate": 0.809,
+    "passed": 54,
+    "pass_rate": 0.794,
     "unstable_cases": [
       "followup_biometrics_validity_3turn"
     ],
@@ -46,7 +46,7 @@
         "passed": 4
       },
       "single": {
-        "cases": 33,
+        "cases": 34,
         "passed": 31
       },
       "tool_choice": {
@@ -54,8 +54,8 @@
         "passed": 1
       },
       "unanswerable": {
-        "cases": 7,
-        "passed": 6
+        "cases": 6,
+        "passed": 5
       }
     },
     "coverage_avg": 0.86,
@@ -794,11 +794,11 @@
       "ungrounded": false,
       "rules_values": {}
     },
-    "unanswerable_pgwp_twice": {
-      "type": "unanswerable",
+    "pgwp_second_permit": {
+      "type": "single",
       "critical": false,
-      "passed": true,
-      "passes": 3,
+      "passed": false,
+      "passes": 0,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -1007,5 +1007,14 @@
       "ungrounded": false,
       "rules_values": {}
     }
-  }
+  },
+  "history": [
+    {
+      "date": "2026-10-26",
+      "relabelled": {
+        "unanswerable_pgwp_twice": "pgwp_second_permit"
+      },
+      "why": "the knowledge base answers it (about.html: 'You can't get a PGWP if you already had one after completing an earlier program of study'); measured 0/3 fast and 0/3 verified: the chunk is retrieved 4th of 4 but falls outside the context budget, so the model says it isn't covered"
+    }
+  ]
 }

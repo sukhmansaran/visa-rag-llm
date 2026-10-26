@@ -929,13 +929,26 @@
       "rules_keys": []
     },
     {
-      "id": "unanswerable_pgwp_twice",
-      "type": "unanswerable",
+      "id": "pgwp_second_permit",
+      "type": "single",
       "critical": false,
+      "note": "Relabelled 2026-10-26 (was unanswerable_pgwp_twice): the knowledge base answers it. about.html: 'You can't get a PGWP if you already had one after completing an earlier program of study.'",
       "question": "Can I get a second PGWP after doing a new program?",
-      "must_include": [],
-      "must_not": [],
-      "expect_gap_acknowledged": true,
+      "must_include": [
+        [
+          "can[’'`]?t (get|apply for|receive|be issued|be given) (a |another |a second )?(pgwp|post-graduation work permit|work permit)",
+          "cannot (get|apply for|receive|be issued|be given) (a |another |a second )?(pgwp|post-graduation work permit|work permit)",
+          "not (be )?eligible for (a |another |a second )?(pgwp|post-graduation work permit)",
+          "only (get|receive|be issued|be given|have) (one|a single|1) (pgwp|post-graduation work permit)",
+          "only (once|one time)",
+          "if you already had one",
+          "already (had|received|got) (a |one )?(pgwp|post-graduation work permit)"
+        ]
+      ],
+      "must_not": [
+        "\byes\b,? you (can|may) (get|apply for|receive) (a |another |a second )(pgwp|post-graduation work permit)",
+        "you (can|may) (get|apply for|receive) (a second|another) (pgwp|post-graduation work permit)"
+      ],
       "rules_keys": []
     },
     {
