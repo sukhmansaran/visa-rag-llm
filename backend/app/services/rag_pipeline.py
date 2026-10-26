@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 from app.core.config import settings
+from app.core.visa_constitution import LEGAL_DISCLAIMER
 from app.services.intent_parser import intent_parser
 from app.services.rule_engine import rule_engine, get_rules_content_hash
 from app.services.cache_service import intent_cache
@@ -311,6 +312,9 @@ class RAGPipeline:
         # 7a. Evidence answers (M3): on the verified path each part is answered with a quote checked in code; the
         # answer is composed from the checked parts. If every part's output was unreadable, write the answer as usual.
         evidence_answer = None
+        # Sensitive (M4.4): legal risk in the question (triage) or a request for certainty about approval
+        sensitive = routed_path() == VERIFIED and (
+            bool(guarantee_fact) or (triage_decision is not None and "legal_risk" in triage_decision.reasons))
         if routed_path() == VERIFIED:
             results, retry_chunks = await self._evidence_answers(
                 parts or [query], rule_facts, chunks, context_chars,
@@ -328,7 +332,15 @@ class RAGPipeline:
             # correcting it. That "not covered" isn't trusted; the answer is written as before, from the rule facts.
             premise_unanswered = (triage_decision is not None and "premise" in triage_decision.reasons
                                   and not any(r.status == "verified" for r in results))
-            if premise_unanswered:
+            if sensitive:
+                # M4.4: a sensitive answer (refusal, misrepresentation, guarantees...) holds only parts that passed
+                # the code checks: never the written-as-before fallback (premise or unreadable output). A part the
+                # model check doubted stays, labelled "partially verified": dropping it removed a correct "approvals
+                # can never be guaranteed" answer (owner decision 2026-10-28; the model doubts 21-25% of correct
+                # claims). The legal disclaimer is always added below.
+                metrics["evidence"]["sensitive"] = True
+                evidence_answer = compose(results)
+            elif premise_unanswered:
                 metrics["evidence"]["premise_fallback"] = True
             elif any(r.status != "invalid" for r in results):
                 evidence_answer = compose(results)
@@ -375,6 +387,8 @@ class RAGPipeline:
             else:
                 metrics["high_risk_topic_detected"] = False
                 metrics["risk_categories"] = []
+            if sensitive and not disclaimer_eval.is_high_risk:
+                answer += LEGAL_DISCLAIMER  # M4.4: always, even if the answer's wording didn't trigger the detector
 
             self._record_usage(metrics, user_prompt, combined_context, answer)
 
