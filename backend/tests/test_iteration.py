@@ -120,3 +120,36 @@ async def test_a_verified_part_is_not_retried(scripted, monkeypatch):
     scripted.when(r"Question: Can I get a 3-year PGWP", GOOD)
     _, trace = await run()
     assert "retry" not in [s["name"] for s in trace.steps] and len(scripted.searches) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_chunk_cut_to_fit_the_context_is_seen_whole_on_the_retry(scripted, monkeypatch):
+    """The answer sits past the cut of the last chunk: the first round can't see it, so the retry must not skip
+    that chunk as already shown."""
+    long_page = {**RETRY_PAGE, "text": "Some graduates can combine programs. " * 8 + RETRY_PAGE["text"]}
+
+    async def retrieve(query, top_k=4, **_):  # a fresh copy each search, as from the vector store
+        scripted.searches.append(query)
+        return [dict(FIRST_PAGE), dict(long_page)]
+
+    monkeypatch.setattr(rp.retrieval_service, "retrieve", retrieve)
+    monkeypatch.setattr(settings, "RAG_CONTEXT_CHARS", 700)  # the second chunk is cut before its last sentence
+    scripted.when(r"Question: Can I get a 3-year PGWP", [{"not_covered": True}, GOOD])
+    result, trace = await run()
+    first_context = next(c for c in scripted.calls if "Question: Can I get" in c["user_prompt"])
+    assert "even if it was shorter than 2 years" not in first_context["user_prompt"] + first_context["context"]
+    retry = next(s for s in trace.steps if s["name"] == "retry")
+    assert (retry["new_chunks"], retry["retry"], retry["kept"]) == (1, "verified", "retry")
+    assert "8 months" in result["answer"]
+
+
+@pytest.mark.asyncio
+async def test_a_chunk_seen_whole_is_not_shown_again_on_the_retry(scripted, monkeypatch):
+    async def retrieve(query, top_k=4, **_):
+        scripted.searches.append(query)
+        return [dict(FIRST_PAGE)]
+
+    monkeypatch.setattr(rp.retrieval_service, "retrieve", retrieve)
+    scripted.when(r"Question: Can I get a 3-year PGWP", {"not_covered": True})
+    _, trace = await run()
+    assert next(s for s in trace.steps if s["name"] == "retry")["new_chunks"] == 0

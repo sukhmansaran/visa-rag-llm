@@ -274,7 +274,8 @@ class RetrievalService:
         Prepare securely delimited context string from chunks.
         Wraps content in strict boundary headers and footers to ensure LLM treats content as passive data.
         Truncates chunks that exceed the remaining budget rather than dropping them (A11).
-        Sets `_included_in_context` on each chunk dict to track inclusion for citations.
+        Sets `_included_in_context` on each chunk dict to track inclusion for citations, and `_truncated` on the
+        one cut to fit (the model saw only its start).
 
         Each chunk is its own [Source N] (N = its place in the context), as the model has always seen it; each
         included chunk gets `_source_number`. build_citations lists one entry per page with all its numbers, so
@@ -292,6 +293,7 @@ class RetrievalService:
         # Reset inclusion flags
         for chunk in chunks:
             chunk["_included_in_context"] = False
+            chunk["_truncated"] = False
             chunk.pop("_source_number", None)
 
         context_parts = [context_header]
@@ -329,6 +331,7 @@ class RetrievalService:
                     context_parts.append(truncated_block)
                     current_length += len(truncated_block)
                     chunk["_included_in_context"] = True
+                    chunk["_truncated"] = True
                     chunk["_source_number"] = number
                 break
 

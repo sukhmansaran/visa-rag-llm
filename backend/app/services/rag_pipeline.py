@@ -631,7 +631,9 @@ class RAGPipeline:
                 if time.perf_counter() > deadline:
                     step.update(skipped="time_budget")
                     break
-                shown = {_chunk_key(c) for c in chunks + extra}
+                # only chunks the model saw whole: one cut to fit the context, or left out, may hold the answer
+                shown = {_chunk_key(c) for c in chunks + extra
+                         if c.get("_included_in_context") and not c.get("_truncated")}
                 found = await retrieval_service.retrieve(query=refine_query(first.part), top_k=settings.RAG_TOP_K * 2,
                                                          **retrieval_args)
                 fresh = [c for c in found if _chunk_key(c) not in shown][:settings.RAG_TOP_K]
