@@ -57,7 +57,7 @@
     "unanswerable_startup_fee": [],
     "unanswerable_approval_rate": ["study_permit"],
     "unanswerable_vac": ["biometrics"],
-    "unanswerable_pgwp_twice": ["pgwp"],
+    "pgwp_second_permit": ["pgwp"],
     "fake_express_study_pass": []
   }
 }

@@ -57,7 +57,7 @@
     "unanswerable_startup_fee": {"path": "fast"},
     "unanswerable_approval_rate": {"path": "verified", "reasons": ["freshness"], "why": "last year's approval rate"},
     "unanswerable_vac": {"path": "fast"},
-    "unanswerable_pgwp_twice": {"path": "verified", "reasons": ["eligibility"], "why": "can I get a second PGWP"},
+    "pgwp_second_permit": {"path": "verified", "reasons": ["eligibility"], "why": "can I get a second PGWP"},
     "fake_express_study_pass": {"path": "fast", "note": "an unknown program: caught at runtime by low retrieval confidence"},
     "followup_pgwp_short": {"path": "fast"},
     "followup_funds_spouse": {"path": "fast"},
