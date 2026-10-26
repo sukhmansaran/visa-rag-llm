@@ -41,6 +41,9 @@ def scripted(fake_llm, monkeypatch):
     intent_cache.clear()
     fake_llm.when(r"Topics detected in it", {"sub_questions": PARTS})
     fake_llm.when(r"User Question:", "You need the funds [Source 1] and may work 24 hours a week [Source 2].")
+    # M3's evidence step (verified path) gets unreadable output here, so the answer is written as before and these
+    # tests keep checking M2.3's per-part rules and retrieval; the evidence step has its own tests (test_evidence.py)
+    fake_llm.when(r'Return JSON: \{"answer"', "not json")
     fake_llm.asked = asked
     return fake_llm
 

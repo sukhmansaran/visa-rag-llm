@@ -26,6 +26,7 @@ from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
 from app.services.tracing import trace_step
 from app.services.decomposition import decompose, needs_split
+from app.services.evidence import PartResult, answer_part, compose, evidence_context, source_texts
 from app.services.follow_up import resolve as resolve_follow_up
 from app.services.topics import detect_topics
 from app.services.triage import VERIFIED, routed_path, triage
@@ -299,6 +300,24 @@ class RAGPipeline:
             question_text = (f"{query}\n\nThis question has {len(parts)} parts. Answer each one:\n"
                              + "\n".join(f"{n}. {part}" for n, part in enumerate(parts, 1)))
         system_prompt, user_prompt = get_prompt("grounded_answer").render(query=question_text)
+
+        # 7a. Evidence answers (M3): on the verified path each part is answered with a quote checked in code; the
+        # answer is composed from the checked parts. If every part's output was unreadable, write the answer as usual.
+        evidence_answer = None
+        if routed_path() == VERIFIED:
+            results = await self._evidence_answers(parts or [query], rule_facts, chunks, context_chars)
+            metrics["evidence"] = {status: sum(r.status == status for r in results)
+                                   for status in ("verified", "not_covered", "unverified", "invalid")}
+            # A question built on a premise ("The funds are $10,000, right?", a closed program) that got nothing
+            # verified: the model said "not covered" because no source states the false claim, instead of
+            # correcting it. That "not covered" isn't trusted; the answer is written as before, from the rule facts.
+            premise_unanswered = (triage_decision is not None and "premise" in triage_decision.reasons
+                                  and not any(r.status == "verified" for r in results))
+            if premise_unanswered:
+                metrics["evidence"]["premise_fallback"] = True
+            elif any(r.status != "invalid" for r in results):
+                evidence_answer = compose(results)
+
         generation_args = dict(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -310,11 +329,14 @@ class RAGPipeline:
         )
         metrics["llm_called"] = True
 
-        if not stream:
-            with trace_step("generation", mode="whole") as step:
-                answer = await llm_service.generate_answer(**generation_args)
-                answer = normalize_markdown_output(answer)
-                step["chars"] = len(answer)
+        if not stream or evidence_answer is not None:  # an evidence answer is complete: sent whole in both modes
+            if evidence_answer is not None:
+                answer = evidence_answer
+            else:
+                with trace_step("generation", mode="whole") as step:
+                    answer = await llm_service.generate_answer(**generation_args)
+                    answer = normalize_markdown_output(answer)
+                    step["chars"] = len(answer)
 
             # Output Guardrail & Leakage Shield Validation
             with trace_step("output_guardrail") as step:
@@ -408,6 +430,21 @@ class RAGPipeline:
             "sources": sources,
             "metrics": finished_metrics(),
         }
+
+    @staticmethod
+    async def _evidence_answers(parts: List[str], rule_facts: Optional[str], chunks: List[Dict[str, Any]],
+                                context_chars: int) -> List["PartResult"]:
+        """M3: each part through the evidence step and the code check, traced as `evidence` (no user text)."""
+        chunk_context = retrieval_service.prepare_context(chunks, max_context_length=context_chars) if chunks else ""
+        context = evidence_context(rule_facts, chunk_context)
+        sources = source_texts(rule_facts, chunks)
+        results = []
+        for part in parts:
+            with trace_step("evidence") as step:
+                result = await answer_part(part, context, sources, rule_facts)
+                step.update(result.summary())
+            results.append(result)
+        return results
 
     @staticmethod
     async def _rule_facts_per_part(parts: List[str], country: str, visa_type: str, intent: str) -> Optional[str]:
