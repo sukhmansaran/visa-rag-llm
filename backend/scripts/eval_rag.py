@@ -260,12 +260,14 @@ def _evidence_summary(results: List[dict]) -> Optional[dict]:
     """Verified-path evidence parts (M3) over all runs: schema validity, how parts ended, 'not covered' where the
     case is unanswerable vs answerable."""
     totals = {"verified": 0, "not_covered": 0, "unverified": 0, "invalid": 0}
+    partial = 0
     unanswerable_runs = unanswerable_not_covered = answerable_not_covered = 0
     for res in results:
         for run in res["run_results"]:
             counts = run.get("evidence") or {}
             for key in totals:
                 totals[key] += counts.get(key, 0)
+            partial += counts.get("partial", 0)
             if counts:
                 if res["type"] == "unanswerable":
                     unanswerable_runs += 1
@@ -275,7 +277,7 @@ def _evidence_summary(results: List[dict]) -> Optional[dict]:
     parts = sum(totals.values())
     if not parts:
         return None
-    return {**totals, "parts": parts, "schema_valid": round(1 - totals["invalid"] / parts, 3),
+    return {**totals, "parts": parts, "partially_verified": partial, "schema_valid": round(1 - totals["invalid"] / parts, 3),
             "unanswerable_runs_with_not_covered": f"{unanswerable_not_covered}/{unanswerable_runs}",
             "answerable_parts_not_covered": answerable_not_covered}
 

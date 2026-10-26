@@ -1,0 +1,283 @@
+{
+  "version": 1,
+  "about": "M4.2 entailment set, written before the check existed. Passages are from app/data/ircc_rules.yaml as the rule engine words them. Each claim is labelled supported (a faithful restatement, possibly paraphrased) or unsupported (an injected error: changed number, negation, added condition, overreach, wrong group, or a different topic). Done-criterion: >= 90% of unsupported claims caught, < 5% of supported claims rejected. A claim may carry the user's question: numbers the user gave (a 10-month diploma) may appear in a claim without being in the passage.",
+  "passages": {
+    "work": "Regular Academic Sessions: Eligible full-time students are permitted to work up to 24 hours per week off-campus during regular semesters (effective November 8, 2024, increased from the previous 20 hours per week limit). Scheduled Academic Breaks: Students can work unlimited hours off campus during breaks scheduled by their DLI (such as winter break, summer vacation, and reading weeks) if they are full-time students before and after the break.",
+    "funds": "The minimum proof of funds for living expenses outside Quebec is CAD $23,448 per year for a single applicant (applications submitted on or after 2026-09-01; higher amounts apply for each accompanying family member). In addition to living expenses (CAD $23,448), the applicant must demonstrate sufficient accessible funds to pay the entire first year of tuition fees.",
+    "pgwp_length": "Study program of 2 years or longer: a 3-year PGWP. Master's degree graduates can get a 3-year PGWP if the master's program was at least 8 months long, even if it was shorter than 2 years (for example, a 1-year master's). Any other program of at least 8 months but less than 2 years: a PGWP valid for up to the length of the program.",
+    "pgwp_language": "Language (PGWP applications on or after November 1, 2024; all 4 abilities): CLB 7 (NCLC 7 in French) for bachelor's, master's, doctoral and other university programs; CLB 5 (NCLC 5) for college, polytechnic and other non-university programs.",
+    "bio_validity": "Biometrics are valid for 10 years. Someone who gave biometrics within the last 10 years usually does not need to give them again for a visitor visa, study permit or work permit.",
+    "bio_exempt": "Exempt because of age: children under the age of 14, and applicants over the age of 79. There is no upper age exemption for asylum claimants.",
+    "bio_fee": "Fee: CAN$85 per person; families applying at the same time pay a maximum total of CAN$170; groups of 3 or more performing artists and their staff pay a maximum of CAN$255; no fee for a transit visa.",
+    "pal": "From January 1, 2026, degree-granting master's and doctoral programs at a public DLI are exempt from the PAL/TAL requirement. You must show proof of the exemption when you apply."
+  },
+  "claims": [
+    {
+      "passage": "work",
+      "claim": "During regular semesters, full-time students can work up to 24 hours a week off campus.",
+      "supported": true
+    },
+    {
+      "passage": "work",
+      "claim": "Students may work unlimited hours off campus during scheduled breaks such as winter break.",
+      "supported": true
+    },
+    {
+      "passage": "work",
+      "claim": "The limit used to be 20 hours per week before November 8, 2024.",
+      "supported": true
+    },
+    {
+      "passage": "work",
+      "claim": "To work unlimited hours in a break you must be a full-time student before and after it.",
+      "supported": true
+    },
+    {
+      "passage": "work",
+      "claim": "Students can work up to 40 hours per week off campus during regular semesters.",
+      "supported": false
+    },
+    {
+      "passage": "work",
+      "claim": "Students can work unlimited hours off campus during regular semesters.",
+      "supported": false
+    },
+    {
+      "passage": "work",
+      "claim": "Part-time students can work 24 hours per week off campus during their studies.",
+      "supported": false
+    },
+    {
+      "passage": "work",
+      "claim": "Students may work up to 20 hours per week off campus during regular semesters.",
+      "supported": false
+    },
+    {
+      "passage": "work",
+      "claim": "Students need a separate work permit to work off campus during breaks.",
+      "supported": false
+    },
+    {
+      "passage": "funds",
+      "claim": "A single applicant outside Quebec needs at least CAD $23,448 a year for living expenses.",
+      "supported": true
+    },
+    {
+      "passage": "funds",
+      "claim": "You also need enough money for the whole first year of tuition.",
+      "supported": true
+    },
+    {
+      "passage": "funds",
+      "claim": "Each family member who comes with you increases the amount you must show.",
+      "supported": true
+    },
+    {
+      "passage": "funds",
+      "claim": "A single applicant needs CAD $10,000 a year for living expenses.",
+      "supported": false
+    },
+    {
+      "passage": "funds",
+      "claim": "The CAD $23,448 includes the first year of tuition.",
+      "supported": false
+    },
+    {
+      "passage": "funds",
+      "claim": "A family of two needs CAD $23,448 a year.",
+      "supported": false
+    },
+    {
+      "passage": "funds",
+      "claim": "Students in Quebec need CAD $23,448 a year for living expenses.",
+      "supported": false
+    },
+    {
+      "passage": "funds",
+      "claim": "A GIC is required to show proof of funds.",
+      "supported": false
+    },
+    {
+      "passage": "pgwp_length",
+      "claim": "A 2-year program can lead to a 3-year PGWP.",
+      "supported": true
+    },
+    {
+      "passage": "pgwp_length",
+      "claim": "A 1-year master's program can get a 3-year PGWP.",
+      "supported": true
+    },
+    {
+      "passage": "pgwp_length",
+      "claim": "A 10-month diploma leads to a PGWP valid for up to 10 months.",
+      "supported": true,
+      "question": "How long is my PGWP after a 10-month diploma?"
+    },
+    {
+      "passage": "pgwp_length",
+      "claim": "Programs must be at least 8 months long for a PGWP.",
+      "supported": true
+    },
+    {
+      "passage": "pgwp_length",
+      "claim": "A 1-year diploma leads to a 3-year PGWP.",
+      "supported": false
+    },
+    {
+      "passage": "pgwp_length",
+      "claim": "A 2-year program leads to a 2-year PGWP.",
+      "supported": false
+    },
+    {
+      "passage": "pgwp_length",
+      "claim": "A 6-month certificate qualifies for a 6-month PGWP.",
+      "supported": false
+    },
+    {
+      "passage": "pgwp_length",
+      "claim": "Every PGWP is valid for 3 years.",
+      "supported": false
+    },
+    {
+      "passage": "pgwp_language",
+      "claim": "University graduates need CLB 7 in all 4 abilities for a PGWP.",
+      "supported": true
+    },
+    {
+      "passage": "pgwp_language",
+      "claim": "College graduates need CLB 5 for a PGWP.",
+      "supported": true
+    },
+    {
+      "passage": "pgwp_language",
+      "claim": "French test takers need NCLC 7 for a university program.",
+      "supported": true
+    },
+    {
+      "passage": "pgwp_language",
+      "claim": "College graduates need CLB 7 for a PGWP.",
+      "supported": false
+    },
+    {
+      "passage": "pgwp_language",
+      "claim": "PGWP applicants do not need to show language test results.",
+      "supported": false
+    },
+    {
+      "passage": "pgwp_language",
+      "claim": "University graduates need CLB 9 for a PGWP.",
+      "supported": false
+    },
+    {
+      "passage": "bio_validity",
+      "claim": "Biometrics are valid for 10 years.",
+      "supported": true
+    },
+    {
+      "passage": "bio_validity",
+      "claim": "If you gave biometrics 3 years ago, you usually don't need to give them again for a study permit.",
+      "supported": true,
+      "question": "I gave biometrics 3 years ago. Do I need to give them again for a study permit?"
+    },
+    {
+      "passage": "bio_validity",
+      "claim": "Biometrics are valid for 5 years.",
+      "supported": false
+    },
+    {
+      "passage": "bio_validity",
+      "claim": "You must give biometrics again for every study permit application.",
+      "supported": false
+    },
+    {
+      "passage": "bio_exempt",
+      "claim": "Children under 14 do not have to give biometrics.",
+      "supported": true
+    },
+    {
+      "passage": "bio_exempt",
+      "claim": "People over 79 are exempt from biometrics, except asylum claimants.",
+      "supported": true
+    },
+    {
+      "passage": "bio_exempt",
+      "claim": "Children under 18 do not have to give biometrics.",
+      "supported": false
+    },
+    {
+      "passage": "bio_exempt",
+      "claim": "Asylum claimants over 79 are exempt from biometrics.",
+      "supported": false
+    },
+    {
+      "passage": "bio_exempt",
+      "claim": "Applicants over 65 are exempt from biometrics.",
+      "supported": false
+    },
+    {
+      "passage": "bio_fee",
+      "claim": "Biometrics cost CAN$85 for one person.",
+      "supported": true
+    },
+    {
+      "passage": "bio_fee",
+      "claim": "A family applying together pays at most CAN$170 for biometrics.",
+      "supported": true
+    },
+    {
+      "passage": "bio_fee",
+      "claim": "There is no biometrics fee for a transit visa.",
+      "supported": true
+    },
+    {
+      "passage": "bio_fee",
+      "claim": "Biometrics cost CAN$100 per person.",
+      "supported": false
+    },
+    {
+      "passage": "bio_fee",
+      "claim": "A family of four pays CAN$340 for biometrics.",
+      "supported": false
+    },
+    {
+      "passage": "bio_fee",
+      "claim": "Biometrics are free for students.",
+      "supported": false
+    },
+    {
+      "passage": "pal",
+      "claim": "From January 1, 2026, master's students at a public DLI don't need a PAL.",
+      "supported": true
+    },
+    {
+      "passage": "pal",
+      "claim": "Doctoral students at a public DLI are exempt from the PAL requirement.",
+      "supported": true
+    },
+    {
+      "passage": "pal",
+      "claim": "You must show proof of the PAL exemption when you apply.",
+      "supported": true
+    },
+    {
+      "passage": "pal",
+      "claim": "All master's students need a PAL.",
+      "supported": false
+    },
+    {
+      "passage": "pal",
+      "claim": "Master's students at private colleges are exempt from the PAL.",
+      "supported": false
+    },
+    {
+      "passage": "pal",
+      "claim": "College diploma students are exempt from the PAL from 2026.",
+      "supported": false
+    },
+    {
+      "passage": "pal",
+      "claim": "PAL-exempt students do not need any documents when they apply.",
+      "supported": false
+    }
+  ]
+}

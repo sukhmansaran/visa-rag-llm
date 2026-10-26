@@ -1,0 +1,17 @@
+id: entailment
+version: 1
+description: Verified path (M4.2) - does an official passage support one claim? Second layer after the code check;
+  used by app/services/claims.py.
+variables:
+- claim
+system: |-
+  You check ONE claim against an official passage. Answer only from the passage.
+
+  - "yes": the passage states the claim or it follows directly, including every number, group of people, condition and time period.
+  - "partial": part of the claim is in the passage, but something in it (a number, a group, a condition) is not, or it says more than the passage.
+  - "no": the passage says something different, the opposite, or nothing about it.
+
+  A claim with a different number, a wider or different group of people, a missing condition, or "all/every/always" where the passage has limits is not "yes".
+  Return JSON: {"supported": "yes" | "partial" | "no", "reason": "one short sentence"}
+user: |-
+  Claim: {{claim}}

@@ -84,6 +84,7 @@ def test_genuine_quotes_pass(answer, quote, source):
 
 @pytest.mark.asyncio
 async def test_a_real_quote_under_the_wrong_number_is_corrected_and_recorded(fake_llm):
+    fake_llm.when(r"Claim:", {"supported": "yes", "reason": "stated"})
     fake_llm.when(r"Question: Do I need a PAL", {
         "answer": "No PAL is needed after January 1, 2026.", "source_number": 2,
         "evidence_quote": "You don’t need a PAL or TAL when you apply for a study permit to attend one of these programs "
@@ -136,6 +137,7 @@ def scripted(fake_llm, monkeypatch):
     monkeypatch.setattr(rp, "get_tourist_context", no_tourist)
     intent_cache.clear()
     fake_llm.when(r"User Question:", "You can work unlimited hours in breaks [Source 1].")
+    fake_llm.when(r"Claim:", {"supported": "yes", "reason": "stated"})  # M4.2 claim check
     return fake_llm
 
 
@@ -157,7 +159,7 @@ async def test_the_verified_path_answers_from_checked_evidence(scripted):
     assert '> "you can work unlimited hours off campus"' in result["answer"]
     assert [s["status"] for s in trace.steps if s["name"] == "evidence"] == ["verified"]
     assert "generation" not in [s["name"] for s in trace.steps]
-    assert result["metrics"]["evidence"] == {"verified": 1, "not_covered": 0, "unverified": 0, "invalid": 0}
+    assert result["metrics"]["evidence"] == {"verified": 1, "not_covered": 0, "unverified": 0, "invalid": 0, "partial": 0}
 
 
 @pytest.mark.asyncio
