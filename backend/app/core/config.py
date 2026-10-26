@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     # Claim checks on the verified path (M4.2): the code check always blocks; the model check only marks a part
     # "partially verified" (it rejected 21-25% of correct claims on every local model) and adds ~7 s per claim
     VERIFY_CLAIMS_WITH_MODEL: bool = True
+    # Iteration (M4.3): a verified-path part that isn't verified gets one more round (refined search, new chunks),
+    # unless this much of the request has already passed
+    VERIFIED_MAX_ROUNDS: int = 2
+    VERIFIED_RETRY_BEFORE_SECONDS: float = 150.0
 
     # Triage (M1.2): off = no triage; shadow = triage every question and trace the decision, answers unchanged;
     # on = route verified questions to the verified path (until M2 that path is today's pipeline)

@@ -44,6 +44,7 @@ def scripted(fake_llm, monkeypatch):
     # M3's evidence step (verified path) gets unreadable output here, so the answer is written as before and these
     # tests keep checking M2.3's per-part rules and retrieval; the evidence step has its own tests (test_evidence.py)
     fake_llm.when(r'Return JSON: \{"answer"', "not json")
+    monkeypatch.setattr(rp.settings, "VERIFIED_MAX_ROUNDS", 1)  # no M4.3 retry here: these tests count retrievals
     fake_llm.asked = asked
     return fake_llm
 
