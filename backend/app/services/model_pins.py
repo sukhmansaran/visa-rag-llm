@@ -38,6 +38,7 @@ def configured_models() -> Dict[str, List[str]]:
         "planner": settings.LLM_MODEL_PLANNER or settings.OLLAMA_MODEL,
         "answer": settings.LLM_MODEL_ANSWER or settings.OLLAMA_MODEL,
         "verifier": settings.LLM_MODEL_VERIFIER or settings.OLLAMA_MODEL,
+        "monitor": (settings.LLM_MODEL_MONITOR or settings.OLLAMA_MODEL) if settings.MONITOR_ENABLED else None,
         "fallback": settings.LLM_FALLBACK_MODEL,
         "embeddings": settings.OLLAMA_EMBEDDING_MODEL,
     }

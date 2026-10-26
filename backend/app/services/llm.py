@@ -201,6 +201,7 @@ class OllamaService:
             "planner": settings.LLM_MODEL_PLANNER,
             "answer": settings.LLM_MODEL_ANSWER,
             "verifier": settings.LLM_MODEL_VERIFIER,
+            "monitor": settings.LLM_MODEL_MONITOR,
         }.get(role)
         return configured or self.model
 
@@ -342,7 +343,7 @@ class OllamaService:
         }
         if json_schema is not None:
             payload["format"] = json_schema
-        if model in settings.LLM_CPU_ONLY_MODELS:
+        if model in settings.LLM_CPU_ONLY_MODELS or (model == settings.LLM_MODEL_MONITOR and model != settings.OLLAMA_MODEL):
             payload["options"]["num_gpu"] = 0  # stay off the GPU so it does not evict the primary model
         return payload
 

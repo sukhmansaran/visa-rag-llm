@@ -23,6 +23,7 @@ class GuardrailResult:
     refusal_message: Optional[str] = None
     reason: Optional[str] = None
     intent: Optional[str] = None
+    uncertain: bool = False  # allowed, but the monitor model (M4.5) should check it
 
 
 def _keyword_regex(keyword: str) -> re.Pattern:
@@ -90,6 +91,14 @@ class InputGuardrail:
         re.compile(r"forget\s+(everything|all\s+rules|all)\s+(you\s+)?(know|were\s+told)", re.IGNORECASE),
         re.compile(r"you\s+have\s+no\s+rules", re.IGNORECASE),
     ]
+
+    # Words that make an allowed message worth a second look by the monitor model (M4.5): deception, documents made
+    # up, money shown but not owned, payments to officers, and talk about the assistant's own instructions
+    UNCERTAIN_WORDS = re.compile(
+        r"\b(fake|faked|forge|forged|edit|edited|photoshop|lie|lying|hide|hiding|conceal|borrow|borrowed|bribe|pay an"
+        r" officer|without (getting )?caught|not find out|illegal(ly)?|cheat|trick|buy|sell|never worked|ignore|forget|"
+        r"set aside|pretend|act as|instructions?|prompt|rules|setup|developers?|guarantee|"
+        r"looks? (like it came|bigger|real|genuine|official)|without (actually )?(having|owning))\b", re.IGNORECASE)
 
     # --- 2. CODE REQUEST PATTERNS ---
     CODE_DIRECTIVE_PATTERNS = [
@@ -298,12 +307,14 @@ class InputGuardrail:
                     reason="Query lacks immigration, visa, study, or travel relevance",
                 )
 
-        # Query passed all guardrail checks
+        # Query passed all guardrail checks. Uncertain (M4.5): allowed only as a follow-up, or worded like the
+        # requests the regex layer can't judge by itself; the monitor model looks at these
         return GuardrailResult(
             allowed=True,
             violation=None,
             refusal_message=None,
             reason="Query validated as within immigration/visa domain",
+            uncertain=(not has_visa_keyword) or bool(self.UNCERTAIN_WORDS.search(query_stripped)),
         )
 
     def _is_it_professional_visa_inquiry(self, query: str) -> bool:
