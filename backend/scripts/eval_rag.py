@@ -171,6 +171,7 @@ async def run_case(case: dict, stream: bool, captured: dict) -> dict:
               metrics.get("source"), rules_used)
     return {
         "latency_s": round(latency, 1), "route": path, "source": metrics.get("source"), "llm_called": metrics.get("llm_called"),
+        "evidence": metrics.get("evidence"),
         "citations": [c.get("url") for c in r.get("sources", [])], "answer": r["answer"], **s,
         "prompt_tokens": llm.prompt_tokens if llm else None, "output_tokens": llm.output_tokens if llm else None,
         "prompt_s": llm.prompt_s if llm else None, "generation_s": llm.generation_s if llm else None,
@@ -208,6 +209,7 @@ async def run_model(model: str, cases: list, baseline: bool, stream: bool = Fals
 
     captured: dict = {}
     original, original_stream = llm_service.generate_answer, llm_service.generate_answer_stream
+    original_structured = llm_service.structured_call
 
     async def capture(*args, **kwargs):
         captured["context"] = kwargs.get("context", "")
@@ -217,7 +219,14 @@ async def run_model(model: str, cases: list, baseline: bool, stream: bool = Fals
         captured["context"] = kwargs.get("context", "")
         return original_stream(*args, **kwargs)
 
+    async def capture_structured(*args, **kwargs):
+        # verified-path evidence answers (M3) are written by structured calls: their context is the answer's context
+        if kwargs.get("role") == "answer":
+            captured["context"] = kwargs.get("context", "")
+        return await original_structured(*args, **kwargs)
+
     llm_service.generate_answer, llm_service.generate_answer_stream = capture, capture_stream
+    llm_service.structured_call = capture_structured
     # Warm-up so model loading time isn't counted against the first question
     await original(system_prompt="Reply with OK.", user_prompt="OK", temperature=0.0, max_tokens=3)
 
@@ -243,7 +252,32 @@ async def run_model(model: str, cases: list, baseline: bool, stream: bool = Fals
                   f"{_describe(first) if not verdict else ''}", flush=True)
     finally:
         llm_service.generate_answer, llm_service.generate_answer_stream = original, original_stream
+        llm_service.structured_call = original_structured
     return {"summary": summarise(model, results, baseline, stream, runs), "results": results}
+
+
+def _evidence_summary(results: List[dict]) -> Optional[dict]:
+    """Verified-path evidence parts (M3) over all runs: schema validity, how parts ended, 'not covered' where the
+    case is unanswerable vs answerable."""
+    totals = {"verified": 0, "not_covered": 0, "unverified": 0, "invalid": 0}
+    unanswerable_runs = unanswerable_not_covered = answerable_not_covered = 0
+    for res in results:
+        for run in res["run_results"]:
+            counts = run.get("evidence") or {}
+            for key in totals:
+                totals[key] += counts.get(key, 0)
+            if counts:
+                if res["type"] == "unanswerable":
+                    unanswerable_runs += 1
+                    unanswerable_not_covered += int(counts.get("not_covered", 0) > 0)
+                else:
+                    answerable_not_covered += counts.get("not_covered", 0)
+    parts = sum(totals.values())
+    if not parts:
+        return None
+    return {**totals, "parts": parts, "schema_valid": round(1 - totals["invalid"] / parts, 3),
+            "unanswerable_runs_with_not_covered": f"{unanswerable_not_covered}/{unanswerable_runs}",
+            "answerable_parts_not_covered": answerable_not_covered}
 
 
 def summarise(model: str, results: List[dict], baseline: bool, stream: bool, runs: int) -> dict:
@@ -275,6 +309,7 @@ def summarise(model: str, results: List[dict], baseline: bool, stream: bool, run
         "coverage_avg": avg(r["coverage"] for r in all_runs),
         "multi_part_coverage": avg(multi),
         "tool_choice_accuracy": round(sum(r["rules_ok"] for r in tool_runs) / len(tool_runs), 3) if tool_runs else None,
+        "evidence": _evidence_summary(results),
         "forbidden_hits": sum(bool(r["forbidden"]) for r in all_runs),
         "answers_with_ungrounded_numbers": sum(bool(r["ungrounded_numbers"]) for r in all_runs),
         "unsupported_number_rate": round(sum(bool(r["ungrounded_numbers"]) for r in llm_runs) / len(llm_runs), 3) if llm_runs else None,

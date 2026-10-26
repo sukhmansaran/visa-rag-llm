@@ -152,6 +152,7 @@ export function describeStep(step: any): string {
         tourist_db: "Searching official sources",
         retrieval: "Checking the evidence",
         evidence_gate: "Writing the answer",
+        evidence: "Checking the evidence", // M3: each part's quote checked against its source
         generation: "Checking the answer",
         output_guardrail: "Finishing",
         disclaimer: "Finishing",
