@@ -153,6 +153,7 @@ export function describeStep(step: any): string {
         retrieval: "Checking the evidence",
         evidence_gate: "Writing the answer",
         evidence: "Checking the evidence", // M3: each part's quote checked against its source
+        retry: "Checking the evidence", // M4.3: a part that wasn't verified, searched and checked once more
         generation: "Checking the answer",
         output_guardrail: "Finishing",
         disclaimer: "Finishing",

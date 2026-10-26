@@ -159,7 +159,8 @@ async def test_the_verified_path_answers_from_checked_evidence(scripted):
     assert '> "you can work unlimited hours off campus"' in result["answer"]
     assert [s["status"] for s in trace.steps if s["name"] == "evidence"] == ["verified"]
     assert "generation" not in [s["name"] for s in trace.steps]
-    assert result["metrics"]["evidence"] == {"verified": 1, "not_covered": 0, "unverified": 0, "invalid": 0, "partial": 0}
+    assert result["metrics"]["evidence"] == {"verified": 1, "not_covered": 0, "unverified": 0, "invalid": 0, "partial": 0,
+                                         "improved_by_retry": 0}
 
 
 @pytest.mark.asyncio

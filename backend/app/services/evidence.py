@@ -49,11 +49,12 @@ class PartResult:
     problems: Tuple[str, ...] = field(default_factory=tuple)
     partial: bool = False           # M4.2: the model check doubted a claim (shown as "partially verified")
     claims: int = 0                 # claims checked (M4.1/M4.2)
+    retried: bool = False           # M4.3: this result came from the retry round
 
     def summary(self) -> Dict[str, Any]:
         """Trace fields: no user text."""
         return {"status": self.status, "source": self.source_number, "problems": list(self.problems),
-                "partial": self.partial, "claims": self.claims}
+                "partial": self.partial, "claims": self.claims, "retried": self.retried}
 
 
 def evidence_context(rule_facts: Optional[str], chunk_context: str) -> str:

@@ -265,6 +265,7 @@ class RetrievalService:
         self,
         chunks: List[Dict[str, Any]],
         max_context_length: int = 4000,
+        first_number: int = 1,
     ) -> str:
         """
         Prepare securely delimited context string from chunks.
@@ -293,7 +294,8 @@ class RetrievalService:
         context_parts = [context_header]
         current_length = len(context_header) + len(context_footer)
 
-        for number, chunk in enumerate(chunks, 1):  # chunks are included in order, so N = place in the context
+        # chunks are included in order, so N = place in the context; a retry (M4.3) continues after the first round
+        for number, chunk in enumerate(chunks, first_number):
             raw_text = chunk.get('text', '')
             clean_text = self.sanitize_chunk_text(raw_text)
             metadata = chunk.get('metadata', {})

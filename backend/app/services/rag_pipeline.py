@@ -8,6 +8,7 @@ Enforces the RAG-Only policy: Zero ungrounded hallucinations, zero raw LLM fallb
 
 import logging
 import time
+from dataclasses import replace
 import re
 from typing import Dict, Any, Optional, List, AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +28,7 @@ from app.services.tourist_service import get_tourist_context
 from app.services.tracing import trace_step
 from app.services.decomposition import decompose, needs_split
 from app.services.evidence import PartResult, answer_part, compose, evidence_context, source_texts
+from app.services.iteration import better, refine_query
 from app.services.follow_up import resolve as resolve_follow_up
 from app.services.topics import detect_topics
 from app.services.triage import VERIFIED, routed_path, triage
@@ -36,6 +38,11 @@ logger = logging.getLogger(__name__)
 
 # [Source N] (Tier T - title) ... URL: ... (Retrieved: ...) around each chunk in the context (prepare_context)
 _CHUNK_FRAMING_CHARS = 200
+
+
+def _chunk_key(chunk: Dict[str, Any]) -> tuple:
+    """A chunk's identity across retrievals: its page and its text."""
+    return ((chunk.get("metadata") or {}).get("url") or chunk.get("url"), chunk.get("text"))
 
 
 # The grounded-answer prompt lives in app/prompts/grounded_answer.yaml (M0.12).
@@ -305,10 +312,17 @@ class RAGPipeline:
         # answer is composed from the checked parts. If every part's output was unreadable, write the answer as usual.
         evidence_answer = None
         if routed_path() == VERIFIED:
-            results = await self._evidence_answers(parts or [query], rule_facts, chunks, context_chars)
+            results, retry_chunks = await self._evidence_answers(
+                parts or [query], rule_facts, chunks, context_chars,
+                retrieval_args={"country": country, "visa_type": visa_type, "intent": intent},
+                deadline=start_time + settings.VERIFIED_RETRY_BEFORE_SECONDS)
+            if retry_chunks:  # a kept retry cites new pages: list them too, numbers continuing after the first round
+                sources = self.build_citations([c for c in chunks if c.get("_included_in_context")] + retry_chunks,
+                                               tourist_context)
             metrics["evidence"] = {status: sum(r.status == status for r in results)
                                    for status in ("verified", "not_covered", "unverified", "invalid")}
             metrics["evidence"]["partial"] = sum(r.partial for r in results)
+            metrics["evidence"]["improved_by_retry"] = sum(r.retried for r in results)
             # A question built on a premise ("The funds are $10,000, right?", a closed program) that got nothing
             # verified: the model said "not covered" because no source states the false claim, instead of
             # correcting it. That "not covered" isn't trusted; the answer is written as before, from the rule facts.
@@ -434,8 +448,13 @@ class RAGPipeline:
 
     @staticmethod
     async def _evidence_answers(parts: List[str], rule_facts: Optional[str], chunks: List[Dict[str, Any]],
-                                context_chars: int) -> List["PartResult"]:
-        """M3: each part through the evidence step and the code check, traced as `evidence` (no user text)."""
+                                context_chars: int, retrieval_args: Dict[str, Any], deadline: float,
+                                ) -> tuple[List["PartResult"], List[Dict[str, Any]]]:
+        """
+        M3: each part through the evidence step and the code check, traced as `evidence` (no user text).
+        M4.3: a part that isn't verified gets one more round (refined search past the chunks already shown) while
+        time remains; traced as `retry`. Returns the results and the extra chunks the kept retries cite.
+        """
         chunk_context = retrieval_service.prepare_context(chunks, max_context_length=context_chars) if chunks else ""
         context = evidence_context(rule_facts, chunk_context)
         sources = source_texts(rule_facts, chunks)
@@ -445,7 +464,37 @@ class RAGPipeline:
                 result = await answer_part(part, context, sources, rule_facts)
                 step.update(result.summary())
             results.append(result)
-        return results
+
+        extra: List[Dict[str, Any]] = []
+        if settings.VERIFIED_MAX_ROUNDS < 2:
+            return results, extra
+        for i, first in enumerate(results):
+            if first.status == "verified":
+                continue
+            with trace_step("retry") as step:
+                if time.perf_counter() > deadline:
+                    step.update(skipped="time_budget")
+                    break
+                shown = {_chunk_key(c) for c in chunks + extra}
+                found = await retrieval_service.retrieve(query=refine_query(first.part), top_k=settings.RAG_TOP_K * 2,
+                                                         **retrieval_args)
+                fresh = [c for c in found if _chunk_key(c) not in shown][:settings.RAG_TOP_K]
+                step.update(first=first.status, new_chunks=len(fresh))
+                if not fresh:
+                    continue
+                next_number = max([n for n in sources if n] + [0]) + 1
+                fresh_context = retrieval_service.prepare_context(fresh, max_context_length=settings.RAG_CONTEXT_CHARS,
+                                                                  first_number=next_number)
+                retry_sources = {**sources, **source_texts(None, fresh)}
+                retry = await answer_part(first.part, evidence_context(rule_facts, fresh_context), retry_sources,
+                                          rule_facts)
+                kept = better(first, retry)
+                step.update(retry=retry.status, kept="retry" if kept is retry else "first")
+            if kept is retry:
+                results[i] = replace(retry, retried=True)
+                sources = retry_sources
+                extra.extend(c for c in fresh if c.get("_included_in_context"))
+        return results, extra
 
     @staticmethod
     async def _rule_facts_per_part(parts: List[str], country: str, visa_type: str, intent: str) -> Optional[str]:
