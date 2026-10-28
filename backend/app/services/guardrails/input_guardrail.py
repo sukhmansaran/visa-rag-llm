@@ -155,6 +155,10 @@ class InputGuardrail:
         "graduation", "graduating", "co-op", "internship", "scheduled break", "winter break", "summer break",
         # Work rules for students and permit holders
         "part-time", "full-time", "hours per week", "hours a week", "work hours", "work while studying",
+        # Money and family as applicants ask (previously refused as off-topic, found writing the M5.3 cases:
+        # "How much money do I need to show if my family is coming with me?", "I'm bringing dependants...")
+        "money", "dependant", "dependants", "dependent", "dependents", "spouse", "family members",
+        "accompanying family", "sds", "student direct stream", "nigeria student express",
     }
 
     # Precompile word-boundary patterns for whitelist keywords to prevent substring misclassifications

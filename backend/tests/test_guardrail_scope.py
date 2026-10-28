@@ -32,6 +32,11 @@ EVERYDAY_STUDENT_AND_WORK_QUESTIONS = [
     "What is the off campus work limit?",
     "Can my spouse work while I am a student?",
     "Do I need a study permit for a six month course?",
+    # money and family, as applicants ask (refused before 2026-10-28)
+    "How much money do I need to show if my family is coming with me?",
+    "I'm bringing dependants. How much do I need to show?",
+    "Can I apply through the SDS, and if not, how much money do I need?",
+    "How much money do I need for my spouse?",
 ]
 
 OFF_TOPIC_QUESTIONS = [
