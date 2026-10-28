@@ -23,7 +23,8 @@ from app.services.cache_service import intent_cache
 from app.services.tracing import TraceRecorder, activate_trace, purge_old_traces, save_trace, trace_step
 
 QUESTION = "How many hours can a study permit holder work off campus? Email me at jane.doe@example.com"
-PIPELINE_STEPS = ["input_guardrail", "triage", "intent", "rules", "cache", "tourist_db", "retrieval", "evidence_gate"]
+PIPELINE_STEPS = ["input_guardrail", "triage", "intent", "rules", "route", "cache", "tourist_db", "retrieval",
+                  "evidence_gate"]
 
 
 @pytest.fixture

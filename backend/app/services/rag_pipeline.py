@@ -37,6 +37,7 @@ from app.services.follow_up import resolve as resolve_follow_up
 from app.services.topics import detect_topics
 from app.services.triage import VERIFIED, routed_path, triage
 from app.services.prompt_registry import get_prompt
+from app.services.router import route as route_tools
 
 logger = logging.getLogger(__name__)
 
@@ -337,6 +338,10 @@ class RAGPipeline:
                 rule_facts = (rule_facts + "\n\n" + closed_program_fact) if rule_facts else closed_program_fact
             step.update(rule_facts=bool(rule_facts), guarantee_fact=bool(guarantee_fact),
                         closed_program_fact=bool(closed_program_fact))
+        # 2b. Tool route (M5.2): traced only, answers don't use it yet (no model call)
+        if settings.AGENT_MODE != "off":
+            with trace_step("route") as step:
+                step.update((await route_tools(query, country if country != "unknown" else "Canada")).summary())
         # The path is part of the key: a fast-path answer must not stand in for a verified one, nor the reverse
         rules_version = f"{await self._answer_cache_version()}:{routed_path()}"
         state.update(cache_args=(country, visa_type, intent, query), rule_facts=rule_facts)

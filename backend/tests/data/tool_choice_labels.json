@@ -1,0 +1,640 @@
+{
+  "version": 1,
+  "about": "M5.2 tool choice, written 2026-10-28 before the router existed. Each label is the set of tools a question needs beyond the knowledge-base search every question gets: 'rules' when it asks for an official figure or rule the rules file covers (proof of funds, off-campus work hours, closed programs such as SDS, PGWP eligibility/length/language, PAL/TAL, Express Entry FSW/STEM, visitor visa/eTA, biometrics, whether approval can be guaranteed, and the study permit documents checklist: letter of acceptance, PAL, identity, funds incl. the GIC, when a medical exam or police certificate applies); 'profile' when the answer depends on the asker's own saved details (am I eligible, based on my profile/background); 'processing_times_link' when it asks how long IRCC takes. 'dev' may guide the router; 'holdout' is only measured, never tuned on. Done-criterion: >= 95% exact-set accuracy. 'holdout_2' (30 questions) was written after dev and the first held-out set had been used to build the router (2026-10-28), labelled before the router ran on it, and is measured once. 'holdout_3' (30 questions) was written after holdout_2 had been used to fix trigger gaps (2026-10-28), labelled before the router ran on it, and is measured once.",
+  "dev": [
+    {
+      "q": "How much money do I need to show for a study permit?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "What are the proof of funds for a family of 4 outside Quebec?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "How many hours can I work off campus while classes are in session?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Is the Student Direct Stream still open for Indian students?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "How long will my PGWP be if my program was 18 months?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "What CLB level do I need for a PGWP from a college program?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Do I need a provincial attestation letter for a master's program?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Is software engineering on the Express Entry STEM category list?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Do Mexican citizens need a visitor visa or an eTA to fly to Canada?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "How long are my biometrics valid for?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "If I submit a strong application, is approval guaranteed?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "How long does IRCC take to process a study permit from India?",
+      "tools": [
+        "processing_times_link"
+      ]
+    },
+    {
+      "q": "What are the current processing times for a visitor visa?",
+      "tools": [
+        "processing_times_link"
+      ]
+    },
+    {
+      "q": "Am I eligible for Express Entry with my profile?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "Based on my education and work experience, can I get a PGWP?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "Do I meet the language requirement for the PGWP with my test scores?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "Given my background, do I qualify for the Federal Skilled Worker program?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "What documents do I need for a study permit application?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Can my spouse get an open work permit while I study?",
+      "tools": []
+    },
+    {
+      "q": "How do I extend my study permit from inside Canada?",
+      "tools": []
+    },
+    {
+      "q": "What is a designated learning institution?",
+      "tools": []
+    },
+    {
+      "q": "Can I change schools after I arrive in Canada?",
+      "tools": []
+    },
+    {
+      "q": "What should I do if my study permit was refused?",
+      "tools": []
+    },
+    {
+      "q": "Do I need a medical exam for my study permit?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Can I travel outside Canada while my PGWP application is in process?",
+      "tools": []
+    },
+    {
+      "q": "What is the difference between a study permit and a visa?",
+      "tools": []
+    },
+    {
+      "q": "Can I bring my children to Canada while I study?",
+      "tools": []
+    },
+    {
+      "q": "How do I apply for a co-op work permit?",
+      "tools": []
+    },
+    {
+      "q": "What is the GIC and do I need one?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Where do I upload my letter of acceptance in the IRCC portal?",
+      "tools": []
+    }
+  ],
+  "holdout": [
+    {
+      "q": "What is the minimum amount of living funds for one student in Ontario?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Can international students work more than 24 hours a week off campus?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Can I still apply through the Nigeria Student Express?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Does a one-year master's program give a 3-year post-graduation work permit?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Which provinces need an attestation letter for study permits?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "What CRS factors matter for the STEM draw in Express Entry?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Do US green card holders need an eTA to visit Canada?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Do children under 14 have to give fingerprints?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Can a consultant promise that my visa will be approved?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "What is the processing time for a PGWP application right now?",
+      "tools": [
+        "processing_times_link"
+      ]
+    },
+    {
+      "q": "How many weeks does a study permit extension usually take?",
+      "tools": [
+        "processing_times_link"
+      ]
+    },
+    {
+      "q": "With my IELTS scores, which Express Entry programs can I apply for?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "Can I get a PGWP considering my field of study?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "Am I eligible for a study permit with my savings and education?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "Looking at my profile, do I have enough work experience for Express Entry?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "How do I get a Social Insurance Number as a student?",
+      "tools": []
+    },
+    {
+      "q": "Can I study part-time on a visitor record?",
+      "tools": []
+    },
+    {
+      "q": "What happens if my letter of acceptance expires before my visa comes?",
+      "tools": []
+    },
+    {
+      "q": "Do I need a police certificate for a study permit?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Can I apply for permanent residence while on a PGWP?",
+      "tools": []
+    },
+    {
+      "q": "How do I restore my status if my study permit expired?",
+      "tools": []
+    },
+    {
+      "q": "Can my parents visit me while I study in Canada?",
+      "tools": []
+    },
+    {
+      "q": "What is maintained status?",
+      "tools": []
+    },
+    {
+      "q": "Can I take a semester off and keep my study permit?",
+      "tools": []
+    }
+  ],
+  "relabelled": [
+    {
+      "date": "2026-10-28",
+      "why": "the label definition listed only the rules file's top-level sections; the rule engine also holds an owner-reviewed study permit documents checklist (medical exam, police certificate) and the funds facts explain the GIC. Definition widened and applied to both sets before the held-out set was first measured",
+      "cases": [
+        "What documents do I need for a study permit application?",
+        "Do I need a medical exam for my study permit?",
+        "What is the GIC and do I need one?",
+        "Do I need a police certificate for a study permit?"
+      ]
+    }
+  ],
+  "holdout_2": [
+    {
+      "q": "Is $25,000 enough to show as living funds for a single student outside Quebec?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "How much more money do I need if I bring my wife?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Can I work full-time during the winter break?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "When did the SDS program end?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "What language test score do university graduates need for a PGWP?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "How long is the PGWP after a two-year college diploma?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Are PhD students exempt from the provincial attestation letter?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "How much work experience does the Federal Skilled Worker program require?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Do Brazilian citizens need a visa to study in Canada?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Do I have to give biometrics again if I gave them two years ago?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Will my study permit surely be approved if I have a scholarship?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Is a letter of explanation required for a study permit?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "How long is IRCC taking to decide work permit applications these days?",
+      "tools": [
+        "processing_times_link"
+      ]
+    },
+    {
+      "q": "What's the wait time for a visitor visa from Nigeria?",
+      "tools": [
+        "processing_times_link"
+      ]
+    },
+    {
+      "q": "Am I eligible for a PGWP?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "Based on my profile, how much money do I need to show?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "Do I qualify for the STEM category with my degree?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "Considering my experience, can I apply under the Federal Skilled Worker program?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "How do I link my paper application to my online account?",
+      "tools": []
+    },
+    {
+      "q": "Can I work on campus without a work permit?",
+      "tools": []
+    },
+    {
+      "q": "What is an implied status?",
+      "tools": []
+    },
+    {
+      "q": "Can my spouse study in Canada while I work on a PGWP?",
+      "tools": []
+    },
+    {
+      "q": "How do I change the conditions on my study permit?",
+      "tools": []
+    },
+    {
+      "q": "Can I get a refund of my study permit fee if I withdraw?",
+      "tools": []
+    },
+    {
+      "q": "What is the Canadian Experience Class?",
+      "tools": []
+    },
+    {
+      "q": "Can I switch from a visitor visa to a study permit inside Canada?",
+      "tools": []
+    },
+    {
+      "q": "How do I report a change of address to IRCC?",
+      "tools": []
+    },
+    {
+      "q": "What happens at the port of entry when I arrive as a student?",
+      "tools": []
+    },
+    {
+      "q": "Can I apply for a PGWP if I studied online from outside Canada for part of my program?",
+      "tools": []
+    },
+    {
+      "q": "Do I need travel insurance as an international student?",
+      "tools": []
+    }
+  ],
+  "holdout_3": [
+    {
+      "q": "What's the living cost amount IRCC wants for a couple?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Do I need to show tuition money on top of living expenses?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Is the 24-hour work limit per week still in place?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Can I use the SDS if my IELTS is 6.5?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "What CLB do I need for a PGWP after a bachelor's degree?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Can I work while my PGWP application is being processed?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Does every study permit applicant need a PAL?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Is a nurse eligible for the STEM category draws?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Can a visa-exempt traveller just use an eTA to fly to Toronto?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Who is exempt from giving biometrics?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Is a study permit approval certain if I pay my tuition in advance?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Which documents prove my identity for the study permit?",
+      "tools": [
+        "rules"
+      ]
+    },
+    {
+      "q": "Roughly how many months is IRCC taking for spousal open work permits?",
+      "tools": [
+        "processing_times_link"
+      ]
+    },
+    {
+      "q": "What is the current processing time for study permit extensions?",
+      "tools": [
+        "processing_times_link"
+      ]
+    },
+    {
+      "q": "Do I qualify for Express Entry?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "With my CELPIP results, can I get a PGWP?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "Given my savings, do I have enough to apply for a study permit?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "Am I eligible for the STEM category?",
+      "tools": [
+        "profile",
+        "rules"
+      ]
+    },
+    {
+      "q": "Can I extend my visitor record while my study permit is processed?",
+      "tools": []
+    },
+    {
+      "q": "How do I apply for a new passport while in Canada?",
+      "tools": []
+    },
+    {
+      "q": "Can I volunteer while on a study permit?",
+      "tools": []
+    },
+    {
+      "q": "What is a TEER category?",
+      "tools": []
+    },
+    {
+      "q": "Can I bring my pet to Canada?",
+      "tools": []
+    },
+    {
+      "q": "Is an open work permit tied to an employer?",
+      "tools": []
+    },
+    {
+      "q": "How do I withdraw my application from IRCC?",
+      "tools": []
+    },
+    {
+      "q": "Can I study at two colleges at the same time?",
+      "tools": []
+    },
+    {
+      "q": "What is a co-op work permit used for?",
+      "tools": []
+    },
+    {
+      "q": "How do I get my study permit corrected if my name is misspelled?",
+      "tools": []
+    },
+    {
+      "q": "Can I apply for a visitor visa for my parents to attend my graduation?",
+      "tools": []
+    },
+    {
+      "q": "What happens if I fail a course in my program?",
+      "tools": []
+    }
+  ]
+}

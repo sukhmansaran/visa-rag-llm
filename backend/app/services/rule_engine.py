@@ -520,7 +520,7 @@ class RuleEngine:
     # ==========================================================================
 
     _APPROVAL_GUARANTEE_RE = re.compile(
-        r"\b(guarantee[ds]?|definitely|for sure|certainly|100\s*%|surely)\b.{0,60}\b(approv\w*|accept\w*|get (?:the|my|a) (?:visa|permit))"
+        r"\b(guarantee[ds]?|promise[ds]?|definitely|for sure|certainly|100\s*%|surely)\b.{0,60}\b(approv\w*|accept\w*|get (?:the|my|a) (?:visa|permit))"
         r"|\b(will|would)\s+(?:i|my|it|the)\b.{0,60}\b(?:definitely|surely|certainly)?\s*(?:be\s+)?(approved|accepted|granted)\b"
         r"|\b(chances?|odds|likelihood)\b.{0,40}\b(approv\w*|success|refus\w*)"
         r"|\b(approv\w*|accept\w*)\b.{0,30}\bguarantee[ds]?\b",
@@ -667,7 +667,9 @@ class RuleEngine:
         # 5. International Student Off-Campus Work Regulations
         if any(w in query_lower for w in [
             "work off-campus", "off campus", "work off campus", "hours can a student work", 
-            "how many hours", "work while studying", "work on study permit", "student work"
+            "how many hours", "work while studying", "work on study permit", "student work",
+            "winter break", "summer break", "scheduled break", "academic break", "reading week", "work full-time",
+            "work full time", "work during the break", "work during my break"
         ]):
             return (
                 "OFFICIAL IRCC REGULATORY FACTS — INTERNATIONAL STUDENT WORK REGULATIONS (as of November 8, 2024; verified 2026-10-12):\n"
@@ -723,7 +725,9 @@ class RuleEngine:
             return self._checklist_facts()
 
         # 9. General Canada Visitor / Tourist Requirements
-        if any(w in query_lower for w in ["tourist", "visitor", "travel", "visit canada", "eta", "trv"]) or visa_type == "tourist":
+        # "Do Brazilians need a visa to study?": the visa/eTA rule depends on citizenship, not on the reason for the trip
+        if any(w in query_lower for w in ["tourist", "visitor", "travel", "visit canada", "eta", "trv", "need a visa",
+                                          "need visa", "visa to study", "visa to come", "need an eta"])                 or visa_type == "tourist":
             return self._visitor_facts()
 
         return None
