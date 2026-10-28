@@ -91,6 +91,8 @@ def build_baseline(report: dict, versions: dict) -> dict:
         raise SystemExit(f"A baseline needs the full set ({len(cases)} cases); this report has {len(results)}.")
     return {
         "created": date.today().isoformat(), **versions,
+        # the gate replays this mode: a verified-path baseline compared with fast-path runs would be meaningless
+        "agent_mode": report["summary"].get("agent_mode", "shadow"),
         "eval_set_version": report["summary"].get("eval_set_version"), "runs": report["summary"]["runs"],
         "summary": report["summary"],
         "cases": {r["id"]: {"type": r["type"], "critical": r["critical"], "passed": r["passed"], "passes": r["passes"],
@@ -161,6 +163,11 @@ async def run_gate(args) -> int:
     if args.update_baseline:
         report = json.loads(Path(args.update_baseline).read_text(encoding="utf-8"))
         baseline = build_baseline(report, await _versions(report["summary"]["model"]))
+        if BASELINE.exists():  # relabels and acceptances stay on record
+            baseline["history"] = json.loads(BASELINE.read_text(encoding="utf-8")).get("history", [])
+        baseline.setdefault("history", []).append({"date": baseline["created"], "baseline": "rebuilt",
+                                                   "agent_mode": baseline["agent_mode"],
+                                                   "passed": baseline["summary"]["passed"]})
         BASELINE.write_text(json.dumps(baseline, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         s = baseline["summary"]
         print(f"Baseline written: {s['passed']}/{s['cases']} cases pass ({s['runs']} runs) -> {BASELINE}")
@@ -179,7 +186,8 @@ async def run_gate(args) -> int:
         if not args.full:
             return 1
 
-    argv = ["--models", baseline["model"], "--out", str(BACKEND / "logs" / "eval_gate_last.json")]
+    argv = ["--models", baseline["model"], "--out", str(BACKEND / "logs" / "eval_gate_last.json"),
+            "--agent-mode", baseline.get("agent_mode", "shadow")]
     argv += ["--runs", "3"] if args.full else ["--critical", "--runs", "1"]
     if args.system_prompt_file:
         argv += ["--system-prompt-file", args.system_prompt_file]

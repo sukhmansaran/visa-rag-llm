@@ -19,6 +19,9 @@ os.environ.setdefault("MONITOR_ENABLED", "false")
 # The verified-answer cache (M4.6) lives in Redis across tests; one test's answer would be served to the next.
 # Off by default here; tests/test_verified_cache.py switches it on with an in-memory Redis.
 os.environ.setdefault("VERIFIED_CACHE_ENABLED", "false")
+# The default is AGENT_MODE=on (verified questions go to the verified queue); tests were written against shadow and
+# switch the path themselves (routed_as, monkeypatch) where they need it.
+os.environ.setdefault("AGENT_MODE", "shadow")
 
 from urllib.parse import urlparse
 

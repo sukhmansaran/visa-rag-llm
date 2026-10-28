@@ -568,6 +568,13 @@ class RuleEngine:
             "- State clearly in the answer that approval cannot be guaranteed."
         )
 
+    # The same compliance fact as a sentence for the answer itself, used when the verified path must state it in code
+    APPROVAL_GUARANTEE_ANSWER = (
+        "Approval can't be guaranteed: no amount of funds or documents, and no statement of purpose, guarantees it. "
+        "Each application is assessed by an IRCC officer, who decides based on the whole application. Meeting the "
+        "requirements makes you eligible to apply; it is not a promise of approval."
+    )
+
     def try_rule_answer(
         self, 
         intent: str, 
