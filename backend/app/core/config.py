@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     LLM_MODEL_PLANNER: Optional[str] = None    # question analysis / decomposition
     LLM_MODEL_ANSWER: Optional[str] = None     # grounded answer writing
     LLM_MODEL_VERIFIER: Optional[str] = None   # claim checks against sources
+    LLM_MODEL_AGENT: Optional[str] = None      # the agent loop's decisions (M5.3); qwen3:4b decided better than 3b
     # Input guardrail second layer (M4.5): qwen3:4b refused 0/95 legitimate questions and caught 8/12 harmful or
     # injection messages the regex layer misses; llama3.2:3b caught 2/12, phi4-mini refused 2 legitimate questions
     LLM_MODEL_MONITOR: Optional[str] = "qwen3:4b"
@@ -103,6 +104,12 @@ class Settings(BaseSettings):
     # on = route verified questions to the verified path. On by default since 2026-10-27: 60/68 on the evaluation
     # (3 runs) against 54/68 for the fast path alone, no critical regressions, no ungrounded numbers (3 before)
     AGENT_MODE: str = "on"
+    # Agent loop (M5.3): on the verified path the model chooses actions (tools, ask the user, answer) and code validates
+    # them; off until it matches the evaluation baseline. Each decision is one model call. Measured 2026-10-28 on
+    # tests/data/agentic_cases.json with qwen3:4b deciding: 7/16 tasks, ask decision 12/16 (targets 12 and 14);
+    # llama3.2:3b deciding: 2/8 on dev (it asked in almost every case). The bake-off (M5.7) and stronger models decide.
+    AGENT_LOOP: bool = False
+    AGENT_MAX_STEPS: int = 6
     # Verified-path queue (M1.4, used when AGENT_MODE=on): verified answers share one CPU, so they wait in line
     VERIFIED_JOBS_IN_FLIGHT_PER_USER: int = 3   # 1 running + 2 waiting; more is refused (429)
     VERIFIED_JOBS_PER_HOUR: int = 10            # per user; more is refused (429)

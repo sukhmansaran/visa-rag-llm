@@ -26,7 +26,7 @@ ROUTABLE = ("rules", "profile", "processing_times_link")  # knowledge_base_searc
 
 _PROCESSING_TIME = re.compile(
     r"\bprocessing\s+times?\b"
-    r"|\bhow\s+long\s+(?:does|do|will|would)\s+(?:it|ircc|they|the\s+\w+(?:\s+\w+)?|an?\s+\w+(?:\s+\w+)?)\s+(?:usually\s+)?take\b"
+    r"|\bhow\s+long\s+(?:does|do|will|would)\s+(?:it|ircc|they|(?:the|my|an?)\s+\w+(?:\s+\w+)?)\s+(?:usually\s+)?take\b"
     r"|\bhow\s+long\s+(?:is|are)\s+(?:ircc|it|they|the\s+\w+)\s+(?:currently\s+)?taking\b"
     r"|\bhow\s+(?:many|much)\s+(?:weeks|months|days|time)\s+(?:does|do|will|would)\b.*\btake\b"
     r"|\bwait(?:ing)?\s+times?\b", re.IGNORECASE)
@@ -39,6 +39,10 @@ _PERSONAL = re.compile(
     r"(?:profile|background|education|degree|work\s+experience|experience|test\s+scores?|scores?|ielts|celpip|"
     r"field\s+of\s+study|savings|qualifications?|situation|details|results)\b"
     r"|\bmy\s+profile\b", re.IGNORECASE)
+
+
+def asks_processing_time(question: str) -> bool:
+    return bool(_PROCESSING_TIME.search(question))
 
 
 @dataclass(frozen=True)

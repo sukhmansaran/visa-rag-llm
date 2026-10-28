@@ -204,6 +204,15 @@ async def test_a_premise_question_with_nothing_verified_is_answered_as_before(sc
 
 @pytest.mark.asyncio
 async def test_a_question_without_a_premise_keeps_its_not_covered_answer(scripted):
+    scripted.when(r"Question: Can I volunteer", {"not_covered": True})
+    result, _ = await run("Can I volunteer at a charity while on a study permit?", "verified")
+    assert result["answer"].startswith("The official sources I have don't cover this")
+
+
+@pytest.mark.asyncio
+async def test_a_processing_time_question_is_answered_by_code_with_irccs_tool(scripted):
+    """Pendu stores no processing times (by design): the evidence step could only call it uncheckable (M5.3)."""
     scripted.when(r"Question: What is the processing time", {"not_covered": True})
     result, _ = await run("What is the processing time for a study permit from India?", "verified")
-    assert result["answer"].startswith("The official sources I have don't cover this")
+    assert result["answer"].startswith("The official sources I have don't cover current processing times")
+    assert "check-processing-times.html" in result["answer"] and '> ""' not in result["answer"]

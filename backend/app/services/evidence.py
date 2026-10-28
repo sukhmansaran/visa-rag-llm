@@ -181,7 +181,7 @@ def compose(results: List[PartResult]) -> str:
             quote = result.quote.strip(' "')
             answer = _CITATION.sub("", result.answer).strip()  # only the checked citation is shown
             label = " (partially verified)" if result.partial else ""
-            text = f'{answer}{cite}{label}\n> "{quote}"'
+            text = f'{answer}{cite}{label}' + (f'\n> "{quote}"' if quote else "")  # code-stated parts have no quote
         elif result.status == "not_covered":
             text = NOT_COVERED_TEXT.format(part=result.part)
         else:

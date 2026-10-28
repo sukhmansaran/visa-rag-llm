@@ -37,7 +37,8 @@ from app.services.follow_up import resolve as resolve_follow_up
 from app.services.topics import detect_topics
 from app.services.triage import VERIFIED, routed_path, triage
 from app.services.prompt_registry import get_prompt
-from app.services.router import route as route_tools
+from app.services.router import asks_processing_time, route as route_tools
+from app.agent import loop as agent_loop
 
 logger = logging.getLogger(__name__)
 
@@ -339,9 +340,11 @@ class RAGPipeline:
             step.update(rule_facts=bool(rule_facts), guarantee_fact=bool(guarantee_fact),
                         closed_program_fact=bool(closed_program_fact))
         # 2b. Tool route (M5.2): traced only, answers don't use it yet (no model call)
+        route_plan = None
         if settings.AGENT_MODE != "off":
             with trace_step("route") as step:
-                step.update((await route_tools(query, country if country != "unknown" else "Canada")).summary())
+                route_plan = await route_tools(query, country if country != "unknown" else "Canada")
+                step.update(route_plan.summary())
         # The path is part of the key: a fast-path answer must not stand in for a verified one, nor the reverse
         rules_version = f"{await self._answer_cache_version()}:{routed_path()}"
         state.update(cache_args=(country, visa_type, intent, query), rule_facts=rule_facts)
@@ -444,11 +447,32 @@ class RAGPipeline:
         # Sensitive (M4.4): legal risk in the question (triage) or a request for certainty about approval
         sensitive = routed_path() == VERIFIED and (
             bool(guarantee_fact) or (triage_decision is not None and "legal_risk" in triage_decision.reasons))
+        # 7a'. Agent loop (M5.3): the model chooses what else to look up, or to ask the asker one question, and
+        # restates the question with the asker's details; the evidence step and its code checks below are unchanged
+        answer_parts: List[str] = []
+        if routed_path() == VERIFIED and settings.AGENT_LOOP:
+            with trace_step("agent") as step:
+                agent = await agent_loop.run(query, rule_facts, chunks, chat_history,
+                                             seed=route_plan.tools if route_plan else ())
+                step.update(agent.summary())
+            metrics["agent"] = agent.summary()
+            if agent.outcome == "ask" and output_guardrail.validate_output(agent.ask).is_valid:
+                metrics["source"] = "agent_ask"
+                yield {"type": "chunk", "content": agent.ask}
+                yield {"type": "done", "full_response": agent.ask, "sources": [], "metrics": finished_metrics()}
+                return
+            rule_facts, chunks = agent.rule_facts, agent.chunks
+            answer_parts = parts or [agent.answer_question]
+            combined_context, sources = self._build_grounded_context(rule_facts, chunks, tourist_context, context_chars)
         if routed_path() == VERIFIED:
             results, retry_chunks = await self._evidence_answers(
-                parts or [query], rule_facts, chunks, context_chars,
+                answer_parts or parts or [query], rule_facts, chunks, context_chars,
                 retrieval_args={"country": country, "visa_type": visa_type, "intent": intent},
                 deadline=start_time + settings.VERIFIED_RETRY_BEFORE_SECONDS)
+            # Processing-time parts are answered by code (M5.3): Pendu stores no figures by design, so the answer is
+            # always IRCC's tool; the evidence step could only call them uncheckable
+            results = [self._processing_time_result(r.part) if r.status != "verified" and asks_processing_time(r.part)
+                       else r for r in results]
             if retry_chunks:  # a kept retry cites new pages: list them too, numbers continuing after the first round
                 sources = self.build_citations([c for c in chunks if c.get("_included_in_context")] + retry_chunks,
                                                tourist_context)
@@ -667,6 +691,13 @@ class RAGPipeline:
                 sources = retry_sources
                 extra.extend(c for c in fresh if c.get("_included_in_context"))
         return results, extra
+
+    @staticmethod
+    def _processing_time_result(part: str) -> PartResult:
+        url = (rule_engine.rules_data.get("processing_times") or {}).get("source_url", "https://www.canada.ca")
+        return PartResult(part, "verified", source_number=0, answer=(
+            "The official sources I have don't cover current processing times: they change regularly and depend on "
+            f"the application and the country you apply from. Check the current time with IRCC's tool: {url}"))
 
     @staticmethod
     async def _rule_facts_per_part(parts: List[str], country: str, visa_type: str, intent: str) -> Optional[str]:

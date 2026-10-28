@@ -202,6 +202,7 @@ class OllamaService:
             "answer": settings.LLM_MODEL_ANSWER,
             "verifier": settings.LLM_MODEL_VERIFIER,
             "monitor": settings.LLM_MODEL_MONITOR,
+            "agent": settings.LLM_MODEL_AGENT,
         }.get(role)
         return configured or self.model
 
