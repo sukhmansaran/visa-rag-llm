@@ -197,6 +197,7 @@ export function describeStep(step: any): string {
         intent: "Applying official rules",
         decomposition: "Applying official rules", // M2.3: verified questions with several parts, split first
         rules: "Checking recent answers",
+        route: "Checking recent answers", // M5.2: which tools the question needs (traced only)
         cache: "Checking travel records",
         tourist_db: "Searching official sources",
         retrieval: "Checking the evidence",
