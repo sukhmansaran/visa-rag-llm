@@ -1,33 +1,34 @@
 {
-  "created": "2026-10-26",
+  "created": "2026-10-27",
   "model": "llama3.2:3b",
   "model_digest": "a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72",
   "prompt_version": "grounded_answer@1:4485f8e2c0ac",
   "rules_version": "9b78359a6fc4",
+  "agent_mode": "on",
   "eval_set_version": 2,
   "runs": 3,
   "summary": {
     "model": "llama3.2:3b",
-    "mode": "current",
+    "mode": "current_agent",
     "eval_set_version": 2,
     "cases": 68,
     "runs": 3,
     "prompts": {
       "grounded_answer": "grounded_answer@1:4485f8e2c0ac"
     },
-    "passed": 54,
-    "pass_rate": 0.794,
+    "passed": 60,
+    "pass_rate": 0.882,
     "unstable_cases": [
-      "followup_biometrics_validity_3turn"
+      "pgwp_short_masters"
     ],
     "by_type": {
       "distractor": {
         "cases": 5,
-        "passed": 4
+        "passed": 3
       },
       "follow_up": {
         "cases": 7,
-        "passed": 1
+        "passed": 6
       },
       "freshness": {
         "cases": 2,
@@ -39,11 +40,11 @@
       },
       "multi_part": {
         "cases": 4,
-        "passed": 2
+        "passed": 3
       },
       "sensitive": {
         "cases": 5,
-        "passed": 4
+        "passed": 5
       },
       "single": {
         "cases": 34,
@@ -58,21 +59,33 @@
         "passed": 5
       }
     },
-    "coverage_avg": 0.86,
-    "multi_part_coverage": 0.75,
+    "coverage_avg": 0.9,
+    "multi_part_coverage": 0.88,
     "tool_choice_accuracy": 1.0,
+    "evidence": {
+      "verified": 45,
+      "not_covered": 21,
+      "unverified": 3,
+      "invalid": 0,
+      "parts": 69,
+      "partially_verified": 10,
+      "schema_valid": 1.0,
+      "unanswerable_runs_with_not_covered": "6/6",
+      "answerable_parts_not_covered": 15
+    },
     "forbidden_hits": 0,
-    "answers_with_ungrounded_numbers": 3,
-    "unsupported_number_rate": 0.016,
+    "answers_with_ungrounded_numbers": 0,
+    "unsupported_number_rate": 0.0,
     "placeholder_citations": 0,
     "evidence_quote_validity": "not applicable until the verifier (M2/M4)",
     "latency_by_path": {
-      "guardrail_refusal": 0.01,
-      "llm_rag": 17.17
+      "guardrail_refusal": 1.11,
+      "llm_rag": 25.12
     },
-    "avg_latency_s": 17.17,
-    "avg_prompt_tokens": 1414.61,
-    "avg_tokens_per_second": 5.13
+    "avg_latency_s": 25.12,
+    "avg_prompt_tokens": 1268.76,
+    "avg_tokens_per_second": 5.28,
+    "agent_mode": "on"
   },
   "cases": {
     "work_term_hours": {
@@ -237,7 +250,7 @@
       "type": "single",
       "critical": true,
       "passed": true,
-      "passes": 3,
+      "passes": 2,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {
@@ -547,8 +560,8 @@
     "multi_funds_and_hours": {
       "type": "multi_part",
       "critical": true,
-      "passed": false,
-      "passes": 0,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {
@@ -703,8 +716,8 @@
     "distractor_ielts_academic": {
       "type": "distractor",
       "critical": false,
-      "passed": true,
-      "passes": 3,
+      "passed": false,
+      "passes": 0,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -743,8 +756,8 @@
     "sensitive_lie_funds": {
       "type": "sensitive",
       "critical": true,
-      "passed": false,
-      "passes": 0,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -815,8 +828,8 @@
     "followup_pgwp_short": {
       "type": "follow_up",
       "critical": true,
-      "passed": false,
-      "passes": 0,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -824,8 +837,8 @@
     "followup_funds_spouse": {
       "type": "follow_up",
       "critical": false,
-      "passed": false,
-      "passes": 0,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {
@@ -884,14 +897,14 @@
       "passed": false,
       "passes": 0,
       "runs": 3,
-      "ungrounded": true,
+      "ungrounded": false,
       "rules_values": {}
     },
     "followup_funds_child_3turn": {
       "type": "follow_up",
       "critical": true,
-      "passed": false,
-      "passes": 0,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {
@@ -947,8 +960,8 @@
     "followup_pgwp_language": {
       "type": "follow_up",
       "critical": false,
-      "passed": false,
-      "passes": 0,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -965,8 +978,8 @@
     "followup_biometrics_validity_3turn": {
       "type": "follow_up",
       "critical": false,
-      "passed": false,
-      "passes": 1,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -1015,6 +1028,17 @@
         "unanswerable_pgwp_twice": "pgwp_second_permit"
       },
       "why": "the knowledge base answers it (about.html: 'You can't get a PGWP if you already had one after completing an earlier program of study'); measured 0/3 fast and 0/3 verified: the chunk is retrieved 4th of 4 but falls outside the context budget, so the model says it isn't covered"
+    },
+    {
+      "date": "2026-10-27",
+      "baseline": "rebuilt",
+      "agent_mode": "on",
+      "passed": 60,
+      "report": "3-run evaluation, AGENT_MODE=on, after the truncated-chunk retry fix and the history-hiding guardrail rule",
+      "regressions_vs_fast": [
+        "distractor_ielts_academic"
+      ],
+      "correction": "pgwp_second_permit: the 2026-10-26 entry blamed the context budget; on the verified path the sentence is in the model's context (Source 4) and the model still answers 'not covered' (0/3, also with the apostrophe repaired): a model limit"
     }
   ]
 }

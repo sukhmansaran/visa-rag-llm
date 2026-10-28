@@ -100,8 +100,9 @@ class Settings(BaseSettings):
     VERIFIED_CACHE_TTL_SECONDS: int = 7 * 24 * 3600
 
     # Triage (M1.2): off = no triage; shadow = triage every question and trace the decision, answers unchanged;
-    # on = route verified questions to the verified path (until M2 that path is today's pipeline)
-    AGENT_MODE: str = "shadow"
+    # on = route verified questions to the verified path. On by default since 2026-10-27: 60/68 on the evaluation
+    # (3 runs) against 54/68 for the fast path alone, no critical regressions, no ungrounded numbers (3 before)
+    AGENT_MODE: str = "on"
     # Verified-path queue (M1.4, used when AGENT_MODE=on): verified answers share one CPU, so they wait in line
     VERIFIED_JOBS_IN_FLIGHT_PER_USER: int = 3   # 1 running + 2 waiting; more is refused (429)
     VERIFIED_JOBS_PER_HOUR: int = 10            # per user; more is refused (429)
@@ -182,7 +183,7 @@ class Settings(BaseSettings):
 
     @validator("AGENT_MODE", pre=True, always=True)
     def check_agent_mode(cls, v):
-        mode = str(v or "shadow").strip().lower()
+        mode = str(v or "on").strip().lower()
         if mode not in ("off", "shadow", "on"):
             raise ValueError("AGENT_MODE must be off, shadow or on")
         return mode

@@ -8,7 +8,7 @@
 # 1. scripts/preflight.py checks PostgreSQL (and migrations), Redis, Ollama (and the pinned model builds), settings,
 #    the knowledge base, frontend packages and ports. Anything that would stop Pendu working stops here, with the fix.
 # 2. Opens one titled window each for: the API, the answers worker, the background worker, the verified worker
-#    (M1.4; idle unless AGENT_MODE=on), the scheduler (beat)
+#    (M1.4; AGENT_MODE=on, the default), the scheduler (beat)
 #    and the frontend. Close a window to stop that part; close them all to stop Pendu.
 # 3. Waits for the API's /health and prints the URLs.
 param(

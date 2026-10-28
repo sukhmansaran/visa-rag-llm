@@ -115,9 +115,13 @@ async def test_the_trace_never_carries_the_question(scripted_pipeline, monkeypat
     assert steps[0]["topics"] == ["pgwp", "work"]  # topic names only, never the question
 
 
-@pytest.mark.parametrize("value,expected", [("Shadow", "shadow"), (" ON ", "on"), ("off", "off"), (None, "shadow")])
+@pytest.mark.parametrize("value,expected", [("Shadow", "shadow"), (" ON ", "on"), ("off", "off"), (None, "on")])
 def test_agent_mode_setting(value, expected):
     assert Settings(AGENT_MODE=value).AGENT_MODE == expected
+
+
+def test_the_verified_path_is_on_by_default():
+    assert Settings.model_fields["AGENT_MODE"].default == "on"  # conftest pins shadow for the other tests
 
 
 def test_agent_mode_rejects_unknown_values():

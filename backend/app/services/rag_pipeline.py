@@ -468,6 +468,15 @@ class RAGPipeline:
                 metrics["evidence"]["premise_fallback"] = True
             elif any(r.status != "invalid" for r in results):
                 evidence_answer = compose(results)
+            if guarantee_fact and evidence_answer is not None:
+                # "Will it be approved for sure?" always gets "it can't be guaranteed", from the rule engine, not the
+                # model: the evidence step sometimes calls the question "not covered" (0/3 in one session, 3/3 the
+                # day before). Nothing verified: this is the answer; otherwise it leads.
+                metrics["evidence"]["guarantee_stated"] = True
+                if not any(r.status == "verified" for r in results):
+                    evidence_answer = rule_engine.APPROVAL_GUARANTEE_ANSWER
+                elif "guarantee" not in evidence_answer.lower():
+                    evidence_answer = rule_engine.APPROVAL_GUARANTEE_ANSWER + "\n\n" + evidence_answer
 
         generation_args = dict(
             system_prompt=system_prompt,

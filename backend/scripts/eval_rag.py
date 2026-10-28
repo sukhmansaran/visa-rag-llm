@@ -301,7 +301,8 @@ def summarise(model: str, results: List[dict], baseline: bool, stream: bool, run
 
     n = len(results)
     return {
-        "model": model, "mode": _mode_name(baseline, stream), "eval_set_version": 2, "cases": n, "runs": runs,
+        "model": model, "mode": _mode_name(baseline, stream), "agent_mode": settings.AGENT_MODE,
+        "eval_set_version": 2, "cases": n, "runs": runs,
         # which prompt text produced these answers (M0.12); "@0" means an unsaved variant
         "prompts": {"grounded_answer": prompt_registry.get_prompt("grounded_answer").tag},
         "passed": sum(r["passed"] for r in results),

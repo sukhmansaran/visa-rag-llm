@@ -96,3 +96,33 @@ async def test_a_plain_question_keeps_its_partially_verified_part(scripted):
     scripted.when(r"Claim:", {"supported": "partial", "reason": "not sure"})
     result, _ = await run(PLAIN)
     assert "(partially verified)" in result["answer"] and "sensitive" not in result["metrics"]["evidence"]
+
+
+@pytest.mark.asyncio
+async def test_a_guarantee_question_the_model_calls_not_covered_still_says_it_cant_be_guaranteed(scripted):
+    from app.services.rule_engine import rule_engine
+
+    scripted.when(r"Question: If I show \$40,000", {"not_covered": True})
+    result, _ = await run(GUARANTEE)
+    assert result["answer"].startswith(rule_engine.APPROVAL_GUARANTEE_ANSWER)
+    assert "don't cover" not in result["answer"] and result["metrics"]["evidence"]["guarantee_stated"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_verified_guarantee_answer_is_led_by_the_rule_when_it_doesnt_say_so(scripted):
+    from app.services.rule_engine import rule_engine
+
+    scripted.when(r"Question: If I show \$40,000", GOOD)
+    scripted.when(r"Claim:", {"supported": "yes", "reason": "stated"})
+    result, _ = await run(GUARANTEE)
+    assert result["answer"].startswith(rule_engine.APPROVAL_GUARANTEE_ANSWER + "\n\n")
+    assert "banned from coming to Canada for 5 years" in result["answer"]
+
+
+@pytest.mark.asyncio
+async def test_a_question_without_a_guarantee_request_is_unchanged(scripted):
+    scripted.when(r"Question: My study permit was refused", GOOD)
+    scripted.when(r"Claim:", {"supported": "yes", "reason": "stated"})
+    result, _ = await run(REFUSED)
+    assert "can't be guaranteed" not in result["answer"]
+    assert "guarantee_stated" not in result["metrics"]["evidence"]
