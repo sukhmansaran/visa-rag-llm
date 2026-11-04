@@ -195,6 +195,17 @@ path: `on` (the default) sends verified questions to their own queue and worker,
 request trace and answers everything on the fast path; `off` skips triage. Questions not in English
 get a fixed reply (Pendu answers in English only for now) without a model call.
 
+`AGENT_LOOP=True` (off by default) turns on the agent on the verified path (a LangGraph graph). The model
+chooses what to look up next (the rules, a knowledge-base search, the user's saved profile, IRCC's
+processing-times link), when to answer, and whether to ask the user one clarifying question. Code checks
+every choice, and the answer still goes through the evidence checks. When the agent asks, its run is paused
+and saved, and the user's next message resumes it from the same point, even after a worker restart. Paused
+runs are stored in their own database; create it once with:
+```powershell
+cd backend
+python scripts/setup_agent_db.py      # creates visa_chatbot_agent and LangGraph's checkpoint tables
+```
+
 ---
 
 ## 🧪 Tests

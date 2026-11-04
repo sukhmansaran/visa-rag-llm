@@ -21,6 +21,7 @@ interface Message {
     progress?: string;          // current step label while the answer job runs
     steps?: number[];           // step numbers received (diagnostic jobs), for end-to-end checks
     status?: "running" | "done" | "error" | "cancelled";
+    awaitingReply?: boolean;    // M5.4: a clarifying question; the next message answers it
 }
 
 const JOB_PARAM = "job";
@@ -94,6 +95,9 @@ export default function ChatPage() {
             case "guardrail_blocked":
                 // The English-only reply (M1.3) is a polite notice, not a blocked request: no firewall badge
                 if (data.violation !== "UNSUPPORTED_LANGUAGE") updateLastAssistant(m => ({ ...m, guardrail_blocked: true }));
+                break;
+            case "ask":
+                updateLastAssistant(m => ({ ...m, awaitingReply: true }));
                 break;
             case "done":
                 updateLastAssistant(m => ({
@@ -345,6 +349,14 @@ export default function ChatPage() {
                                 </div>
                             )}
 
+
+                            {msg.role === "assistant" && msg.awaitingReply && (
+                                <p data-testid="awaiting-reply" className="mt-2 text-xs text-slate-500">
+                                    {i === messages.length - 1
+                                        ? "I need this detail to answer. Reply below and I'll continue from here."
+                                        : "Answered below."}
+                                </p>
+                            )}
 
                             {/* Verified Source Citations */}
                             {msg.role === "assistant" && !msg.streaming && msg.sources && msg.sources.length > 0 && (

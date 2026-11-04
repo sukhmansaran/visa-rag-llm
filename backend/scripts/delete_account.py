@@ -79,4 +79,6 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    from app.workers.async_runner import agent_loop_factory
+
+    sys.exit(asyncio.run(main(), loop_factory=agent_loop_factory()))  # psycopg (agent checkpoints) needs it on Windows

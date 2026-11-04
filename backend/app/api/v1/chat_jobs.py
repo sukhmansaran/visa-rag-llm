@@ -8,6 +8,8 @@ Idle streams send `: heartbeat` comments every SSE_HEARTBEAT_SECONDS so proxies 
 
 With AGENT_MODE=on, questions that triage marks verified go to the verified queue (M1.4): per-user limits (429
 when exceeded), a place in line streamed as "queue" events, their own worker. Everything else is the fast path.
+A message answering the agent's clarifying question (M5.4: the last message is that question, its run is paused) goes
+to the verified path with the paused run's id, so the agent resumes instead of starting over.
 """
 
 import json
@@ -108,7 +110,14 @@ async def create_answer_job(
     )).scalars().all()
     chat_history = [{"role": m.role, "content": m.content} for m in reversed(history_rows)]
 
-    path = _answer_path(message.query)
+    # A reply to the agent's clarifying question (M5.4) resumes its paused run, on the verified path
+    from app.agent.checkpoints import pending_resume
+
+    resume_thread = pending_resume(history_rows[0] if history_rows else None, current_user.id, message.query)
+    path = "verified" if resume_thread else _answer_path(message.query)
+    context_metadata: Dict[str, Any] = {"country": message.country, "university": message.university}
+    if resume_thread:
+        context_metadata["agent_resume"] = resume_thread
     try:
         job_id = await jobs.create_job(current_user.id, kind="answer", session_id=session_id, path=path)
         admission = await verified_queue.admit(current_user.id, job_id) if path == "verified" else None
@@ -134,8 +143,7 @@ async def create_answer_job(
     task, queue = (run_verified_answer_job_task, "verified") if path == "verified" else (run_answer_job_task, "answers")
     try:
         task.apply_async(
-            args=[job_id, current_user.id, message.query,
-                  {"country": message.country, "university": message.university}, chat_history, session_id],
+            args=[job_id, current_user.id, message.query, context_metadata, chat_history, session_id],
             queue=queue,
         )
     except Exception:

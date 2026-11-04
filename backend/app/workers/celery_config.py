@@ -43,6 +43,12 @@ beat_schedule = {
         'schedule': crontab(minute=30, hour=3),  # Daily at 3:30 AM
     },
 
+    # Delete paused agent runs nobody answered (M5.4, D7: AGENT_CHECKPOINT_RETENTION_HOURS)
+    'purge-agent-checkpoints': {
+        'task': 'app.workers.periodic_tasks.purge_agent_checkpoints_task',
+        'schedule': crontab(minute=0),  # hourly
+    },
+
     # Clean up old logs weekly
     'cleanup-old-logs': {
         'task': 'app.workers.periodic_tasks.cleanup_old_logs_task',

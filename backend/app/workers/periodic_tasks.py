@@ -204,6 +204,15 @@ def send_weekly_digest_task():
 
 
 @celery_app.task
+def purge_agent_checkpoints_task():
+    """Delete paused agent runs nobody answered, after AGENT_CHECKPOINT_RETENTION_HOURS (M5.4, D7)."""
+    from app.agent import checkpoints
+    from app.workers.async_runner import agent_loop_factory
+
+    return run_async(checkpoints.purge(), loop_factory=agent_loop_factory())
+
+
+@celery_app.task
 def purge_old_traces_task():
     """Delete request traces older than TRACE_RETENTION_DAYS (M0.5, retention decision D7)."""
     from app.services.tracing import purge_old_traces

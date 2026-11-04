@@ -6,7 +6,8 @@
 
 import { apiFetch } from "@/lib/auth";
 
-export type JobEventType = "status" | "queue" | "step" | "chunk" | "guardrail_blocked" | "done" | "error" | "cancelled";
+// "ask" (M5.4): the agent paused at a clarifying question; the user's next message is the reply and resumes it
+export type JobEventType = "status" | "queue" | "step" | "chunk" | "guardrail_blocked" | "ask" | "done" | "error" | "cancelled";
 
 export interface JobEvent {
     id: string;
@@ -191,6 +192,7 @@ export async function followJob(
  */
 export function describeStep(step: any): string {
     const next: Record<string, string> = {
+        agent_resume: "Picking up where we left off", // M5.4: a reply to the agent's clarifying question
         input_guardrail: "Understanding the question",
         follow_up: "Understanding the question", // M2.4: a follow-up rewritten as a standalone question
         verified_cache: "Understanding the question", // M4.6: no recent verified answer to this question
@@ -202,6 +204,8 @@ export function describeStep(step: any): string {
         tourist_db: "Searching official sources",
         retrieval: "Checking the evidence",
         evidence_gate: "Writing the answer",
+        agent_step: "Deciding what to check next", // M5.3: one agent decision or tool call
+        agent: "Checking the evidence", // M5.3: the agent has gathered what it needs
         evidence: "Checking the evidence", // M3: each part's quote checked against its source
         retry: "Checking the evidence", // M4.3: a part that wasn't verified, searched and checked once more
         generation: "Checking the answer",
