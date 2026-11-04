@@ -6,7 +6,8 @@ Used by scripts/create_admin.py and scripts/delete_account.py, and meant for the
 covered without editing this file:
   - rows the user owns are exported and deleted;
   - references to the user inside SOMEONE ELSE's row (a reviewer, "reviewed_by") are set to NULL instead.
-Uploaded files live in uploads/<user_id>/ and are removed with the account.
+Uploaded files live in uploads/<user_id>/ and are removed with the account, and so are the user's paused agent
+runs (M5.4, a separate database; if it can't be reached they expire within AGENT_CHECKPOINT_RETENTION_HOURS).
 """
 
 import re
@@ -102,6 +103,15 @@ async def delete_user(db: AsyncSession, user: User, upload_dir: Path) -> Dict[st
     if folder.is_dir():
         shutil.rmtree(folder)
         affected["uploads folder"] = 1
+
+    from app.agent import checkpoints
+
+    try:
+        purged = await checkpoints.purge(user_id=user_id)
+    except Exception:
+        purged = {"deleted": 0}  # unreachable: they expire with the retention period
+    if purged["deleted"]:
+        affected["agent checkpoints"] = purged["deleted"]
     return affected
 
 

@@ -127,6 +127,19 @@ async def client(db_session):
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def agent_checkpoints(monkeypatch):
+    """Paused agent runs (M5.4) go to a fresh in-memory checkpointer per test, never to the Postgres agent database.
+    tests/test_agent_pause.py also checks the Postgres one, across processes."""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from app.agent import checkpoints
+
+    saver = InMemorySaver()
+    monkeypatch.setattr(checkpoints, "_override", saver)
+    return saver
+
+
 @pytest.fixture
 def fake_llm(monkeypatch):
     """Route every model call through a scripted FakeLLM (no Ollama needed). See app/services/llm_fake.py."""

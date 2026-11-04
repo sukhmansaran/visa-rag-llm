@@ -9,7 +9,8 @@ Redis keys (all expire after ANSWER_JOB_TTL_SECONDS):
   job:{id}:cancel   string set to request cancellation
 
 Events: status, queue (verified jobs: place in line, see verified_queue.py), step (each pipeline step as it
-finishes), chunk, guardrail_blocked, done, error, cancelled.
+finishes), chunk, guardrail_blocked, ask (the agent paused at a clarifying question, M5.4; before done), done, error,
+cancelled.
 The job is cancelled within ~0.5 s of the request, even mid-generation (closing the model stream stops
 Ollama), and is stopped at ANSWER_JOB_BUDGET_SECONDS (D3).
 """
@@ -262,6 +263,8 @@ async def _execute_answer_job(job_id: str, user_id: Optional[int], query: str,
             metrics = {**result["metrics"], "trace_id": trace.trace_id}
             trace.finish(answer=result["answer"], source=metrics.get("source"))
             await _save_assistant_message(user_id, session_id, query, result["answer"], result["sources"], metrics)
+            if metrics.get("agent_pause"):  # M5.4: the agent paused at a question; the user's next message resumes it
+                events.emit("ask", {"question": result["answer"]})
             events.emit("done", {"full_response": result["answer"], "sources": result["sources"], "metrics": metrics})
             final = "done"
         elif outcome == "cancelled":

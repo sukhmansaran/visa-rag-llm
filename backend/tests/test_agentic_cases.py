@@ -11,7 +11,7 @@ from app.services.guardrails.input_guardrail import input_guardrail
 from app.services.tools import ProfileResult, TOOLS
 
 DATA = json.loads((Path(__file__).parent / "data" / "agentic_cases.json").read_text(encoding="utf-8"))
-CASES = DATA["dev"] + DATA["holdout"]
+CASES = DATA["dev"] + DATA["holdout"] + DATA["holdout_2"]
 
 
 def test_ids_are_unique_and_both_splits_exist():

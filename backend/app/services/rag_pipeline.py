@@ -23,7 +23,7 @@ from app.services.cache_service import intent_cache
 from app.services.retrieval import retrieval_service
 from app.services.vector_store import vector_store
 from app.services.llm import llm_service
-from app.services.guardrails.input_guardrail import input_guardrail
+from app.services.guardrails.input_guardrail import GuardrailResult, input_guardrail
 from app.services.guardrails.monitor import classify as monitor_classify
 from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
@@ -38,6 +38,7 @@ from app.services.topics import detect_topics
 from app.services.triage import VERIFIED, routed_path, triage
 from app.services.prompt_registry import get_prompt
 from app.services.router import asks_processing_time, route as route_tools
+from app.agent import checkpoints as agent_checkpoints
 from app.agent import loop as agent_loop
 
 logger = logging.getLogger(__name__)
@@ -233,12 +234,35 @@ class RAGPipeline:
             return metrics
         state.update(metrics=metrics, finished_metrics=finished_metrics)
 
+        # 00. A reply to the agent's clarifying question (M5.4): the job API found the paused run this message answers.
+        # The pipeline then answers the original question (from the checkpoint) and the agent resumes with the reply.
+        reply, paused = None, None
+        resume_thread = (context_metadata or {}).get("agent_resume")
+        if resume_thread and settings.AGENT_LOOP and routed_path() == VERIFIED:
+            trace = current_trace()
+            with trace_step("agent_resume") as step:
+                if agent_checkpoints.owned_by(resume_thread, trace.user_id if trace else None):
+                    paused = await agent_loop.paused_question(resume_thread)
+                step.update(found=paused is not None)
+            if paused:
+                reply, query = query, paused["question"]
+                metrics["agent_resumed"] = True
+
         # 0. Deterministic Input Guardrail Firewall Check
         with trace_step("input_guardrail") as step:
-            guardrail_res = input_guardrail.evaluate(query, chat_history=chat_history)
+            if reply is None:
+                guardrail_res = input_guardrail.evaluate(query, chat_history=chat_history)
+            else:
+                # A reply ("four of us", "a PhD in Ontario") is off-topic on its own: only an injection, harmful or
+                # code request is refused; the original question passed when it was asked
+                guardrail_res = input_guardrail.evaluate(reply, chat_history=chat_history)
+                if not guardrail_res.allowed and guardrail_res.violation == ViolationType.OUT_OF_SCOPE:
+                    guardrail_res = GuardrailResult(allowed=True, uncertain=True)
             step.update(allowed=guardrail_res.allowed,
                         violation=guardrail_res.violation.value if guardrail_res.violation else None)
         if not guardrail_res.allowed:
+            if paused:
+                await agent_checkpoints.delete_thread(resume_thread)
             metrics["source"] = "guardrail_refusal"
             refusal = guardrail_res.refusal_message or "Request blocked by safety guardrail."
             yield {
@@ -252,7 +276,7 @@ class RAGPipeline:
 
         # 0a. Follow-up (M2.4): a message that leans on the previous question ("And if my spouse comes with me?")
         # becomes a standalone question for everything below; the conversation still goes to the answer step
-        if chat_history:
+        if chat_history and reply is None:
             with trace_step("follow_up") as step:
                 resolution = await resolve_follow_up(query, chat_history)
                 step.update(resolution.summary())
@@ -261,7 +285,8 @@ class RAGPipeline:
         # 0a''. Verified-answer cache (M4.6): before any model call, so a repeated verified question comes back in
         # under a second. Entries exist only for answers that passed the monitor and the evidence checks.
         verified_cache_key = None
-        if routed_path() == VERIFIED and settings.VERIFIED_CACHE_ENABLED:
+        # (not for a reply: the answer depends on it)
+        if routed_path() == VERIFIED and settings.VERIFIED_CACHE_ENABLED and reply is None:
             with trace_step("verified_cache") as step:
                 trace = current_trace()
                 verified_cache_key = await verified_cache.key_for(query, context_metadata,
@@ -280,10 +305,13 @@ class RAGPipeline:
         # uncertain and for every verified-path message; refuses only confident harmful / injection verdicts
         if settings.MONITOR_ENABLED and (guardrail_res.uncertain or routed_path() == VERIFIED):
             with trace_step("monitor") as step:
-                verdict = await monitor_classify(query, threshold=settings.MONITOR_DENY_CONFIDENCE)
+                verdict = await monitor_classify(query if reply is None else reply,
+                                                 threshold=settings.MONITOR_DENY_CONFIDENCE)
                 step.update(verdict.summary())
             metrics["monitor"] = verdict.summary()
             if verdict.denied and verdict.category in ("harmful", "injection"):
+                if paused:
+                    await agent_checkpoints.delete_thread(resume_thread)
                 violation = (ViolationType.MALICIOUS_REQUEST if verdict.category == "harmful"
                              else ViolationType.PROMPT_INJECTION)
                 metrics["source"] = "guardrail_refusal"
@@ -451,18 +479,28 @@ class RAGPipeline:
         # restates the question with the asker's details; the evidence step and its code checks below are unchanged
         answer_parts: List[str] = []
         if routed_path() == VERIFIED and settings.AGENT_LOOP:
-            with trace_step("agent") as step:
-                agent = await agent_loop.run(query, rule_facts, chunks, chat_history,
-                                             seed=route_plan.tools if route_plan else ())
+            with trace_step("agent", resumed=paused is not None) as step:
+                agent = await agent_loop.resume(resume_thread, reply) if paused else None
+                if agent is None:  # a new question, or the paused run is gone (answered meanwhile, or expired)
+                    trace = current_trace()
+                    agent = await agent_loop.run(
+                        query, rule_facts, chunks, chat_history, seed=route_plan.tools if route_plan else (),
+                        thread_id=agent_checkpoints.new_thread_id(trace.user_id if trace else None))
                 step.update(agent.summary())
             metrics["agent"] = agent.summary()
             if agent.outcome == "ask" and output_guardrail.validate_output(agent.ask).is_valid:
                 metrics["source"] = "agent_ask"
+                if agent.thread_id:  # paused: the next message in this conversation is the reply (M5.4)
+                    metrics["agent_pause"] = {"thread_id": agent.thread_id}
                 yield {"type": "chunk", "content": agent.ask}
                 yield {"type": "done", "full_response": agent.ask, "sources": [], "metrics": finished_metrics()}
                 return
+            if agent.thread_id:  # its question was refused by the output check: answer now, nothing to resume
+                await agent_checkpoints.delete_thread(agent.thread_id)
             rule_facts, chunks = agent.rule_facts, agent.chunks
-            answer_parts = parts or [agent.answer_question]
+            # After a reply, the agent's restatement carries the asker's details ("for a family of four"): the parts
+            # of the original question don't
+            answer_parts = [agent.answer_question] if paused else (parts or [agent.answer_question])
             combined_context, sources = self._build_grounded_context(rule_facts, chunks, tourist_context, context_chars)
         if routed_path() == VERIFIED:
             results, retry_chunks = await self._evidence_answers(
@@ -558,7 +596,7 @@ class RAGPipeline:
             self._record_usage(metrics, user_prompt, combined_context, answer)
 
             # Cache grounded result only if validation passed without leakage, and the monitor checked the question
-            if val_res.is_valid and routed_path() != VERIFIED and monitor_ran:
+            if val_res.is_valid and routed_path() != VERIFIED and monitor_ran and reply is None:
                 intent_cache.set(country, visa_type, intent, answer, version=rules_version, query=query,
                                  sources=sources)
             if verified_cache_key and evidence_answer is not None and val_res.is_valid and monitor_ran:
@@ -616,7 +654,7 @@ class RAGPipeline:
                 if _monitor_unavailable(metrics):
                     full_response += MONITOR_UNAVAILABLE_NOTE  # M4.7: checked by code only; not cached
                     yield {"type": "chunk", "content": MONITOR_UNAVAILABLE_NOTE}
-                else:
+                elif reply is None:  # an answer after a reply depends on the reply: never cached
                     normalized_full = normalize_markdown_output(full_response)
                     intent_cache.set(country, visa_type, intent, normalized_full, version=rules_version,
                                      query=query, sources=sources)

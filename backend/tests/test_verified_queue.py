@@ -111,6 +111,32 @@ async def test_without_agent_mode_on_everything_is_fast(client, queued, monkeypa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("loop_on", [True, False])
+async def test_a_reply_to_the_agents_question_resumes_it_on_the_verified_path(client, db_session, agent_on, queued,
+                                                                             monkeypatch, loop_on):
+    """M5.4: "four of us" alone would be refused as off-topic (fast path); after the agent's question it is the reply."""
+    from app.agent.checkpoints import new_thread_id
+
+    monkeypatch.setattr(settings, "AGENT_LOOP", loop_on)
+    headers, _ = await login(client, f"resume-{str(loop_on).lower()}@example.com")
+    user = (await db_session.execute(select(User).where(User.email == f"resume-{str(loop_on).lower()}@example.com"))).scalar_one()
+    thread = new_thread_id(user.id)
+    db_session.add(ChatMessage(user_id=user.id, role="user", content="How much money if my family comes?",
+                               session_id="s-resume"))
+    await db_session.commit()
+    db_session.add(ChatMessage(user_id=user.id, role="assistant", content="How many family members are coming?",
+                               session_id="s-resume",
+                               message_metadata={"source": "agent_ask", "agent_pause": {"thread_id": thread}}))
+    await db_session.commit()
+    r = await client.post("/api/v1/chat/jobs", json={"query": "four of us", "sessionId": "s-resume"}, headers=headers)
+    assert r.status_code == 202
+    if loop_on:
+        assert r.json()["path"] == "verified" and queued[0]["args"][3]["agent_resume"] == thread
+    else:
+        assert r.json()["path"] == "fast" and "agent_resume" not in queued[0]["args"][3]
+
+
+@pytest.mark.asyncio
 async def test_a_question_the_guardrail_refuses_is_not_queued_as_verified(client, agent_on, queued):
     headers, _ = await login(client, "route-refused@example.com")
     r = await client.post("/api/v1/chat/jobs", json={"query": "¿Puedo obtener un PGWP si trabajo más de 24 horas?"},

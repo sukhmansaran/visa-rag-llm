@@ -110,6 +110,16 @@ class Settings(BaseSettings):
     # llama3.2:3b deciding: 2/8 on dev (it asked in almost every case). The bake-off (M5.7) and stronger models decide.
     AGENT_LOOP: bool = False
     AGENT_MAX_STEPS: int = 6
+    # Clarifying questions (M5.4): a paused agent run waits in LangGraph's Postgres checkpointer, in its own database
+    # (default: DATABASE_URL's server, database visa_chatbot_agent; create it with scripts/setup_agent_db.py). The
+    # next message in the conversation within AGENT_PAUSE_TTL_SECONDS is the reply; unanswered runs are deleted after
+    # AGENT_CHECKPOINT_RETENTION_HOURS (they hold the question, the reply and profile details).
+    # Measured 2026-11-04 with qwen3:4b deciding: dev 4/8 tasks (ask decision 6/8), holdout_2 2/8 (4/8, measured
+    # once). It asked in none of the 6 cases that need a question (on one it assumed a family size instead), so pause
+    # and resume are proven by tests (incl. a resume in another process from Postgres), not yet by this model.
+    AGENT_CHECKPOINT_URL: Optional[str] = None
+    AGENT_PAUSE_TTL_SECONDS: int = 1800
+    AGENT_CHECKPOINT_RETENTION_HOURS: int = 24
     # Verified-path queue (M1.4, used when AGENT_MODE=on): verified answers share one CPU, so they wait in line
     VERIFIED_JOBS_IN_FLIGHT_PER_USER: int = 3   # 1 running + 2 waiting; more is refused (429)
     VERIFIED_JOBS_PER_HOUR: int = 10            # per user; more is refused (429)

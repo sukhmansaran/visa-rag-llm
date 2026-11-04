@@ -2,7 +2,8 @@
 Agentic evaluation (M5.3) against the live stack (Postgres, Chroma, Ollama): tests/data/agentic_cases.json through the
 real pipeline with the agent loop on (verified path, verified-answer cache off). The 'profile' tool returns each case's
 profile (nothing is read from or written to the database for it). When the agent asks a question, the case's scripted
-reply is sent as the next turn and that answer is scored.
+reply is sent as the next turn and that answer is scored; since M5.4 the reply resumes the paused run from its
+checkpoint (the agent checkpoint database; scripts/setup_agent_db.py), as in the app.
 
 Per case:
   success    the ask decision is right and every must_include group matches, no must_not does
@@ -14,6 +15,7 @@ Targets (set when the cases were written): success >= 12/16, ask decision right 
 Usage (from backend/):
   .venv\\Scripts\\python.exe scripts\\eval_agentic.py                       # dev + holdout, the configured agent model
   .venv\\Scripts\\python.exe scripts\\eval_agentic.py --split dev --agent-model qwen3:4b
+  .venv\\Scripts\\python.exe scripts\\eval_agentic.py --split holdout_2                # M5.4's held-out cases
 """
 
 import argparse
@@ -50,14 +52,15 @@ def tools_used(trace) -> set:
     return used
 
 
-async def run_turn(question: str, chat_history: Optional[List[Dict[str, str]]]):
+async def run_turn(question: str, chat_history: Optional[List[Dict[str, str]]], resume: str = ""):
     from app.services import rag_pipeline as rp
     from app.services.tracing import TraceRecorder, activate_trace
     from app.services.triage import routed_as
 
     trace = TraceRecorder("eval.agentic", query=question)
     with activate_trace(trace), routed_as("verified"):
-        result = await rp.rag_pipeline.process_query(question, chat_history=chat_history)
+        result = await rp.rag_pipeline.process_query(
+            question, chat_history=chat_history, context_metadata={"agent_resume": resume} if resume else None)
     return result, trace
 
 
@@ -78,10 +81,12 @@ async def run_case(case: Dict[str, Any]) -> Dict[str, Any]:
         final = result
         if asked and case.get("user_reply"):
             history = [{"role": "user", "content": case["question"]}, {"role": "assistant", "content": result["answer"]}]
-            final, trace2 = await run_turn(case["user_reply"], history)
+            pause = (result["metrics"].get("agent_pause") or {}).get("thread_id", "")
+            final, trace2 = await run_turn(case["user_reply"], history, resume=pause)
             used |= tools_used(trace2)
             turns.append({"answer": final["answer"], "agent": final["metrics"].get("agent"),
-                          "blocked": final.get("guardrail_blocked", False)})
+                          "blocked": final.get("guardrail_blocked", False), "paused": bool(pause),
+                          "resumed": bool(final["metrics"].get("agent_resumed"))})
     finally:
         tools.TOOLS["profile"] = real
     scored = score_answer(case, final["answer"])
@@ -99,7 +104,7 @@ async def run_case(case: Dict[str, Any]) -> Dict[str, Any]:
 
 async def main(argv=None) -> Dict[str, Any]:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--split", choices=["dev", "holdout", "all"], default="all")
+    ap.add_argument("--split", choices=["dev", "holdout", "holdout_2", "all"], default="all")
     ap.add_argument("--only", default="", help="comma-separated case ids")
     ap.add_argument("--agent-model", default="", help="LLM_MODEL_AGENT for this run")
     ap.add_argument("--out", default="")
@@ -113,7 +118,8 @@ async def main(argv=None) -> Dict[str, Any]:
     if args.agent_model:
         settings.LLM_MODEL_AGENT = args.agent_model
     data = json.loads(CASES.read_text(encoding="utf-8"))
-    cases = [c for split in (("dev", "holdout") if args.split == "all" else (args.split,)) for c in data[split]]
+    splits = ("dev", "holdout", "holdout_2") if args.split == "all" else (args.split,)
+    cases = [c for split in splits for c in data[split]]
     if args.only:
         wanted = set(args.only.split(","))
         cases = [c for c in cases if c["id"] in wanted]
@@ -136,6 +142,9 @@ async def main(argv=None) -> Dict[str, Any]:
         "avg_steps": round(sum(r["steps"] for r in results) / n, 2) if n else None,
         "invalid_rate": round(sum(r["invalid"] for r in results) / max(1, sum(r["steps"] for r in results)), 3),
         "avg_seconds": round(sum(r["seconds"] for r in results) / n, 1) if n else None,
+        "asked": sum(r["asked"] for r in results),
+        # M5.4: replies that resumed the paused run (not a fresh turn)
+        "resumed": sum(any(t.get("resumed") for t in r["turns"]) for r in results),
     }
     print(json.dumps(summary, indent=2))
     out = Path(args.out) if args.out else BACKEND / "logs" / (
@@ -148,4 +157,6 @@ async def main(argv=None) -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    from app.workers.async_runner import agent_loop_factory
+
+    asyncio.run(main(), loop_factory=agent_loop_factory())  # psycopg (agent checkpoints) needs it on Windows

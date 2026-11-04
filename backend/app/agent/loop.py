@@ -1,7 +1,8 @@
 """
 Agent loop (M5.3), a LangGraph graph on the verified path (behind AGENT_LOOP):
 
-    decide --(tool)--> act --> decide ... --(answer | ask_user | limit)--> end
+    decide --(tool)--> act --> decide ... --(answer | limit)--> end
+       |--(ask_user)--> ask: pauses (M5.4); the asker's reply resumes it here --> decide
        \\--(two invalid actions in a row)--> fallback (the M5.2 router's plan) --> end
 
 The model makes the recoverable decisions: which action next, what to look up, whether to ask the user, when to answer
@@ -11,12 +12,21 @@ not written here: the pipeline answers the chosen question from the gathered evi
 its code checks, unchanged. A bad choice costs a step, never an unchecked answer.
 
 The agent starts from what the pipeline already found (rule facts, the first search), so a simple question is
-answered after one decision. Traced per step (`agent_step`: number, action, valid, what was found); never the query or
+answered after one decision.
+
+Clarifying questions (M5.4): `ask` pauses the graph with LangGraph's interrupt; the run is saved in the checkpoint
+database (app/agent/checkpoints.py) and the job ends with the question. The reply is a new job: `resume` loads the
+checkpoint, gives the reply to the model as an observation, and the loop goes on from the same point. Code allows one
+question per answer, looks up the asker's saved profile before any question is asked, and refuses a question about a
+detail the profile already holds. Without the checkpoint database the question ends the run (M5.3 behaviour).
+
+Traced per step (`agent_step`: number, action, valid, what was found); never the query or
 the model's reasoning, which can echo the user's words.
 """
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Tuple, TypedDict
 
@@ -53,6 +63,8 @@ class AgentState(TypedDict, total=False):
     outcome: str                # answer | ask | limit | fallback
     answer_question: str
     ask: str
+    asked: bool                 # one question per answer (M5.4)
+    can_pause: bool             # a checkpointer is attached: ask pauses instead of ending the run
     trail: List[Dict[str, Any]]
 
 
@@ -64,11 +76,13 @@ class AgentResult:
     rule_facts: Optional[str] = None
     chunks: List[Dict[str, Any]] = field(default_factory=list)
     trail: List[Dict[str, Any]] = field(default_factory=list)
+    thread_id: str = ""                  # set when the run paused at its question (M5.4) and can be resumed
+    question: str = ""                   # the question the run started from (a resume gets it from the checkpoint)
 
     def summary(self) -> Dict[str, Any]:
         actions = [t["action"] for t in self.trail]
         return {"outcome": self.outcome, "steps": len(self.trail), "actions": actions,
-                "invalid": sum(not t["valid"] for t in self.trail)}
+                "invalid": sum(not t["valid"] for t in self.trail), "paused": bool(self.thread_id)}
 
 
 # ---------------------------------------------------------------- what the model sees
@@ -96,6 +110,27 @@ def _profile_line(profile: Dict[str, Any]) -> str:
         return "profile: no saved profile."
     shown = {k: v for k, v in profile.items() if k != "found" and v not in (None, "", {}, [])}
     return "profile: " + json.dumps(shown, ensure_ascii=False)[:_SUMMARY_CHARS]
+
+
+# What a clarifying question asks about -> the profile field that already answers it
+_PROFILE_FIELDS = {
+    "education_level": re.compile(r"\b(?:degree|diploma|education|level of stud|bachelor|master|phd|doctora|"
+                                  r"undergrad|graduate program|college or university)", re.IGNORECASE),
+    "field_of_study": re.compile(r"\b(?:field of study|what (?:do|will|are) you stud|program of study|major)\b",
+                                 re.IGNORECASE),
+    "work_experience_years": re.compile(r"\b(?:work experience|years of experience|how long have you worked)",
+                                        re.IGNORECASE),
+    "test_scores": re.compile(r"\b(?:ielts|celpip|pte|tef|tcf|test scores?|language (?:test|scores?|results?)|clb)",
+                              re.IGNORECASE),
+}
+
+
+def _held_by_profile(ask: str, profile: Optional[Dict[str, Any]]) -> List[str]:
+    """Profile fields the clarifying question asks about that the saved profile already holds."""
+    if not profile or not profile.get("found"):
+        return []
+    return [name for name, pattern in _PROFILE_FIELDS.items()
+            if profile.get(name) not in (None, "", {}, []) and pattern.search(ask)]
 
 
 def _key(action: str, query: str) -> str:
@@ -140,6 +175,11 @@ async def _decide(state: AgentState) -> AgentState:
         with trace_step("agent_step", **trail[-1]):
             pass
     elif chosen.action == "ask_user":
+        if state.get("profile") is None and _key("profile", "") not in (state.get("tried") or []):
+            # Never ask for what the profile holds (M5.4): look it up first, then let the model choose again with
+            # it in view. Not the model's mistake, so it isn't an invalid choice, and it costs no step.
+            update.update(pending={"action": "profile", "query": "", "before_ask": "1"}, steps=steps)
+            return update
         update.update(outcome="ask", ask=chosen.query.strip(), pending=None)
         trail.append({"n": steps + 1, "action": "ask_user", "valid": True})
         with trace_step("agent_step", **trail[-1]):
@@ -155,8 +195,13 @@ def _problem(chosen: AgentAction, state: AgentState) -> str:
     if chosen.action == "ask_user":
         if len(query) < 8:
             return "ask_user needs the question to ask"
-        if state.get("conversation") and "assistant:" in state["conversation"].lower():
+        if state.get("asked") or (not state.get("can_pause") and state.get("conversation")
+                                  and "assistant:" in state["conversation"].lower()):
             return "the asker has already been asked once; answer with what is known"
+        held = _held_by_profile(query, state.get("profile"))
+        if held:
+            return (f"the asker's saved profile already has {', '.join(held)} (see 'profile' above); use it and "
+                    "don't ask for it")
     if chosen.action in TOOL_ACTIONS and _key(chosen.action, query) in (state.get("tried") or []):
         return (f"{chosen.action} was already done with this query and its result is above; if the answer depends on "
                 "something the asker did not say, choose ask_user, otherwise choose answer")
@@ -197,7 +242,11 @@ async def _act(state: AgentState) -> AgentState:
         elif action == "profile":
             profile = result.model_dump()
             found = int(bool(profile.get("found")))
-            observations.append(_profile_line(profile))
+            line = _profile_line(profile)
+            if pending.get("before_ask"):
+                line = ("(before asking, code looked up the asker's saved profile; ask only for what it doesn't "
+                        "hold) " + line)
+            observations.append(line)
         elif action == "processing_times_link":
             block = (f"OFFICIAL IRCC PROCESSING TIMES: Pendu stores no processing-time figures. {result.note} "
                      f"Check the current time with IRCC's tool: {result.url}")
@@ -207,6 +256,8 @@ async def _act(state: AgentState) -> AgentState:
             observations.append(f"processing times: check {result.url} (no figures are stored)")
     trail = list(state.get("trail") or [])
     trail.append({"n": state.get("steps", 0), "action": action, "valid": valid, "found": found})
+    if pending.get("before_ask"):
+        trail[-1]["before_ask"] = True
     with trace_step("agent_step", **trail[-1]):
         pass
     return {"observations": observations, "rule_facts": rule_facts, "chunks": chunks, "profile": profile,
@@ -230,7 +281,27 @@ async def _fallback(state: AgentState) -> AgentState:
     return update
 
 
+async def _ask(state: AgentState) -> AgentState:
+    """Pause for the asker's reply (M5.4). LangGraph saves the run and stops here; on resume this node runs again
+    and `interrupt` returns the reply, so nothing with side effects comes before it."""
+    from langgraph.types import interrupt
+
+    reply = " ".join(str(interrupt({"question": state["ask"]}) or "").split())[:600]
+    trail = list(state.get("trail") or [])
+    trail.append({"n": state.get("steps", 0), "action": "user_reply", "valid": bool(reply)})
+    with trace_step("agent_step", **trail[-1]):
+        pass
+    observations = list(state.get("observations") or [])
+    observations.append(f'you asked the asker "{state["ask"]}"; they replied: "{reply or "(nothing)"}". '
+                        "Use their reply; you can't ask again.")
+    conversation = "\n".join(filter(None, [state.get("conversation"), f"assistant: {state['ask']}", f"user: {reply}"]))
+    return {"observations": observations, "conversation": conversation, "asked": True, "outcome": "",
+            "trail": trail}
+
+
 def _after_decide(state: AgentState) -> str:
+    if state.get("outcome") == "ask" and state.get("can_pause") and not state.get("asked"):
+        return "ask"
     if state.get("outcome") in ("answer", "ask", "limit"):
         return "end"
     if state.get("outcome") == "fallback":
@@ -238,25 +309,28 @@ def _after_decide(state: AgentState) -> str:
     return "act" if state.get("pending") else "decide"
 
 
-_graph = None
+_builder = None
 
 
-def graph():
-    global _graph
-    if _graph is None:
+def graph(checkpointer=None):
+    """The compiled graph; with a checkpointer (M5.4) its runs can pause at `ask` and be resumed."""
+    global _builder
+    if _builder is None:
         from langgraph.graph import END, START, StateGraph
 
         builder = StateGraph(AgentState)
         builder.add_node("decide", _decide)
         builder.add_node("act", _act)
+        builder.add_node("ask", _ask)
         builder.add_node("fallback", _fallback)
         builder.add_edge(START, "decide")
-        builder.add_conditional_edges("decide", _after_decide,
-                                      {"act": "act", "decide": "decide", "fallback": "fallback", "end": END})
+        builder.add_conditional_edges("decide", _after_decide, {"act": "act", "decide": "decide", "ask": "ask",
+                                                                "fallback": "fallback", "end": END})
         builder.add_edge("act", "decide")
+        builder.add_edge("ask", "decide")
         builder.add_edge("fallback", END)
-        _graph = builder.compile()
-    return _graph
+        _builder = builder
+    return _builder.compile(checkpointer=checkpointer)
 
 
 def _conversation(chat_history: Optional[List[Dict[str, Any]]]) -> str:
@@ -265,12 +339,28 @@ def _conversation(chat_history: Optional[List[Dict[str, Any]]]) -> str:
     return "\n".join(f"{m['role']}: {' '.join((m.get('content') or '').split())[:300]}" for m in turns)
 
 
+def _config(thread_id: str) -> Dict[str, Any]:
+    return {"recursion_limit": 4 * settings.AGENT_MAX_STEPS + 10, "configurable": {"thread_id": thread_id}}
+
+
+def _result(final: Dict[str, Any], question: str, thread_id: str = "") -> AgentResult:
+    paused = bool(final.get("__interrupt__"))
+    facts = "\n\n".join(final.get("rule_facts") or []) or None
+    return AgentResult(outcome="ask" if paused else (final.get("outcome") or "limit"),
+                       answer_question=final.get("answer_question") or question, ask=final.get("ask") or "",
+                       rule_facts=facts, chunks=final.get("chunks") or [], trail=final.get("trail") or [],
+                       thread_id=thread_id if paused else "", question=final.get("question") or question)
+
+
 async def run(question: str, rule_facts: Optional[str], chunks: List[Dict[str, Any]],
-              chat_history: Optional[List[Dict[str, Any]]] = None, seed: Tuple[str, ...] = ()) -> AgentResult:
+              chat_history: Optional[List[Dict[str, Any]]] = None, seed: Tuple[str, ...] = (),
+              thread_id: str = "") -> AgentResult:
     """
     Run the loop from what the pipeline already found. `seed`: tools code knows are needed (the M5.2 router's profile
     and processing_times_link), looked up before the first decision and shown as found: the model still decides
     whether to ask, search further, how to restate and when to answer. Model-unavailable errors propagate (M4.7).
+    `thread_id` (M5.4): checkpoint the run under this id so its question can pause it; the result's thread_id is set
+    only if it paused. A run that finishes leaves no checkpoint.
     """
     observations = [_facts_line("the question", rule_facts), _search_line("the question", chunks)]
     state: AgentState = {
@@ -283,8 +373,51 @@ async def run(question: str, rule_facts: Optional[str], chunks: List[Dict[str, A
             state["pending"] = {"action": action, "query": ""}
             state.update(await _act(state))
             state["trail"][-1]["seeded"] = True
-    final = await graph().ainvoke(state, config={"recursion_limit": 4 * settings.AGENT_MAX_STEPS + 10})
-    facts = "\n\n".join(final.get("rule_facts") or []) or None
-    return AgentResult(outcome=final.get("outcome") or "limit",
-                       answer_question=final.get("answer_question") or question, ask=final.get("ask") or "",
-                       rule_facts=facts, chunks=final.get("chunks") or [], trail=final.get("trail") or [])
+    if not thread_id:
+        return _result(await graph().ainvoke(state, config=_config("unsaved")), question)
+
+    from app.agent import checkpoints
+
+    async with checkpoints.saver() as saver:
+        state["can_pause"] = saver is not None
+        final = await graph(saver).ainvoke(state, config=_config(thread_id))
+        result = _result(final, question, thread_id if saver is not None else "")
+        if saver is not None and not result.thread_id:
+            await saver.adelete_thread(thread_id)  # finished without pausing: nothing to keep
+    return result
+
+
+async def paused_question(thread_id: str) -> Optional[Dict[str, str]]:
+    """{question, ask} of a run paused at its question, or None (finished, deleted, expired or unreachable)."""
+    from app.agent import checkpoints
+
+    async with checkpoints.saver() as saver:
+        if saver is None:
+            return None
+        snapshot = await graph(saver).aget_state(_config(thread_id))
+    if "ask" not in (snapshot.next or ()):
+        return None
+    return {"question": snapshot.values.get("question", ""), "ask": snapshot.values.get("ask", "")}
+
+
+async def resume(thread_id: str, reply: str) -> Optional[AgentResult]:
+    """Continue a run paused at its question with the asker's reply (M5.4); None if no run is paused under this id
+    (finished, deleted, expired, or the checkpoint database unreachable). The checkpoint is deleted once the run is
+    over: one question per answer, so it can't pause again."""
+    from langgraph.types import Command
+
+    from app.agent import checkpoints
+
+    async with checkpoints.saver() as saver:
+        if saver is None:
+            return None
+        app = graph(saver)
+        snapshot = await app.aget_state(_config(thread_id))
+        if "ask" not in (snapshot.next or ()):
+            return None
+        question = snapshot.values.get("question", "")
+        try:
+            final = await app.ainvoke(Command(resume=reply), config=_config(thread_id))
+        finally:
+            await saver.adelete_thread(thread_id)
+    return _result(final, question)
