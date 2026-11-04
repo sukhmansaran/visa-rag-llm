@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "M5.3 agentic cases, written 2026-10-28 before the agent loop. Each needs the agent to choose well, not only to write well: several tools, the asker's profile, a clarifying question when the answer depends on something unknown (and none when it doesn't), a false premise corrected from the rules. expect_tools: tools the agent must use (knowledge_base_search counts when listed); expect_ask: whether it must ask exactly one clarifying question; user_reply: the scripted answer that resumes it; profile: the profile the 'profile' tool returns for this case (the evaluation stubs the tool; nothing is written). must_include / must_not: as in rag_eval_set.json (regex, any-of groups). Amounts from ircc_rules.yaml (schedule from 2026-09-01). 'dev' may guide the agent's prompts; 'holdout' is measured, never tuned on. Targets, set now: task success >= 12/16 and the ask decision right in >= 14/16. 'holdout_2' (8, written 2026-11-04 before M5.4's pause and resume): asking needed (the reply resumes the paused agent from its checkpoint), the profile already holding the detail (no ask), no detail needed; measured once.",
+  "about": "M5.3 agentic cases, written 2026-10-28 before the agent loop. Each needs the agent to choose well, not only to write well: several tools, the asker's profile, a clarifying question when the answer depends on something unknown (and none when it doesn't), a false premise corrected from the rules. expect_tools: tools the agent must use (knowledge_base_search counts when listed); expect_ask: whether it must ask exactly one clarifying question; user_reply: the scripted answer that resumes it; profile: the profile the 'profile' tool returns for this case (the evaluation stubs the tool; nothing is written). must_include / must_not: as in rag_eval_set.json (regex, any-of groups). Amounts from ircc_rules.yaml (schedule from 2026-09-01). 'dev' may guide the agent's prompts; 'holdout' is measured, never tuned on. Targets, set now: task success >= 12/16 and the ask decision right in >= 14/16. 'holdout_2' (8, written 2026-11-04 before M5.4's pause and resume): asking needed (the reply resumes the paused agent from its checkpoint), the profile already holding the detail (no ask), no detail needed; measured once. 'holdout_3' (6, written 2026-11-04 before seeing M5.4b's dev result: the 'missing' self-check): 3 need a question, 3 don't; measured once.",
   "dev": [
     {"id": "ag_funds_and_spouse_work",
      "question": "How much money do I need for my study permit as a single student, and can my spouse work while I study?",
@@ -121,5 +121,34 @@
      "question": "Can my spouse get an open work permit while I do a master's degree?",
      "expect_tools": ["knowledge_base_search"], "expect_ask": false,
      "must_include": [["open work permit"]], "must_not": []}
+  ],
+  "holdout_3": [
+    {"id": "ag_h3_ask_dependants_count",
+     "question": "What proof of funds do I need when my dependants come along?",
+     "expect_tools": ["rules"], "expect_ask": true,
+     "user_reply": "Two dependants, so three people with me.",
+     "must_include": [["35,888"]], "must_not": []},
+    {"id": "ag_h3_ask_pal_level",
+     "question": "Is an attestation letter required for my study permit?",
+     "expect_tools": ["rules"], "expect_ask": true,
+     "user_reply": "It's a master's degree at a public university in Alberta.",
+     "must_include": [["exempt", "not need", "don.t need", "do not need", "not required"]], "must_not": []},
+    {"id": "ag_h3_ask_family_size_funds",
+     "question": "We are moving as a family for my studies. How much money must we show?",
+     "expect_tools": ["rules"], "expect_ask": true,
+     "user_reply": "Two of us: me and my husband.",
+     "must_include": [["29,192"]], "must_not": []},
+    {"id": "ag_h3_two_people_no_ask",
+     "question": "How much money do I need to show for me and my wife outside Quebec?",
+     "expect_tools": ["rules"], "expect_ask": false,
+     "must_include": [["29,192"]], "must_not": []},
+    {"id": "ag_h3_work_hours_no_ask",
+     "question": "How many hours a week can I work off campus during my regular semester?",
+     "expect_tools": ["rules"], "expect_ask": false,
+     "must_include": [["\\b24\\b"]], "must_not": []},
+    {"id": "ag_h3_biometrics_no_ask",
+     "question": "Do I have to give biometrics when I apply for a study permit?",
+     "expect_tools": ["knowledge_base_search"], "expect_ask": false,
+     "must_include": [["biometric"]], "must_not": []}
   ]
 }

@@ -104,7 +104,7 @@ async def run_case(case: Dict[str, Any]) -> Dict[str, Any]:
 
 async def main(argv=None) -> Dict[str, Any]:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--split", choices=["dev", "holdout", "holdout_2", "all"], default="all")
+    ap.add_argument("--split", choices=["dev", "holdout", "holdout_2", "holdout_3", "all"], default="all")
     ap.add_argument("--only", default="", help="comma-separated case ids")
     ap.add_argument("--agent-model", default="", help="LLM_MODEL_AGENT for this run")
     ap.add_argument("--out", default="")
@@ -118,7 +118,7 @@ async def main(argv=None) -> Dict[str, Any]:
     if args.agent_model:
         settings.LLM_MODEL_AGENT = args.agent_model
     data = json.loads(CASES.read_text(encoding="utf-8"))
-    splits = ("dev", "holdout", "holdout_2") if args.split == "all" else (args.split,)
+    splits = ("dev", "holdout", "holdout_2", "holdout_3") if args.split == "all" else (args.split,)
     cases = [c for split in splits for c in data[split]]
     if args.only:
         wanted = set(args.only.split(","))
