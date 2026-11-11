@@ -120,6 +120,14 @@ class Settings(BaseSettings):
     AGENT_CHECKPOINT_URL: Optional[str] = None
     AGENT_PAUSE_TTL_SECONDS: int = 1800
     AGENT_CHECKPOINT_RETENTION_HOURS: int = 24
+    # Live fetch (M5.5a): the agent may fetch one official registry page now (exact registry URL, fixed headers);
+    # used for the current answer only, cached in Redis, never stored in the knowledge base without review (M5.5b)
+    LIVE_FETCH_ENABLED: bool = True
+    LIVE_FETCH_CACHE_SECONDS: int = 6 * 3600
+    LIVE_FETCH_TIMEOUT_SECONDS: float = 20.0
+    LIVE_FETCH_MAX_BYTES: int = 3_000_000
+    LIVE_FETCH_MAX_CHARS: int = 40_000
+    LIVE_FETCH_MIN_INTERVAL_SECONDS: float = 1.0
     # Verified-path queue (M1.4, used when AGENT_MODE=on): verified answers share one CPU, so they wait in line
     VERIFIED_JOBS_IN_FLIGHT_PER_USER: int = 3   # 1 running + 2 waiting; more is refused (429)
     VERIFIED_JOBS_PER_HOUR: int = 10            # per user; more is refused (429)
