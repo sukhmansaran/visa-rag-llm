@@ -48,7 +48,7 @@ async def get_answer_stream(
                 ChatMessage.user_id == current_user.id,
                 ChatMessage.session_id == session_id
             )
-            .order_by(desc(ChatMessage.created_at))
+            .order_by(desc(ChatMessage.created_at), desc(ChatMessage.id))
             .limit(20)
         )
         history_messages = list(reversed(history_result.scalars().all()))
@@ -287,7 +287,7 @@ async def _answer(message: ChatMessageSchema, current_user: User, db: AsyncSessi
                 ChatMessage.user_id == current_user.id,
                 ChatMessage.session_id == session_id
             )
-            .order_by(desc(ChatMessage.created_at))
+            .order_by(desc(ChatMessage.created_at), desc(ChatMessage.id))
             .limit(20)
         )
         history_messages = list(reversed(history_result.scalars().all()))
@@ -460,7 +460,7 @@ async def get_chat_history(
     result = await db.execute(
         select(ChatMessage)
         .where(ChatMessage.user_id == current_user.id)
-        .order_by(desc(ChatMessage.created_at))
+        .order_by(desc(ChatMessage.created_at), desc(ChatMessage.id))
         .limit(limit)
         .offset(offset)
     )

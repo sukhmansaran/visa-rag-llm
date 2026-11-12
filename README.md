@@ -198,7 +198,8 @@ get a fixed reply (Pendu answers in English only for now) without a model call.
 `AGENT_LOOP=True` (off by default) turns on the agent on the verified path (a LangGraph graph). The model
 chooses what to look up next (the rules, a knowledge-base search, the user's saved profile, IRCC's
 processing-times link, or a fresh copy of an official page), when to answer, and whether to ask the user one
-clarifying question. When part of an answer fails the checks, it also chooses what to try next (search again,
+clarifying question. The chat lists each step in plain words ("Looked up the official rules", "Checked a part
+against its source") while it works, and keeps the list under the answer. When part of an answer fails the checks, it also chooses what to try next (search again,
 look up the rules, fetch the page, rephrase); the new attempt is kept only if it checks out better. A fresh copy comes only from a page in the official source registry, by its exact address, with
 fixed request headers, so nothing from your question leaves the machine; it is used for that answer only. Code checks
 every choice, and the answer still goes through the evidence checks. When the agent asks, its run is paused

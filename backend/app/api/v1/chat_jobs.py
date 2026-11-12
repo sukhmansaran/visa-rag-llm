@@ -106,7 +106,7 @@ async def create_answer_job(
     history_rows = (await db.execute(
         select(ChatMessage)
         .where(ChatMessage.user_id == current_user.id, ChatMessage.session_id == session_id)
-        .order_by(desc(ChatMessage.created_at)).limit(20)
+        .order_by(desc(ChatMessage.created_at), desc(ChatMessage.id)).limit(20)
     )).scalars().all()
     chat_history = [{"role": m.role, "content": m.content} for m in reversed(history_rows)]
 
