@@ -173,6 +173,7 @@ async def update_sop(
         "updated_at": document.updated_at.isoformat(),
     }
 
+@router.get("", response_model=list[DocumentListResponse], include_in_schema=False)  # no redirect behind the frontend proxy
 @router.get("/", response_model=list[DocumentListResponse])
 async def list_documents(
     current_user: User = Depends(get_current_user),

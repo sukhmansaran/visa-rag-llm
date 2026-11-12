@@ -85,7 +85,7 @@ Modules in [`services/crawler/`](backend/app/services/crawler/): `frontier`, `ro
 | Page | State |
 |---|---|
 | Chat, Visa risk, Onboarding, Login, Signup | Connected to the backend |
-| Dashboard, Applications, Destinations, SOP writer | UI only, showing static sample data |
+| Dashboard, Applications, SOP writer | Connected to the backend: they show the signed-in user's own data |
 
 ---
 

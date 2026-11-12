@@ -326,7 +326,7 @@ async def test_cross_user_application_tracking_isolation(client: AsyncClient):
         json={
             "university_name": "University of British Columbia",
             "program_name": "Computer Science",
-            "status": "applied",
+            "status": "submitted",
         },
         headers=user_a["headers"],
     )
