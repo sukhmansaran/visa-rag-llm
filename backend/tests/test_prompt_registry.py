@@ -14,7 +14,7 @@ from app.services.prompt_registry import (PROMPTS_DIR, Prompt, PromptError, all_
                                           lock_problems)
 
 SERVICES = Path(__file__).resolve().parent.parent / "app" / "services"
-LIVE_PROMPTS = {"grounded_answer", "sop_draft", "itinerary", "change_summary", "visa_extraction",
+LIVE_PROMPTS = {"agent_reflect", "grounded_answer", "sop_draft", "itinerary", "change_summary", "visa_extraction",
                 "program_extraction", "fact_summary", "decomposition", "follow_up", "evidence_answer", "entailment",
                 "monitor", "agent_decide"}
 

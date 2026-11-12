@@ -40,6 +40,8 @@ from app.services.prompt_registry import get_prompt
 from app.services.router import asks_processing_time, route as route_tools
 from app.agent import checkpoints as agent_checkpoints
 from app.agent import loop as agent_loop
+from app.agent import reflect as agent_reflect
+from app.services import tools as agent_tools
 
 logger = logging.getLogger(__name__)
 
@@ -478,6 +480,7 @@ class RAGPipeline:
         # 7a'. Agent loop (M5.3): the model chooses what else to look up, or to ask the asker one question, and
         # restates the question with the asker's details; the evidence step and its code checks below are unchanged
         answer_parts: List[str] = []
+        reflection: Optional[Dict[str, Any]] = None  # M5.6: set when the agent ran
         if routed_path() == VERIFIED and settings.AGENT_LOOP:
             with trace_step("agent", resumed=paused is not None) as step:
                 agent = await agent_loop.resume(resume_thread, reply) if paused else None
@@ -498,6 +501,8 @@ class RAGPipeline:
             if agent.thread_id:  # its question was refused by the output check: answer now, nothing to resume
                 await agent_checkpoints.delete_thread(agent.thread_id)
             rule_facts, chunks = agent.rule_facts, agent.chunks
+            if settings.AGENT_REFLECT_STEPS > 0:
+                reflection = {"left": settings.AGENT_REFLECT_STEPS, "tried": [], "chosen": []}
             # After a reply, the agent's restatement carries the asker's details ("for a family of four"): the parts
             # of the original question don't
             answer_parts = [agent.answer_question] if paused else (parts or [agent.answer_question])
@@ -506,7 +511,9 @@ class RAGPipeline:
             results, retry_chunks = await self._evidence_answers(
                 answer_parts or parts or [query], rule_facts, chunks, context_chars,
                 retrieval_args={"country": country, "visa_type": visa_type, "intent": intent},
-                deadline=start_time + settings.VERIFIED_RETRY_BEFORE_SECONDS)
+                deadline=start_time + settings.VERIFIED_RETRY_BEFORE_SECONDS, reflection=reflection)
+            if reflection is not None and reflection["chosen"]:
+                metrics["agent"]["reflect"] = reflection["chosen"]
             # Processing-time parts are answered by code (M5.3): Pendu stores no figures by design, so the answer is
             # always IRCC's tool; the evidence step could only call them uncheckable
             results = [self._processing_time_result(r.part) if r.status != "verified" and asks_processing_time(r.part)
@@ -681,11 +688,15 @@ class RAGPipeline:
     @staticmethod
     async def _evidence_answers(parts: List[str], rule_facts: Optional[str], chunks: List[Dict[str, Any]],
                                 context_chars: int, retrieval_args: Dict[str, Any], deadline: float,
+                                reflection: Optional[Dict[str, Any]] = None,
                                 ) -> tuple[List["PartResult"], List[Dict[str, Any]]]:
         """
         M3: each part through the evidence step and the code check, traced as `evidence` (no user text).
         M4.3: a part that isn't verified gets one more round (refined search past the chunks already shown) while
         time remains; traced as `retry`. Returns the results and the extra chunks the kept retries cite.
+        M5.6: with `reflection` ({"left": choices allowed, "tried": [...], "chosen": [...]}), the agent chooses that
+        round's attempt from what the checks said (app/agent/reflect.py); the attempt goes through the same evidence
+        step and is kept only if it checks out better.
         """
         chunk_context = retrieval_service.prepare_context(chunks, max_context_length=context_chars) if chunks else ""
         context = evidence_context(rule_facts, chunk_context)
@@ -703,25 +714,68 @@ class RAGPipeline:
         for i, first in enumerate(results):
             if first.status == "verified":
                 continue
-            with trace_step("retry") as step:
+            # M5.6: with the agent on, the model reads what the checks said and chooses the next attempt; an
+            # unusable choice (None) leaves code's own retry below
+            choice = None
+            if reflection is not None and reflection["left"] > 0 and time.perf_counter() <= deadline:
+                reflection["left"] -= 1
+                choice = await agent_reflect.choose(first.part, first.status, first.problems,
+                                                    agent_reflect.pages_seen(chunks + extra), reflection["tried"],
+                                                    reflection["left"] + 1)
+                reflection["chosen"].append(choice.action if choice else "code_retry")
+                if choice is not None:
+                    reflection["tried"].append(agent_reflect.key(choice.action, choice.query.strip()))
+                    if choice.action == "finish":
+                        continue
+            with trace_step("retry", chosen=choice.action if choice else "code") as step:
                 if time.perf_counter() > deadline:
                     step.update(skipped="time_budget")
                     break
                 # only chunks the model saw whole: one cut to fit the context, or left out, may hold the answer
                 shown = {_chunk_key(c) for c in chunks + extra
                          if c.get("_included_in_context") and not c.get("_truncated")}
-                found = await retrieval_service.retrieve(query=refine_query(first.part), top_k=settings.RAG_TOP_K * 2,
-                                                         **retrieval_args)
-                fresh = [c for c in found if _chunk_key(c) not in shown][:settings.RAG_TOP_K]
-                step.update(first=first.status, new_chunks=len(fresh))
-                if not fresh:
+                question, facts, fresh = first.part, rule_facts, []
+                try:
+                    if choice is None or choice.action == "knowledge_base_search":
+                        query = refine_query(first.part) if choice is None else choice.query.strip()
+                        found = await retrieval_service.retrieve(query=query, top_k=settings.RAG_TOP_K * 2,
+                                                                 **retrieval_args)
+                        fresh = [c for c in found if _chunk_key(c) not in shown][:settings.RAG_TOP_K]
+                    elif choice.action == "live_fetch":
+                        from app.services import live_fetch
+                        from app.services.source_registry import load_registry
+
+                        page = await agent_tools.call("live_fetch", {"url": choice.query.strip()})
+                        picked = await live_fetch.passages(live_fetch.FetchedPage(
+                            url=page.url, final_url=page.url, title=page.title, text=page.text,
+                            fetched_at=page.fetched_at, tier=load_registry().by_url()[page.url].tier), first.part)
+                        fresh = [c for c in picked["chunks"] if _chunk_key(c) not in shown]
+                    elif choice.action == "rules":
+                        found_rules = await agent_tools.call("rules", {"question": choice.query.strip()})
+                        blocks = [b for b in (found_rules.facts, found_rules.guarantee_fact,
+                                              found_rules.closed_program_fact) if b and b not in (rule_facts or "")]
+                        if blocks:
+                            facts = "\n\n".join(filter(None, [rule_facts, *blocks]))
+                    elif choice.action == "restate":
+                        question = choice.query.strip()
+                except agent_tools.ToolError as e:
+                    step.update(first=first.status, tool_error=type(e).__name__)
                     continue
-                next_number = max([n for n in sources if n] + [0]) + 1
-                fresh_context = retrieval_service.prepare_context(fresh, max_context_length=settings.RAG_CONTEXT_CHARS,
-                                                                  first_number=next_number)
-                retry_sources = {**sources, **source_texts(None, fresh)}
-                retry = await answer_part(first.part, evidence_context(rule_facts, fresh_context), retry_sources,
-                                          rule_facts)
+                step.update(first=first.status, new_chunks=len(fresh))
+                changed = bool(fresh) or facts != rule_facts or question != first.part
+                if not changed:
+                    continue
+                retry_sources = dict(sources)
+                if fresh:
+                    next_number = max([n for n in sources if n] + [0]) + 1
+                    retry_context = evidence_context(facts, retrieval_service.prepare_context(
+                        fresh, max_context_length=settings.RAG_CONTEXT_CHARS, first_number=next_number))
+                    retry_sources.update(source_texts(None, fresh))
+                else:  # new rule facts or a restated question: the passages already shown
+                    retry_context = evidence_context(facts, chunk_context)
+                if facts:
+                    retry_sources[0] = facts
+                retry = replace(await answer_part(question, retry_context, retry_sources, facts), part=first.part)
                 kept = better(first, retry)
                 step.update(retry=retry.status, kept="retry" if kept is retry else "first")
             if kept is retry:

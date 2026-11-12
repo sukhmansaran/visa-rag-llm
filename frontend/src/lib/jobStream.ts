@@ -207,6 +207,7 @@ export function describeStep(step: any): string {
         agent_step: "Deciding what to check next", // M5.3: one agent decision or tool call
         agent: "Checking the evidence", // M5.3: the agent has gathered what it needs
         evidence: "Checking the evidence", // M3: each part's quote checked against its source
+        reflect: "Trying another way to check", // M5.6: the agent chose the next attempt for a part that failed
         retry: "Checking the evidence", // M4.3: a part that wasn't verified, searched and checked once more
         generation: "Checking the answer",
         output_guardrail: "Finishing",
