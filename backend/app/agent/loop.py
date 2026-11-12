@@ -38,14 +38,15 @@ from app.services.tracing import trace_step
 
 logger = logging.getLogger(__name__)
 
-TOOL_ACTIONS = ("rules", "knowledge_base_search", "profile", "processing_times_link")
+TOOL_ACTIONS = ("rules", "knowledge_base_search", "profile", "processing_times_link", "live_fetch")
 MAX_INVALID_IN_A_ROW = 2
 _SUMMARY_CHARS = 420
 
 
 class AgentAction(BaseModel):
     thought: str = Field(default="", max_length=400)
-    action: Literal["rules", "knowledge_base_search", "profile", "processing_times_link", "ask_user", "answer"]
+    action: Literal["rules", "knowledge_base_search", "profile", "processing_times_link", "live_fetch", "ask_user",
+                    "answer"]
     query: str = Field(default="", max_length=400)
 
 
@@ -101,7 +102,8 @@ def _search_line(query: str, chunks: List[Dict[str, Any]]) -> str:
     for c in chunks[:4]:
         meta = c.get("metadata") or {}
         title = meta.get("title") or c.get("title") or "page"
-        parts.append(f"{title}: {' '.join((c.get('text') or '').split())[:110]}")
+        url = meta.get("url") or ""
+        parts.append(f"{title} <{url}>: {' '.join((c.get('text') or '').split())[:110]}")
     return f"search ({query}): {len(chunks)} passages: " + " || ".join(parts)
 
 
@@ -131,6 +133,30 @@ def _held_by_profile(ask: str, profile: Optional[Dict[str, Any]]) -> List[str]:
         return []
     return [name for name, pattern in _PROFILE_FIELDS.items()
             if profile.get(name) not in (None, "", {}, []) and pattern.search(ask)]
+
+
+# The question asks what is current: the stored copy of a page may be behind
+_CURRENT = re.compile(
+    r"\b(?:latest|right now|as of (?:today|now)|recent(?:ly)? (?:changes?|updates?)|new (?:rules?|changes?|requirements?)"
+    r"|still (?:valid|the case|true|appl(?:y|ies))|(?:has|have) (?:it|this|that|the \w+) changed"
+    r"|current (?:rules?|requirements?|amounts?|fees?|figures?|polic(?:y|ies)))\b", re.IGNORECASE)
+
+
+def _page_to_check(state: "AgentState") -> str:
+    """The official page to fetch before answering a question about what is current: the first found passage's
+    registry page, if no page was fetched yet ('' otherwise)."""
+    if not (settings.LIVE_FETCH_ENABLED and _CURRENT.search(state.get("question") or "")):
+        return ""
+    if any(t.startswith("live_fetch|") for t in state.get("tried") or []):
+        return ""
+    from app.services.source_registry import load_registry
+
+    registry = load_registry().by_url()
+    for chunk in state.get("chunks") or []:
+        url = (chunk.get("metadata") or {}).get("url") or ""
+        if url in registry:
+            return url
+    return ""
 
 
 def _key(action: str, query: str) -> str:
@@ -170,6 +196,12 @@ async def _decide(state: AgentState) -> AgentState:
     update: AgentState = {"steps": steps + 1, "invalid_in_row": 0, "trail": trail,
                           "pending": {"action": chosen.action, "query": chosen.query.strip()}}
     if chosen.action == "answer":
+        page = _page_to_check(state)
+        if page:
+            # Code backstop (M5.5a): the question asks what is current and the agent didn't fetch; fetch the top
+            # official page once, then let it decide again with the current text in view. Costs no step.
+            update.update(pending={"action": "live_fetch", "query": page, "before_answer": "1"}, steps=steps)
+            return update
         update.update(outcome="answer", answer_question=chosen.query.strip() or state["question"], pending=None)
         trail.append({"n": steps + 1, "action": "answer", "valid": True})
         with trace_step("agent_step", **trail[-1]):
@@ -202,6 +234,8 @@ def _problem(chosen: AgentAction, state: AgentState) -> str:
         if held:
             return (f"the asker's saved profile already has {', '.join(held)} (see 'profile' above); use it and "
                     "don't ask for it")
+    if chosen.action == "live_fetch" and not query.startswith("https://"):
+        return "live_fetch needs the exact URL of an official page shown above"
     if chosen.action in TOOL_ACTIONS and _key(chosen.action, query) in (state.get("tried") or []):
         return (f"{chosen.action} was already done with this query and its result is above; if the answer depends on "
                 "something the asker did not say, choose ask_user, otherwise choose answer")
@@ -211,7 +245,8 @@ def _problem(chosen: AgentAction, state: AgentState) -> str:
 async def _act(state: AgentState) -> AgentState:
     pending = state["pending"]
     action, query = pending["action"], pending["query"]
-    args = {"rules": {"question": query}, "knowledge_base_search": {"query": query}}.get(action, {})
+    args = {"rules": {"question": query}, "knowledge_base_search": {"query": query},
+            "live_fetch": {"url": query}}.get(action, {})
     observations = list(state.get("observations") or [])
     rule_facts = list(state.get("rule_facts") or [])
     chunks = list(state.get("chunks") or [])
@@ -247,6 +282,21 @@ async def _act(state: AgentState) -> AgentState:
                 line = ("(before asking, code looked up the asker's saved profile; ask only for what it doesn't "
                         "hold) " + line)
             observations.append(line)
+        elif action == "live_fetch":
+            from app.services import live_fetch
+            from app.services.source_registry import load_registry
+
+            page = live_fetch.FetchedPage(url=result.url, final_url=result.url, title=result.title, text=result.text,
+                                          fetched_at=result.fetched_at, tier=load_registry().by_url()[result.url].tier)
+            picked = await live_fetch.passages(page, state["question"])
+            chunks += picked["chunks"]
+            found = len(picked["chunks"])
+            line = _search_line(f"fetched now: {result.url}", picked["chunks"]).replace("search (", "live fetch (", 1)
+            if picked["dropped"]:
+                line += f" ({picked['dropped']} passages that read like instructions were left out)"
+            if pending.get("before_answer"):
+                line = "(the question asks what is current, so code fetched the official page first) " + line
+            observations.append(line)
         elif action == "processing_times_link":
             block = (f"OFFICIAL IRCC PROCESSING TIMES: Pendu stores no processing-time figures. {result.note} "
                      f"Check the current time with IRCC's tool: {result.url}")
@@ -258,6 +308,8 @@ async def _act(state: AgentState) -> AgentState:
     trail.append({"n": state.get("steps", 0), "action": action, "valid": valid, "found": found})
     if pending.get("before_ask"):
         trail[-1]["before_ask"] = True
+    if pending.get("before_answer"):
+        trail[-1]["before_answer"] = True
     with trace_step("agent_step", **trail[-1]):
         pass
     return {"observations": observations, "rule_facts": rule_facts, "chunks": chunks, "profile": profile,

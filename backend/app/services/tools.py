@@ -9,7 +9,7 @@ data.
   rules                  the rule engine's facts for a question (ircc_rules.yaml, owner-reviewed)
   knowledge_base_search  chunks from the knowledge base (the same search the pipeline uses)
   live_fetch             one registry page, fetched now; the URL must be a registry page exactly (principle 10).
-                         Arguments are checked today; fetching arrives with M5.3, until then it is unavailable
+                         Fetched by app/services/live_fetch.py (M5.5a), for the current answer only
   profile                the requesting user's profile. Takes no arguments: whose profile is never the model's
                          choice; it is the user of the current request. Only fields an answer can use (no names)
   processing_times_link  IRCC's live processing-times tool; Pendu stores no processing-time figures
@@ -135,7 +135,16 @@ class LiveFetchResult(BaseModel):
 
 
 async def _live_fetch(args: LiveFetchArgs) -> LiveFetchResult:
-    raise ToolUnavailableError("live fetch arrives with M5.3")
+    from app.core.config import settings
+    from app.services import live_fetch
+
+    if not settings.LIVE_FETCH_ENABLED:
+        raise ToolUnavailableError("live fetch is switched off (LIVE_FETCH_ENABLED)")
+    try:
+        page = await live_fetch.fetch(args.url)
+    except live_fetch.LiveFetchError as e:
+        raise ToolUnavailableError(f"could not fetch the page: {e}") from e
+    return LiveFetchResult(url=page.url, title=page.title, text=page.text, fetched_at=page.fetched_at)
 
 
 # ---------------------------------------------------------------- profile
@@ -214,7 +223,7 @@ TOOLS: Dict[str, Tool] = {t.name: t for t in (
     Tool("knowledge_base_search", "Search the stored official pages for passages about a question.",
          SearchArgs, SearchResult, _knowledge_base_search),
     Tool("live_fetch", "Fetch one official registry page now, when the stored copy may be out of date.",
-         LiveFetchArgs, LiveFetchResult, _live_fetch, available=False),
+         LiveFetchArgs, LiveFetchResult, _live_fetch),
     Tool("profile", "The asking user's saved profile (education, work experience, test scores, targets).",
          ProfileArgs, ProfileResult, _profile),
     Tool("processing_times_link", "Where to check current IRCC processing times (Pendu stores no figures).",

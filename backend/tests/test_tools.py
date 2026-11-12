@@ -35,8 +35,7 @@ def test_the_registry_has_the_five_read_only_tools():
 
 def test_specs_offer_only_available_tools_with_strict_schemas():
     specs = {s["name"]: s for s in tools.tool_specs()}
-    assert "live_fetch" not in specs  # until M5.3
-    assert set(specs) == {"rules", "knowledge_base_search", "profile", "processing_times_link"}
+    assert set(specs) == {"rules", "knowledge_base_search", "profile", "processing_times_link", "live_fetch"}
     for spec in specs.values():
         assert spec["description"] and spec["parameters"].get("additionalProperties") is False
 
@@ -132,7 +131,10 @@ def test_live_fetch_refuses_anything_but_a_registry_page(url):
 
 
 @pytest.mark.asyncio
-async def test_live_fetch_is_unavailable_until_m53():
+async def test_live_fetch_switched_off_is_unavailable(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "LIVE_FETCH_ENABLED", False)  # M5.5a; fetching itself: tests/test_live_fetch.py
     with pytest.raises(tools.ToolUnavailableError):
         await tools.call("live_fetch", {"url": REGISTRY_URL})
 
