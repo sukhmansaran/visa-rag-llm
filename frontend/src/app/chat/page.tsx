@@ -29,7 +29,7 @@ interface Message {
 /** One part of the question after the evidence check (backend: evidence.verification). */
 interface CheckedPart {
     part: string;
-    status: "verified" | "partially_verified" | "not_covered" | "unverified";
+    status: "verified" | "partially_verified" | "not_covered" | "unverified" | "not_reached";
     answer?: string;
     quote?: string;
     retried?: boolean;
@@ -41,10 +41,14 @@ const UNCHECKED_TEXT: Record<string, string> = {
     unverified: "I couldn't check an answer to this against the official sources.",
 };
 
-/** M6.2: a badge per checked part with its source, and a separate list of what couldn't be verified. */
-function VerificationPanel({ parts }: { parts: CheckedPart[] }) {
+/**
+ * M6.2: a badge per checked part with its source, and a separate list of what couldn't be verified.
+ * M6.3: parts the time budget didn't reach are listed with a button that asks them next (`onAsk`).
+ */
+function VerificationPanel({ parts, onAsk }: { parts: CheckedPart[]; onAsk?: (question: string) => void }) {
     const checked = parts.filter(p => p.status === "verified" || p.status === "partially_verified");
     const unchecked = parts.filter(p => p.status === "not_covered" || p.status === "unverified");
+    const notReached = parts.filter(p => p.status === "not_reached");
     return (
         <div data-testid="verification" className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3 text-xs">
             {checked.length > 0 && (
@@ -85,6 +89,20 @@ function VerificationPanel({ parts }: { parts: CheckedPart[] }) {
                             <li key={n}><span className="text-slate-700 dark:text-slate-300">{p.part}</span> — {UNCHECKED_TEXT[p.status]}</li>
                         ))}
                     </ul>
+                </div>
+            )}
+            {notReached.length > 0 && (
+                <div data-testid="not-reached" className="space-y-1">
+                    <p className="font-bold text-[10px] uppercase tracking-widest text-amber-600 dark:text-amber-400">Ran out of time</p>
+                    <ul className="space-y-1 text-slate-700 dark:text-slate-300">
+                        {notReached.map((p, n) => <li key={n}>{p.part}</li>)}
+                    </ul>
+                    {onAsk && (
+                        <button type="button" data-testid="check-the-rest" onClick={() => onAsk(notReached.map(p => p.part).join(" "))}
+                            className="mt-1 rounded-full border border-slate-200 dark:border-slate-700 px-3 py-1 font-medium hover:border-primary transition-colors">
+                            Check {notReached.length === 1 ? "this part" : "these parts"} now
+                        </button>
+                    )}
                 </div>
             )}
         </div>
@@ -332,9 +350,6 @@ export default function ChatPage() {
                             Sign In
                         </Link>
                     )}
-                    <Link href="/demo/metrics" className="text-xs text-slate-500 hover:underline">
-                        System Metrics
-                    </Link>
                 </div>
             </div>
 
@@ -440,7 +455,8 @@ export default function ChatPage() {
                             )}
 
                             {msg.role === "assistant" && !msg.streaming && msg.verification && msg.verification.length > 0 && (
-                                <VerificationPanel parts={msg.verification} />
+                                <VerificationPanel parts={msg.verification}
+                                    onAsk={!loading && i === messages.length - 1 ? handleQuickQuestion : undefined} />
                             )}
 
                             {msg.role === "assistant" && !msg.streaming && msg.trail && msg.trail.length > 0 && (

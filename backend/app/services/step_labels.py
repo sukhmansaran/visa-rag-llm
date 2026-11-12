@@ -34,7 +34,8 @@ _REFLECT = {"knowledge_base_search": "search with different words", "rules": "lo
 _EVIDENCE = {"verified": "Checked a part against its source: the quote matches",
              "not_covered": "Checked a part: the sources found don't cover it",
              "unverified": "Checked a part: its evidence didn't hold, so it isn't shown as verified",
-             "invalid": "Couldn't read the answer step's output for a part"}
+             "invalid": "Couldn't read the answer step's output for a part",
+             "not_reached": "Ran out of time before checking a part"}
 
 
 def _plural(n: int, word: str) -> str:
