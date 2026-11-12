@@ -9,6 +9,7 @@ import {
     ClipboardList,
     FileEdit,
     MessageSquare,
+    ClipboardCheck,
     LogOut,
     UserCircle,
     LogIn
@@ -23,6 +24,9 @@ const navItems = [
     { name: "SOP Generator", href: "/sop", icon: FileEdit },
     { name: "Ask Pendu", href: "/chat", icon: MessageSquare },
 ];
+
+// Shown to administrators only; the admin API checks again on every request (M6.5)
+const adminItem = { name: "Admin", href: "/admin", icon: ClipboardCheck };
 
 export function Sidebar() {
     const pathname = usePathname();
@@ -60,7 +64,7 @@ export function Sidebar() {
             </div>
 
             <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
-                {navItems.map((item) => {
+                {(user?.is_admin ? [...navItems, adminItem] : navItems).map((item) => {
                     const isActive = pathname === item.href;
                     return (
                         <Link
