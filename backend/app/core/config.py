@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     # unless this much of the request has already passed
     VERIFIED_MAX_ROUNDS: int = 2
     VERIFIED_RETRY_BEFORE_SECONDS: float = 150.0
+    # Time budget (M6.3): once this much of the request has passed, no new part is started; the parts checked so far
+    # are returned and the rest are labelled "not reached". Below ANSWER_JOB_BUDGET_SECONDS by more than one part's
+    # check, so the answer arrives before the job is stopped.
+    VERIFIED_PARTS_BEFORE_SECONDS: float = 210.0
     # Verified-answer cache (M4.6, Redis): keyed by the question and every version an answer depends on
     VERIFIED_CACHE_ENABLED: bool = True
     VERIFIED_CACHE_TTL_SECONDS: int = 7 * 24 * 3600

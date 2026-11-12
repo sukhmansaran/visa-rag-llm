@@ -514,7 +514,8 @@ class RAGPipeline:
             results, retry_chunks = await self._evidence_answers(
                 answer_parts or parts or [query], rule_facts, chunks, context_chars,
                 retrieval_args={"country": country, "visa_type": visa_type, "intent": intent},
-                deadline=start_time + settings.VERIFIED_RETRY_BEFORE_SECONDS, reflection=reflection)
+                deadline=start_time + settings.VERIFIED_RETRY_BEFORE_SECONDS, reflection=reflection,
+                parts_deadline=start_time + settings.VERIFIED_PARTS_BEFORE_SECONDS)
             if reflection is not None and reflection["chosen"]:
                 metrics["agent"]["reflect"] = reflection["chosen"]
             # Processing-time parts are answered by code (M5.3): Pendu stores no figures by design, so the answer is
@@ -528,6 +529,8 @@ class RAGPipeline:
                                    for status in ("verified", "not_covered", "unverified", "invalid")}
             metrics["evidence"]["partial"] = sum(r.partial for r in results)
             metrics["evidence"]["improved_by_retry"] = sum(r.retried for r in results)
+            if any(r.status == "not_reached" for r in results):  # M6.3: a partial answer, labelled; not cached
+                metrics["evidence"]["not_reached"] = sum(r.status == "not_reached" for r in results)
             # A question built on a premise ("The funds are $10,000, right?", a closed program) that got nothing
             # verified: the model said "not covered" because no source states the false claim, instead of
             # correcting it. That "not covered" isn't trusted; the answer is written as before, from the rule facts.
@@ -614,7 +617,8 @@ class RAGPipeline:
             checked = verification(results, sources) if evidence_answer is not None and val_res.is_valid else None
             if checked and not any(r.status == "verified" for r in results) and guarantee_fact:
                 checked = None  # the answer is the rule engine's "approval can't be guaranteed", not these parts
-            if verified_cache_key and evidence_answer is not None and val_res.is_valid and monitor_ran:
+            complete = not (metrics.get("evidence") or {}).get("not_reached")  # M6.3: a partial answer isn't cached
+            if verified_cache_key and evidence_answer is not None and val_res.is_valid and monitor_ran and complete:
                 with trace_step("verified_cache_store") as step:
                     step["stored"] = await verified_cache.put(verified_cache_key, answer, sources,
                                                               metrics.get("evidence") or {}, checked)
@@ -698,6 +702,7 @@ class RAGPipeline:
     async def _evidence_answers(parts: List[str], rule_facts: Optional[str], chunks: List[Dict[str, Any]],
                                 context_chars: int, retrieval_args: Dict[str, Any], deadline: float,
                                 reflection: Optional[Dict[str, Any]] = None,
+                                parts_deadline: Optional[float] = None,
                                 ) -> tuple[List["PartResult"], List[Dict[str, Any]]]:
         """
         M3: each part through the evidence step and the code check, traced as `evidence` (no user text).
@@ -713,7 +718,11 @@ class RAGPipeline:
         results = []
         for part in parts:
             with trace_step("evidence") as step:
-                result = await answer_part(part, context, sources, rule_facts)
+                if results and parts_deadline is not None and time.perf_counter() > parts_deadline:
+                    # M6.3: the time budget is used up; what is checked so far is returned, the rest say so
+                    result = PartResult(part, "not_reached")
+                else:
+                    result = await answer_part(part, context, sources, rule_facts)
                 step.update(result.summary())
             results.append(result)
 
@@ -721,7 +730,7 @@ class RAGPipeline:
         if settings.VERIFIED_MAX_ROUNDS < 2:
             return results, extra
         for i, first in enumerate(results):
-            if first.status == "verified":
+            if first.status in ("verified", "not_reached"):
                 continue
             # M5.6: with the agent on, the model reads what the checks said and chooses the next attempt; an
             # unusable choice (None) leaves code's own retry below

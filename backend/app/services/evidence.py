@@ -24,6 +24,10 @@ RULES_SOURCE = 0
 MIN_QUOTE_WORDS = 4
 NOT_COVERED_TEXT = "The official sources I have don't cover this: {part}"
 UNVERIFIED_TEXT = "I couldn't check an answer to this against the official sources: {part}"
+# M6.3: the time budget ran out before this part's turn
+NOT_REACHED_TEXT = "I ran out of time before checking this: {part}"
+TIME_BUDGET_NOTE = ("\n\nI reached the time limit for one answer, so the parts marked above weren't checked. "
+                    "Ask about them on their own and I'll check them.")
 
 _SPACE = re.compile(r"\s+")
 _MARKDOWN = re.compile(r"\*\*|__|`|(?<!\w)[*•](?!\w)")  # emphasis and bullet markers, not hyphens or words
@@ -42,7 +46,7 @@ class EvidenceAnswer(BaseModel):
 @dataclass(frozen=True)
 class PartResult:
     part: str
-    status: str                     # verified | not_covered | unverified | invalid
+    status: str                     # verified | not_covered | unverified | invalid | not_reached (M6.3)
     answer: str = ""
     quote: str = ""
     source_number: int = -1
@@ -176,7 +180,7 @@ def verification(results: List[PartResult], citations: List[Dict[str, Any]]) -> 
     """
     What the chat shows under a checked answer (M6.2): for each part its status, and for a verified one the answer,
     the quote and the page it was checked against. status: verified | partially_verified | not_covered | unverified
-    (an unreadable part counts as unverified). The page comes from the citation whose numbers hold the part's
+    | not_reached (an unreadable part counts as unverified; not_reached: the time budget ran out first, M6.3). The page comes from the citation whose numbers hold the part's
     [Source N]; the rules file is source 0. Sent with the answer, never stored in traces or message metadata: the
     parts are the asker's own words.
     """
@@ -197,7 +201,7 @@ def verification(results: List[PartResult], citations: List[Dict[str, Any]]) -> 
                 item["source"] = {"title": page.get("title") or "Official page", "url": page.get("url"),
                                   "number": result.source_number}
         else:
-            item["status"] = "not_covered" if result.status == "not_covered" else "unverified"
+            item["status"] = result.status if result.status in ("not_covered", "not_reached") else "unverified"
         view.append(item)
     return view
 
@@ -214,7 +218,10 @@ def compose(results: List[PartResult]) -> str:
             text = f'{answer}{cite}{label}' + (f'\n> "{quote}"' if quote else "")  # code-stated parts have no quote
         elif result.status == "not_covered":
             text = NOT_COVERED_TEXT.format(part=result.part)
+        elif result.status == "not_reached":
+            text = NOT_REACHED_TEXT.format(part=result.part)
         else:
             text = UNVERIFIED_TEXT.format(part=result.part)
         lines.append(f"- {text}" if len(results) > 1 else text)
-    return "\n\n".join(lines)
+    text = "\n\n".join(lines)
+    return text + TIME_BUDGET_NOTE if any(r.status == "not_reached" for r in results) else text
