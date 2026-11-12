@@ -29,6 +29,7 @@ import redis.asyncio as aioredis
 
 from app.core.config import settings
 from app.core.loop_local import LoopLocal
+from app.services import step_labels
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +231,8 @@ async def _execute_answer_job(job_id: str, user_id: Optional[int], query: str,
 
         await set_status(job_id, "running", trace_id=trace.trace_id)
         events.emit("status", {"status": "running", "trace_id": trace.trace_id})
-        trace.on_step = lambda step: events.emit("step", step)
+        # M6.1: each step also carries a plain-language line for the chat's "how this answer was made" list
+        trace.on_step = lambda step: events.emit("step", {**step, "label": step_labels.describe(step)})
 
         async def work():
             async with aclosing(rag_pipeline.process_query_stream(

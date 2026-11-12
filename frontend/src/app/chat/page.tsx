@@ -22,6 +22,7 @@ interface Message {
     steps?: number[];           // step numbers received (diagnostic jobs), for end-to-end checks
     status?: "running" | "done" | "error" | "cancelled";
     awaitingReply?: boolean;    // M5.4: a clarifying question; the next message answers it
+    trail?: { id: string; label: string }[];  // M6.1: what each finished step did ("how this answer was made")
 }
 
 const JOB_PARAM = "job";
@@ -81,6 +82,10 @@ export default function ChatPage() {
                     ...m,
                     progress: describeStep(data),
                     steps: typeof data.n === "number" ? [...(m.steps || []), data.n] : m.steps,
+                    // M6.1: what each finished step did, in the backend's words; an event seen twice is kept once
+                    trail: typeof data.label === "string" && !(m.trail || []).some(t => t.id === event.id)
+                        ? [...(m.trail || []), { id: event.id, label: data.label }]
+                        : m.trail,
                 }));
                 break;
             case "queue":
@@ -341,6 +346,15 @@ export default function ChatPage() {
                                 </div>
                             )}
 
+                            {/* M6.1: while the answer runs, the last few things done; afterwards the whole list, folded */}
+                            {msg.role === "assistant" && msg.streaming && msg.trail && msg.trail.length > 0 && (
+                                <ul data-testid="live-steps" className="mb-2 space-y-0.5 text-xs text-slate-400">
+                                    {msg.trail.slice(-4).map(t => (
+                                        <li key={t.id} className="flex gap-1.5"><span aria-hidden>✓</span><span>{t.label}</span></li>
+                                    ))}
+                                </ul>
+                            )}
+
                             {msg.role === "assistant" ? (
                                 <MarkdownMessage content={msg.content} isStreaming={msg.streaming} />
                             ) : (
@@ -356,6 +370,19 @@ export default function ChatPage() {
                                         ? "I need this detail to answer. Reply below and I'll continue from here."
                                         : "Answered below."}
                                 </p>
+                            )}
+
+                            {msg.role === "assistant" && !msg.streaming && msg.trail && msg.trail.length > 0 && (
+                                <details data-testid="answer-steps" className="mt-3 text-xs text-slate-500">
+                                    <summary className="cursor-pointer select-none font-medium hover:text-slate-700 dark:hover:text-slate-300">
+                                        How this answer was made ({msg.trail.length} steps)
+                                    </summary>
+                                    <ol className="mt-2 space-y-1 border-l border-slate-200 dark:border-slate-700 pl-3">
+                                        {msg.trail.map((t, n) => (
+                                            <li key={t.id}><span className="text-slate-400">{n + 1}.</span> {t.label}</li>
+                                        ))}
+                                    </ol>
+                                </details>
                             )}
 
                             {/* Verified Source Citations */}
