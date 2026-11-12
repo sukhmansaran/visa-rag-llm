@@ -100,9 +100,11 @@ async def get(key: str) -> Optional[Dict[str, Any]]:
     return json.loads(raw) if raw else None
 
 
-async def put(key: str, answer: str, sources: list, evidence: Dict[str, Any]) -> bool:
+async def put(key: str, answer: str, sources: list, evidence: Dict[str, Any],
+              verification: Optional[list] = None) -> bool:
     try:
-        await _redis().set(key, json.dumps({"answer": answer, "sources": sources, "evidence": evidence}, default=str),
+        await _redis().set(key, json.dumps({"answer": answer, "sources": sources, "evidence": evidence,
+                                            "verification": verification}, default=str),
                            ex=settings.VERIFIED_CACHE_TTL_SECONDS)
         return True
     except Exception:

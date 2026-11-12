@@ -31,7 +31,7 @@ from app.services.tourist_service import get_tourist_context
 from app.services.tracing import current_trace, trace_step
 from app.services import verified_cache
 from app.services.decomposition import decompose, needs_split
-from app.services.evidence import PartResult, answer_part, compose, evidence_context, source_texts
+from app.services.evidence import PartResult, answer_part, compose, evidence_context, source_texts, verification
 from app.services.iteration import better, refine_query
 from app.services.follow_up import resolve as resolve_follow_up
 from app.services.topics import detect_topics
@@ -134,6 +134,8 @@ class RAGPipeline:
             "metrics": done["metrics"],
             "guardrail_blocked": blocked is not None,
         }
+        if done.get("verification"):
+            result["verification"] = done["verification"]  # M6.2
         if blocked is not None:
             result["violation"] = blocked["violation"]
         return result
@@ -300,6 +302,7 @@ class RAGPipeline:
                 metrics["evidence"] = hit.get("evidence")
                 yield {"type": "chunk", "content": hit["answer"]}
                 yield {"type": "done", "full_response": hit["answer"], "sources": hit.get("sources", []),
+                       **({"verification": hit["verification"]} if hit.get("verification") else {}),
                        "metrics": finished_metrics()}
                 return
 
@@ -606,13 +609,19 @@ class RAGPipeline:
             if val_res.is_valid and routed_path() != VERIFIED and monitor_ran and reply is None:
                 intent_cache.set(country, visa_type, intent, answer, version=rules_version, query=query,
                                  sources=sources)
+            # M6.2: what each part's check found, for the badges under the answer (only when the shown answer is
+            # the one composed from those parts)
+            checked = verification(results, sources) if evidence_answer is not None and val_res.is_valid else None
+            if checked and not any(r.status == "verified" for r in results) and guarantee_fact:
+                checked = None  # the answer is the rule engine's "approval can't be guaranteed", not these parts
             if verified_cache_key and evidence_answer is not None and val_res.is_valid and monitor_ran:
                 with trace_step("verified_cache_store") as step:
                     step["stored"] = await verified_cache.put(verified_cache_key, answer, sources,
-                                                              metrics.get("evidence") or {})
+                                                              metrics.get("evidence") or {}, checked)
 
             yield {"type": "chunk", "content": answer}
-            yield {"type": "done", "full_response": answer, "sources": sources, "metrics": finished_metrics()}
+            yield {"type": "done", "full_response": answer, "sources": sources, "metrics": finished_metrics(),
+                   **({"verification": checked} if checked else {})}
             return
 
         full_response = ""
