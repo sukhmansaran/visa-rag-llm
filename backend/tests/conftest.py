@@ -128,6 +128,15 @@ async def client(db_session):
 
 
 @pytest.fixture(autouse=True)
+def review_queue_sessions(monkeypatch):
+    """Live-fetched pages are queued for review (M5.5b) through their own session. In tests that session must never
+    be the development database: queueing is off unless a test points it at the test session."""
+    from app.services import review_queue
+
+    monkeypatch.setattr(review_queue, "_sessions", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def agent_checkpoints(monkeypatch):
     """Paused agent runs (M5.4) go to a fresh in-memory checkpointer per test, never to the Postgres agent database.
     tests/test_agent_pause.py also checks the Postgres one, across processes."""

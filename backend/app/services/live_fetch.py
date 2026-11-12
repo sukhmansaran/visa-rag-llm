@@ -7,7 +7,8 @@ headers. The fetch is hardened like the crawler: DNS-pinned connections (safe_ht
 re-checked against the domain allowlist, HTML only, a size cap, a pause between requests to the same host.
 
 The page's main text (extracted as ingestion does, so quotes match the stored pages) is cached in Redis for
-LIVE_FETCH_CACHE_SECONDS. It never enters the knowledge base here (M5.5b: review queue). `passages` picks the parts
+LIVE_FETCH_CACHE_SECONDS. It never enters the knowledge base here: a page that differs from the stored copy is
+queued for an admin's review (M5.5b, app/services/review_queue.py). `passages` picks the parts
 that answer the question, in memory, and drops any passage that reads like instructions to the model (fetched text
 is data, never instructions). Whatever the page says, the answer still has to quote it word for word and pass the
 evidence checks.
@@ -145,13 +146,19 @@ async def fetch(url: str, client: Optional[httpx.AsyncClient] = None) -> Fetched
             await client.aclose()
 
     html = response.content.decode(response.encoding or "utf-8", errors="replace")
-    title, text = _main_text(html)
-    problem = looks_like_error_page(title, text)
+    title, full_text = _main_text(html)
+    text = full_text[:settings.LIVE_FETCH_MAX_CHARS]  # what one answer may read
+    problem = looks_like_error_page(title, full_text)
     if problem:
         raise LiveFetchError(f"not a usable page: {problem}")
     page = FetchedPage(url=url, final_url=current, title=title, text=text,
                        fetched_at=datetime.utcnow().isoformat(timespec="seconds"), tier=entry.tier)
     await _cache_set(page)
+    # M5.5b (D2): a page that differs from the stored copy waits for an admin; it never enters the knowledge base
+    # from here. The whole main text is queued, not the part cut for the answer.
+    from app.services import review_queue
+
+    await review_queue.queue_fetched(page, full_text)
     return page
 
 
@@ -167,8 +174,7 @@ def _main_text(html: str) -> tuple:
     converter.ignore_links, converter.ignore_images, converter.body_width = True, True, 0
     match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
     title = re.sub(r"\s+", " ", match.group(1)).strip()[:300] if match else ""
-    text = _CONTROL.sub("", extract_main_text(html, converter))[:settings.LIVE_FETCH_MAX_CHARS]
-    return _CONTROL.sub("", title), text
+    return _CONTROL.sub("", title), _CONTROL.sub("", extract_main_text(html, converter))
 
 
 # ---------------------------------------------------------------- the passages for this answer

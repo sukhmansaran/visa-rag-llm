@@ -38,6 +38,15 @@ class IngestionService:
         
         # Step 1: Scrape
         scraped_data = await ingestion_pkg.scrape_with_retry(source.url)
+        return await self.ingest_scraped(source, scraped_data, db)
+
+    async def ingest_scraped(self, source: Source, scraped_data: Dict, db: AsyncSession) -> Dict:
+        """
+        Store one page text as the source's new version: check, chunk, embed, store, retire the older version.
+        `scraped_data`: title, extracted_text, content_hash, scraped_at, raw_html (optional). Used by ingest_source
+        after scraping and by the review queue (M5.5b) with the text an admin approved.
+        """
+        source_id = source.id
 
         # An error page served with HTTP 200 must never become "official" text (M0.10: the University of
         # Toronto source was stored as "Page not found" and retrieved like any other chunk)

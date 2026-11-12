@@ -30,6 +30,7 @@ from app.models.seed_url import SeedURL
 from app.models.crawl_job import CrawlJob
 from app.models.crawled_page import CrawledPage
 from app.models.program_record import ProgramRecord
+from app.models.fetched_page import FetchedPageReview
 
 # Versioning & Ingestion Models (Stage B2)
 
@@ -58,4 +59,5 @@ __all__ = [
     "CrawlJob",
     "CrawledPage",
     "ProgramRecord",
+    "FetchedPageReview",
 ]
