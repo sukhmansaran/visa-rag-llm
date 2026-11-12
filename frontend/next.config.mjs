@@ -7,14 +7,6 @@ const nextConfig = {
         // compression buffers them until they end (measured in M0.6d).
         proxyTimeout: 330_000,
     },
-    images: {
-        remotePatterns: [
-            {
-                protocol: 'https',
-                hostname: 'images.unsplash.com',
-            },
-        ],
-    },
     async rewrites() {
         return [
             {

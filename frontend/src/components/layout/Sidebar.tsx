@@ -6,11 +6,9 @@ import { usePathname, useRouter } from "next/navigation";
 import {
     LayoutDashboard,
     ShieldAlert,
-    Map,
     ClipboardList,
     FileEdit,
     MessageSquare,
-    BarChart3,
     LogOut,
     UserCircle,
     LogIn
@@ -21,11 +19,9 @@ import { getUser, isAuthenticated, loadSession, logout } from "@/lib/auth";
 const navItems = [
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { name: "Visa Risk", href: "/visa-risk", icon: ShieldAlert },
-    { name: "Destinations", href: "/destinations", icon: Map },
     { name: "Applications", href: "/applications", icon: ClipboardList },
     { name: "SOP Generator", href: "/sop", icon: FileEdit },
     { name: "Ask Pendu", href: "/chat", icon: MessageSquare },
-    { name: "System Metrics", href: "/demo/metrics", icon: BarChart3 },
 ];
 
 export function Sidebar() {

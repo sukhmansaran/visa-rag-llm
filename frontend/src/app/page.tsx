@@ -13,8 +13,8 @@ export default function LandingPage() {
                             <span className="text-primary italic">Visa Intelligence Engine</span>
                         </h1>
                         <p className="mx-auto max-w-[700px] text-slate-500 md:text-xl dark:text-slate-400">
-                            High-accuracy, Low-cost RAG system designed for serious study abroad planning.
-                            Verified sources. Deterministic rules. Minimal token footprint.
+                            An assistant for Canadian study permit and visa questions, running on local models.
+                            Official sources. Fixed rules for key figures. Information, not legal advice.
                         </p>
                         <div className="flex justify-center gap-4 pt-4">
                             <Link
@@ -24,10 +24,10 @@ export default function LandingPage() {
                                 Try Sample Profile <ArrowRight className="ml-2 h-4 w-4" />
                             </Link>
                             <Link
-                                href="/demo/metrics"
+                                href="/chat"
                                 className="inline-flex h-11 items-center justify-center rounded-md border border-slate-200 bg-white px-8 text-sm font-medium shadow-sm transition-colors hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-800"
                             >
-                                View System Metrics
+                                Ask a Question
                             </Link>
                         </div>
                     </div>
@@ -44,16 +44,16 @@ export default function LandingPage() {
                             </div>
                             <h3 className="text-xl font-bold">Source Verified</h3>
                             <p className="text-slate-500 dark:text-slate-400">
-                                Direct integration with IRCC and official Canadian government sources. No hallucinations.
+                                Answers come from saved copies of official IRCC and Government of Canada pages, each claim checked against its source and shown with a link.
                             </p>
                         </div>
                         <div className="flex flex-col items-center text-center space-y-2 p-6 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
                             <div className="p-3 bg-yellow-100 dark:bg-yellow-900 rounded-full">
                                 <Zap className="h-6 w-6 text-yellow-600 dark:text-yellow-400" />
                             </div>
-                            <h3 className="text-xl font-bold">Low-Token RAG</h3>
+                            <h3 className="text-xl font-bold">Shows Its Work</h3>
                             <p className="text-slate-500 dark:text-slate-400">
-                                Optimized ingestion compression reduces query costs by up to 70% compared to naive RAG.
+                                Every answer lists the steps taken and what was verified, and says so plainly when a part could not be checked.
                             </p>
                         </div>
                         <div className="flex flex-col items-center text-center space-y-2 p-6 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
@@ -62,7 +62,7 @@ export default function LandingPage() {
                             </div>
                             <h3 className="text-xl font-bold">Deterministic Rules</h3>
                             <p className="text-slate-500 dark:text-slate-400">
-                                Hard policy rules precede LLM calls to ensure consistency and eliminate inference errors.
+                                Key figures such as fees, funds and work hours come from a reviewed rules file, not from the model.
                             </p>
                         </div>
                     </div>
@@ -71,11 +71,7 @@ export default function LandingPage() {
 
             <footer className="w-full py-6 border-t border-slate-100 dark:border-slate-800">
                 <div className="container px-4 md:px-6 mx-auto flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-slate-500">
-                    <p>© 2025 Pendu Intel. System Proof v1.0</p>
-                    <div className="flex gap-4">
-                        <Link href="/" className="hover:underline">Documentation</Link>
-                        <Link href="/" className="hover:underline">GitHub</Link>
-                    </div>
+                    <p>Pendu. Information only, not legal advice; for your case, consult a licensed RCIC or lawyer.</p>
                 </div>
             </footer>
         </div>
