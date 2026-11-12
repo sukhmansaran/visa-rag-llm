@@ -110,6 +110,9 @@ class Settings(BaseSettings):
     # llama3.2:3b deciding: 2/8 on dev (it asked in almost every case). The bake-off (M5.7) and stronger models decide.
     AGENT_LOOP: bool = False
     AGENT_MAX_STEPS: int = 6
+    # Reflection (M5.6): for parts that fail the evidence checks, the agent chooses the next attempt (search again,
+    # rules, live fetch, restate, finish) this many times per answer; 0 = code's own single retry only (M4.3)
+    AGENT_REFLECT_STEPS: int = 2
     # Clarifying questions (M5.4): a paused agent run waits in LangGraph's Postgres checkpointer, in its own database
     # (default: DATABASE_URL's server, database visa_chatbot_agent; create it with scripts/setup_agent_db.py). The
     # next message in the conversation within AGENT_PAUSE_TTL_SECONDS is the reply; unanswered runs are deleted after
