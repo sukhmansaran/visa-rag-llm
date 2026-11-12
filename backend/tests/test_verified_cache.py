@@ -112,6 +112,7 @@ async def test_a_repeated_verified_question_comes_from_the_cache_in_under_a_seco
     assert time.perf_counter() - started < 1.0
     assert second["answer"] == first["answer"] and second["sources"] == first["sources"]
     assert second["metrics"]["source"] == "verified_cache" and len(scripted.calls) == calls  # no model call
+    assert first["verification"] and second["verification"] == first["verification"]  # M6.2: the badges come back too
     assert "retrieval" not in steps(trace) and len(scripted.asked) == 1
 
 

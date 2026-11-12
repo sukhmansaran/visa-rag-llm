@@ -216,3 +216,45 @@ async def test_a_processing_time_question_is_answered_by_code_with_irccs_tool(sc
     result, _ = await run("What is the processing time for a study permit from India?", "verified")
     assert result["answer"].startswith("The official sources I have don't cover current processing times")
     assert "check-processing-times.html" in result["answer"] and '> ""' not in result["answer"]
+
+
+# ---------------------------------------------------------------- M6.2: what the chat shows under the answer
+
+def test_verification_lists_each_part_with_its_status_and_page():
+    results = [
+        ev.PartResult("Hours in breaks?", "verified", "Unlimited [Source 2].", "you can work **unlimited** hours off campus", 2),
+        ev.PartResult("Hours in term?", "verified", "Up to 24 hours a week.", "work up to 24 hours per week", 0, partial=True),
+        ev.PartResult("Processing time?", "not_covered"),
+        ev.PartResult("Can I work 40 hours?", "unverified", "Yes.", "made up", 2, retried=True),
+        ev.PartResult("Unreadable?", "invalid"),
+    ]
+    citations = [{"url": "https://www.canada.ca/work.html", "title": "Work off campus", "number": 1, "numbers": [1, 2]}]
+    view = ev.verification(results, citations)
+    assert view[0] == {"part": "Hours in breaks?", "retried": False, "status": "verified", "answer": "Unlimited.",
+                       "quote": "you can work **unlimited** hours off campus",
+                       "source": {"title": "Work off campus", "url": "https://www.canada.ca/work.html", "number": 2}}
+    assert view[1]["status"] == "partially_verified" and view[1]["source"]["url"] is None  # the rules file
+    assert [v["status"] for v in view[2:]] == ["not_covered", "unverified", "unverified"]
+    assert "answer" not in view[3] and "quote" not in view[3] and view[3]["retried"] is True  # unchecked text isn't shown
+
+
+@pytest.mark.asyncio
+async def test_a_checked_answer_comes_with_its_verification(scripted):
+    scripted.when(r"Question: How many hours can I work during my winter break", {
+        "answer": "You can work unlimited hours during scheduled breaks.", "source_number": 1,
+        "evidence_quote": "you can work unlimited hours off campus"})
+    result, trace = await run("How many hours can I work during my winter break?", "verified")
+    assert result["verification"] == [{
+        "part": "How many hours can I work during my winter break?", "retried": False, "status": "verified",
+        "answer": "You can work unlimited hours during scheduled breaks.", "quote": "you can work unlimited hours off campus",
+        "source": {"title": "Work", "url": "https://www.canada.ca/work.html", "number": 1}}]
+    assert "verification" not in result["metrics"] and "winter break" not in str(trace.steps)  # shown, never stored
+
+
+@pytest.mark.asyncio
+async def test_a_written_answer_has_no_verification(scripted):
+    result, _ = await run("How many hours can I work during my winter break?", "fast")
+    assert "verification" not in result
+    scripted.when(r"Question: How many hours can I work during my winter break", "not json")  # unreadable: written as before
+    result, _ = await run("How many hours can I work during my winter break?", "verified")
+    assert "verification" not in result

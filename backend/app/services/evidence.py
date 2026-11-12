@@ -172,6 +172,36 @@ def source_texts(rule_facts: Optional[str], chunks: List[Dict[str, Any]]) -> Dic
     return texts
 
 
+def verification(results: List[PartResult], citations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    What the chat shows under a checked answer (M6.2): for each part its status, and for a verified one the answer,
+    the quote and the page it was checked against. status: verified | partially_verified | not_covered | unverified
+    (an unreadable part counts as unverified). The page comes from the citation whose numbers hold the part's
+    [Source N]; the rules file is source 0. Sent with the answer, never stored in traces or message metadata: the
+    parts are the asker's own words.
+    """
+    by_number = {n: c for c in citations or [] for n in c.get("numbers") or [c.get("number")] if n is not None}
+    view = []
+    for result in results:
+        item: Dict[str, Any] = {"part": result.part, "retried": result.retried}
+        if result.status == "verified":
+            item["status"] = "partially_verified" if result.partial else "verified"
+            item["answer"] = _CITATION.sub("", result.answer).strip()
+            quote = result.quote.strip(' "')
+            if quote:
+                item["quote"] = quote
+            if result.source_number == RULES_SOURCE:
+                item["source"] = {"title": "Official rules (figures reviewed against canada.ca)", "url": None}
+            elif result.source_number in by_number:
+                page = by_number[result.source_number]
+                item["source"] = {"title": page.get("title") or "Official page", "url": page.get("url"),
+                                  "number": result.source_number}
+        else:
+            item["status"] = "not_covered" if result.status == "not_covered" else "unverified"
+        view.append(item)
+    return view
+
+
 def compose(results: List[PartResult]) -> str:
     """The answer from checked parts only: each verified part with its citation and its quote; the others say so."""
     lines = []

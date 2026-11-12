@@ -23,6 +23,72 @@ interface Message {
     status?: "running" | "done" | "error" | "cancelled";
     awaitingReply?: boolean;    // M5.4: a clarifying question; the next message answers it
     trail?: { id: string; label: string }[];  // M6.1: what each finished step did ("how this answer was made")
+    verification?: CheckedPart[];  // M6.2: what the check found for each part of the question
+}
+
+/** One part of the question after the evidence check (backend: evidence.verification). */
+interface CheckedPart {
+    part: string;
+    status: "verified" | "partially_verified" | "not_covered" | "unverified";
+    answer?: string;
+    quote?: string;
+    retried?: boolean;
+    source?: { title: string; url: string | null; number?: number };
+}
+
+const UNCHECKED_TEXT: Record<string, string> = {
+    not_covered: "The official sources I have don't cover this.",
+    unverified: "I couldn't check an answer to this against the official sources.",
+};
+
+/** M6.2: a badge per checked part with its source, and a separate list of what couldn't be verified. */
+function VerificationPanel({ parts }: { parts: CheckedPart[] }) {
+    const checked = parts.filter(p => p.status === "verified" || p.status === "partially_verified");
+    const unchecked = parts.filter(p => p.status === "not_covered" || p.status === "unverified");
+    return (
+        <div data-testid="verification" className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3 text-xs">
+            {checked.length > 0 && (
+                <div className="space-y-2">
+                    <p className="font-bold text-[10px] uppercase tracking-widest text-slate-400">Checked against official sources</p>
+                    {checked.map((p, n) => (
+                        <div key={n} data-testid="checked-part" className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold border ${p.status === "verified"
+                                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
+                                    : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20"}`}>
+                                    <ShieldCheck className="h-3 w-3" />
+                                    {p.status === "verified" ? "Verified" : "Partially verified"}
+                                </span>
+                                {p.source && (p.source.url ? (
+                                    <a href={p.source.url} target="_blank" rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline">
+                                        <ExternalLink className="h-3 w-3" />{p.source.title}
+                                    </a>
+                                ) : <span className="text-slate-500">{p.source.title}</span>)}
+                                {p.retried && <span className="text-slate-400">found on a second attempt</span>}
+                            </div>
+                            {parts.length > 1 && <p className="text-slate-500">{p.part}</p>}
+                            {p.quote && (
+                                <blockquote className="border-l-2 border-slate-200 dark:border-slate-700 pl-2 italic text-slate-500">
+                                    “{p.quote}”
+                                </blockquote>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+            {unchecked.length > 0 && (
+                <div data-testid="could-not-verify" className="space-y-1">
+                    <p className="font-bold text-[10px] uppercase tracking-widest text-amber-600 dark:text-amber-400">Couldn&apos;t verify</p>
+                    <ul className="space-y-1 text-slate-500">
+                        {unchecked.map((p, n) => (
+                            <li key={n}><span className="text-slate-700 dark:text-slate-300">{p.part}</span> — {UNCHECKED_TEXT[p.status]}</li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
 }
 
 const JOB_PARAM = "job";
@@ -110,6 +176,7 @@ export default function ChatPage() {
                     content: data.full_response || m.content,
                     sources: data.sources || [],
                     metrics: data.metrics || {},
+                    verification: Array.isArray(data.verification) ? data.verification : undefined,
                     streaming: false,
                     progress: undefined,
                     status: "done",
@@ -370,6 +437,10 @@ export default function ChatPage() {
                                         ? "I need this detail to answer. Reply below and I'll continue from here."
                                         : "Answered below."}
                                 </p>
+                            )}
+
+                            {msg.role === "assistant" && !msg.streaming && msg.verification && msg.verification.length > 0 && (
+                                <VerificationPanel parts={msg.verification} />
                             )}
 
                             {msg.role === "assistant" && !msg.streaming && msg.trail && msg.trail.length > 0 && (

@@ -249,6 +249,7 @@ async def _execute_answer_job(job_id: str, user_id: Optional[int], query: str,
                         result["sources"] = event.get("sources", [])
                         result["metrics"] = event.get("metrics", {})
                         result["answer"] = event.get("full_response", result["answer"])
+                        result["verification"] = event.get("verification")  # M6.2: shown, never stored
 
         with activate_trace(trace):
             try:
@@ -267,7 +268,8 @@ async def _execute_answer_job(job_id: str, user_id: Optional[int], query: str,
             await _save_assistant_message(user_id, session_id, query, result["answer"], result["sources"], metrics)
             if metrics.get("agent_pause"):  # M5.4: the agent paused at a question; the user's next message resumes it
                 events.emit("ask", {"question": result["answer"]})
-            events.emit("done", {"full_response": result["answer"], "sources": result["sources"], "metrics": metrics})
+            events.emit("done", {"full_response": result["answer"], "sources": result["sources"], "metrics": metrics,
+                                 **({"verification": result["verification"]} if result.get("verification") else {})})
             final = "done"
         elif outcome == "cancelled":
             trace.finish(answer=result["answer"], status="cancelled")
