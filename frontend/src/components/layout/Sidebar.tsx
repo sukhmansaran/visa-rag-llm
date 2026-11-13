@@ -27,6 +27,8 @@ const navItems = [
 
 // Shown to administrators only; the admin API checks again on every request (M6.5)
 const adminItem = { name: "Admin", href: "/admin", icon: ClipboardCheck };
+// Signed-in users: download or delete their data (M6.6)
+const accountItem = { name: "Account", href: "/account", icon: UserCircle };
 
 export function Sidebar() {
     const pathname = usePathname();
@@ -64,7 +66,7 @@ export function Sidebar() {
             </div>
 
             <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
-                {(user?.is_admin ? [...navItems, adminItem] : navItems).map((item) => {
+                {[...navItems, ...(authed ? [accountItem] : []), ...(user?.is_admin ? [adminItem] : [])].map((item) => {
                     const isActive = pathname === item.href;
                     return (
                         <Link
@@ -113,6 +115,10 @@ export function Sidebar() {
                         Sign In
                     </Link>
                 )}
+                <div className="flex gap-3 px-3 text-[10px] text-slate-500">
+                    <Link href="/privacy" className="hover:text-slate-300">Privacy</Link>
+                    <Link href="/terms" className="hover:text-slate-300">Terms</Link>
+                </div>
             </div>
         </div>
     );

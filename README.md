@@ -86,6 +86,7 @@ Modules in [`services/crawler/`](backend/app/services/crawler/): `frontier`, `ro
 |---|---|
 | Chat, Visa risk, Onboarding, Login, Signup | Connected to the backend |
 | Dashboard, Applications, SOP writer | Connected to the backend: they show the signed-in user's own data |
+| Account, Privacy, Terms | Download or delete your own data (password and the word DELETE required); what is stored and for how long; information, not legal advice |
 | Admin (administrators only) | Review queue for pages the agent fetched (diff, approve, reject) and a read-only view of request traces |
 
 ---
