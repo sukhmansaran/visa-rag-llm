@@ -23,8 +23,13 @@ from app.services import policy_watch  # noqa: E402
 
 
 async def run(args) -> int:
-    async with AsyncSessionLocal() as db:
-        report = await policy_watch.sweep(db, limit=args.limit, use_model=not args.no_model)
+    from app.services.answer_jobs import close_redis
+
+    try:
+        async with AsyncSessionLocal() as db:
+            report = await policy_watch.sweep(db, limit=args.limit, use_model=not args.no_model)
+    finally:
+        await close_redis()  # the fetch cache's connection belongs to this event loop; close it before the loop ends
     print(f"{report['pages']} registry pages: {report['fetched']} fetched, {len(report['failed'])} failed, "
           f"{len(report['analysed'])} change(s) analysed.")
     for failure in report["failed"]:

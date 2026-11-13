@@ -53,6 +53,10 @@ async def run(args) -> int:
         except review_queue.ReviewError as e:
             print(f"Refused: {e}")
             return 1
+        finally:
+            from app.services.answer_jobs import close_redis
+
+            await close_redis()  # rejecting drops the cached copy through a connection bound to this event loop
     return 0
 
 
