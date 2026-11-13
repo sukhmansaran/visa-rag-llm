@@ -25,9 +25,11 @@ beat_schedule = {
         'schedule': crontab(minute=0, hour=3, day_of_week=0),  # Sunday at 3 AM
     },
     
-    # Check for changes in all sources daily
-    'detect-changes-all-sources': {
-        'task': 'app.workers.periodic_tasks.detect_changes_all_sources_task',
+    # Policy watch (M7): fetch every registry page daily; a changed page waits in the review queue with an
+    # analysis. Replaces the schedule of detect_changes_all_sources_task, which stored unreviewed page versions
+    # and sent users a free-text model summary of them (the task still exists, unscheduled).
+    'policy-watch': {
+        'task': 'app.workers.periodic_tasks.policy_watch_task',
         'schedule': crontab(minute=0, hour=4),  # Daily at 4 AM
     },
     

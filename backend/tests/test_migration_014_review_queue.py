@@ -15,6 +15,7 @@ import test_migration_010_disposable as m010
 
 COLUMNS = {"id", "source_id", "url", "final_url", "title", "text", "chars", "content_hash", "status", "outcome",
            "fetched_at", "reviewed_at", "reviewed_by", "created_at"}
+M7_COLUMNS = {"origin", "analysis"}  # migration 015
 
 
 def _revision(engine) -> str:
@@ -70,8 +71,14 @@ class TestMigration014ReviewQueue(unittest.TestCase):
         insp = inspect(self.engine)
         self.assertEqual({c["name"] for c in insp.get_columns("fetched_page_reviews")}, COLUMNS)
 
+        command.upgrade(self.cfg, "015")  # M7: origin + analysis; then the table is what the model describes
         from app.models.fetched_page import FetchedPageReview
-        self.assertEqual(set(FetchedPageReview.__table__.columns.keys()), COLUMNS)
+        insp = inspect(self.engine)
+        self.assertEqual({c["name"] for c in insp.get_columns("fetched_page_reviews")}, COLUMNS | M7_COLUMNS)
+        self.assertEqual(set(FetchedPageReview.__table__.columns.keys()), COLUMNS | M7_COLUMNS)
+        command.downgrade(self.cfg, "014")
+        insp = inspect(self.engine)
+        self.assertEqual({c["name"] for c in insp.get_columns("fetched_page_reviews")}, COLUMNS)
 
         indexes = {i["name"] for i in insp.get_indexes("fetched_page_reviews")}
         for name in ("ix_fetched_page_reviews_source_id", "ix_fetched_page_reviews_content_hash",

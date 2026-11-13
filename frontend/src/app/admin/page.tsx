@@ -17,11 +17,28 @@ interface ReviewItem {
     chars: number;
     status: string;
     outcome: string | null;
+    origin?: string;      // agent_fetch (an answer needed the page) | policy_watch (the daily check, M7)
+    analysed?: boolean;
     fetched_at: string;
     reviewed_at: string | null;
 }
 
+// M7.2: what changed, worked out by code; the summary is the model's only when code found its numbers in the diff
+interface ChangeAnalysis {
+    lines_removed: number;
+    lines_added: number;
+    numbers_removed: string[];
+    numbers_added: string[];
+    rules: { key: string; value: string; sourced_from_this_page: boolean }[];
+    chunks: number[];
+    summary: string;
+    summary_by: "model" | "code";
+    kind: string;
+    first_version: boolean;
+}
+
 interface ReviewDetail extends ReviewItem {
+    analysis: ChangeAnalysis | null;
     text: string;
     stored_text: string;
     stored_scraped_at: string | null;
@@ -199,6 +216,10 @@ function ReviewQueue({ fail, clearError }: { fail: (e: any, fallback: string) =>
                             <p className="text-sm font-bold">{item.source_name ?? item.title}</p>
                             <p className="text-xs text-slate-500 break-all">{item.url}</p>
                             {item.outcome && <p className="text-xs text-slate-400">{item.outcome}</p>}
+                            <p className="text-[10px] text-slate-400 uppercase font-bold">
+                                {item.origin === "policy_watch" ? "Found by the daily page check" : "Fetched for an answer"}
+                                {item.status === "pending" && !item.analysed ? " · not analysed yet" : ""}
+                            </p>
                         </div>
                         <p className="text-xs text-slate-500 text-right">Fetched {formatDate(item.fetched_at)}<br />{item.chars.toLocaleString()} characters</p>
                     </button>
@@ -228,6 +249,8 @@ function ReviewQueue({ fail, clearError }: { fail: (e: any, fallback: string) =>
                             </div>
                         )}
                     </div>
+
+                    {open.analysis && <AnalysisPanel analysis={open.analysis} />}
 
                     {open.status !== "pending" ? (
                         <p className="text-sm text-slate-500">This item was {open.status}{open.reviewed_at ? ` on ${formatDate(open.reviewed_at)}` : ""}; its fetched text is no longer kept here.</p>
@@ -262,6 +285,54 @@ function ReviewQueue({ fail, clearError }: { fail: (e: any, fallback: string) =>
                     )}
                 </section>
             )}
+        </div>
+    );
+}
+
+function AnalysisPanel({ analysis }: { analysis: ChangeAnalysis }) {
+    return (
+        <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-3 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold uppercase text-blue-900">What changed</span>
+                <span className="px-2 py-0.5 rounded bg-white text-[10px] font-bold uppercase text-blue-700">{analysis.kind}</span>
+                <span className="text-[10px] text-blue-700">
+                    {analysis.summary_by === "model" ? "Summary by the model; its numbers were checked against the diff" : "Summary by code"}
+                </span>
+            </div>
+            <p className="text-slate-800">{analysis.summary}</p>
+            {analysis.first_version && <p className="text-xs text-slate-600">There is no stored copy of this page yet; approving would add it.</p>}
+            <dl className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-700">
+                <div>
+                    <dt className="font-bold">Figures no longer on the page</dt>
+                    <dd>{analysis.numbers_removed.join(", ") || "None"}</dd>
+                </div>
+                <div>
+                    <dt className="font-bold">New figures</dt>
+                    <dd>{analysis.numbers_added.join(", ") || "None"}</dd>
+                </div>
+                <div className="md:col-span-2">
+                    <dt className="font-bold">Rules to check in ircc_rules.yaml</dt>
+                    <dd>
+                        {analysis.rules.length === 0 ? "None of the rule figures left this page." : (
+                            <ul className="list-disc pl-5 space-y-0.5">
+                                {analysis.rules.map((rule) => (
+                                    <li key={rule.key}>
+                                        <code>{rule.key}</code> = {rule.value}
+                                        {!rule.sourced_from_this_page && " (the rule cites another page)"}
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </dd>
+                </div>
+                <div className="md:col-span-2">
+                    <dt className="font-bold">Stored passages that contain removed text</dt>
+                    <dd>{analysis.chunks.length ? `${analysis.chunks.length} (passage numbers ${analysis.chunks.join(", ")})` : "None"}</dd>
+                </div>
+            </dl>
+            <p className="text-[11px] text-slate-500">
+                Approving replaces the stored copy of the page. It never edits the rules file: update a listed rule yourself if the page confirms a new figure.
+            </p>
         </div>
     );
 }

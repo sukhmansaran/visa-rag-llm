@@ -67,7 +67,7 @@ async def stored_document(db: AsyncSession, source_id: int) -> Optional[Document
 # ---------------------------------------------------------------- queue
 
 async def enqueue(db: AsyncSession, url: str, final_url: str, title: str, text: str,
-                  fetched_at: Optional[datetime] = None) -> str:
+                  fetched_at: Optional[datetime] = None, origin: str = "agent_fetch") -> str:
     """Queue a fetched page. Returns what happened: queued | replaced | unchanged | seen | no_source | empty."""
     text = text[:MAX_QUEUED_CHARS]
     if not text.strip():
@@ -86,7 +86,8 @@ async def enqueue(db: AsyncSession, url: str, final_url: str, title: str, text: 
     pending = (await db.execute(select(FetchedPageReview).where(
         FetchedPageReview.source_id == source.id, FetchedPageReview.status == "pending"))).scalar_one_or_none()
     values = dict(url=url, final_url=final_url, title=title[:300], text=text, chars=len(text), content_hash=digest,
-                  fetched_at=fetched_at or datetime.utcnow())
+                  fetched_at=fetched_at or datetime.utcnow(), origin=origin,
+                  analysis=None)  # an analysis (M7.2) describes one text; new text, new analysis
     if same is not None:
         # The page went back to a version approved earlier and replaced since: that item waits for review again
         if pending is not None:
@@ -111,7 +112,7 @@ async def enqueue(db: AsyncSession, url: str, final_url: str, title: str, text: 
     return outcome
 
 
-async def queue_fetched(page: Any, full_text: str) -> Optional[str]:
+async def queue_fetched(page: Any, full_text: str, origin: str = "agent_fetch") -> Optional[str]:
     """Called by live_fetch after a network fetch. Never raises."""
     try:
         factory = _sessions()
@@ -119,7 +120,7 @@ async def queue_fetched(page: Any, full_text: str) -> Optional[str]:
             return None
         async with factory() as db:
             fetched_at = datetime.fromisoformat(page.fetched_at) if page.fetched_at else None
-            outcome = await enqueue(db, page.url, page.final_url, page.title, full_text, fetched_at)
+            outcome = await enqueue(db, page.url, page.final_url, page.title, full_text, fetched_at, origin)
         if outcome in ("queued", "replaced"):
             logger.info("[REVIEW QUEUE] %s: %s", outcome, page.url)
         return outcome
@@ -133,7 +134,8 @@ async def queue_fetched(page: Any, full_text: str) -> Optional[str]:
 def summary(item: FetchedPageReview, source_name: Optional[str] = None) -> Dict[str, Any]:
     return {"id": item.id, "source_id": item.source_id, "source_name": source_name, "url": item.url,
             "final_url": item.final_url, "title": item.title, "chars": item.chars, "status": item.status,
-            "outcome": item.outcome, "fetched_at": item.fetched_at.isoformat(),
+            "outcome": item.outcome, "origin": item.origin, "analysed": item.analysis is not None,
+            "fetched_at": item.fetched_at.isoformat(),
             "reviewed_at": item.reviewed_at.isoformat() if item.reviewed_at else None,
             "reviewed_by": item.reviewed_by}
 
@@ -169,6 +171,7 @@ async def detail(db: AsyncSession, item_id: int) -> Dict[str, Any]:
     stored_text = stored.extracted_text if stored else ""
     return {**summary(item, source.name if source else None),
             "text": item.text,
+            "analysis": item.analysis,
             "stored_text": stored_text if item.status == "pending" else "",
             "stored_scraped_at": stored.scraped_at.isoformat() if stored else None,
             "diff": diff_lines(stored_text, item.text) if item.status == "pending" else []}

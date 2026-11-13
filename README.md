@@ -103,7 +103,7 @@ Modules in [`services/crawler/`](backend/app/services/crawler/): `frontier`, `ro
 │   │   ├── services/        # rag_pipeline, retrieval, rule_engine, llm, vector_store,
 │   │   │                    # guardrails/, crawler/, ingestion/
 │   │   └── workers/         # Celery app, tasks and schedules
-│   ├── alembic/             # Migrations 001–014
+│   ├── alembic/             # Migrations 001–015
 │   ├── scripts/             # Source seeding, RAG evaluation, Celery start scripts
 │   └── tests/               # pytest suite
 ├── frontend/

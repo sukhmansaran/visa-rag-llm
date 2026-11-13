@@ -108,8 +108,9 @@ async def _get_html(client: httpx.AsyncClient, url: str) -> httpx.Response:
         return response
 
 
-async def fetch(url: str, client: Optional[httpx.AsyncClient] = None) -> FetchedPage:
-    """The current main text of a registry page. Raises LiveFetchError when it can't be fetched safely."""
+async def fetch(url: str, client: Optional[httpx.AsyncClient] = None, origin: str = "agent_fetch") -> FetchedPage:
+    """The current main text of a registry page. Raises LiveFetchError when it can't be fetched safely.
+    `origin` only labels the review item if the page turns out to differ: an answer's fetch or the policy watch."""
     from app.services.crawler.safe_http import BlockedDestinationError, pinned_client
     from app.services.crawler.ssrf_validator import is_safe_url
     from app.services.source_registry import _robots_allows, load_registry, looks_like_error_page
@@ -158,7 +159,7 @@ async def fetch(url: str, client: Optional[httpx.AsyncClient] = None) -> Fetched
     # from here. The whole main text is queued, not the part cut for the answer.
     from app.services import review_queue
 
-    await review_queue.queue_fetched(page, full_text)
+    await review_queue.queue_fetched(page, full_text, origin)
     return page
 
 
