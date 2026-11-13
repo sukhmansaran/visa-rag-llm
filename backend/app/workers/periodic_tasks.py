@@ -213,6 +213,18 @@ def purge_agent_checkpoints_task():
 
 
 @celery_app.task
+def policy_watch_task():
+    """Policy watch (M7): fetch every registry page, queue the changed ones for review with an analysis."""
+    from app.services import policy_watch
+
+    async def run():
+        async with AsyncSessionLocal() as db:
+            return await policy_watch.sweep(db)
+
+    return run_async(run())
+
+
+@celery_app.task
 def purge_old_traces_task():
     """Delete request traces older than TRACE_RETENTION_DAYS (M0.5, retention decision D7)."""
     from app.services.tracing import purge_old_traces

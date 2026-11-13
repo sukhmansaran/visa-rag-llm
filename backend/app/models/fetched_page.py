@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 
-from sqlalchemy import Column, ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, ForeignKey, Integer, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -26,6 +26,9 @@ class FetchedPageReview(SQLModel, table=True):
     content_hash: str = Field(max_length=64, index=True)
 
     status: str = Field(default="pending", max_length=20, index=True)  # pending | approved | rejected
+    origin: str = Field(default="agent_fetch", max_length=20)          # agent_fetch (an answer) | policy_watch (M7)
+    # M7.2: what changed, worked out by code, plus a checked one- or two-sentence summary (policy_watch.analyse)
+    analysis: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON(none_as_null=True), nullable=True))
     outcome: Optional[str] = Field(default=None, max_length=500)       # what approving did, e.g. "12 chunks"
     fetched_at: datetime = Field(default_factory=datetime.utcnow)
     reviewed_at: Optional[datetime] = Field(default=None)
