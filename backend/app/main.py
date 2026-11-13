@@ -16,7 +16,7 @@ from app.api.v1 import (
     auth, health, chat, ingest, profile, documents, 
     watchlist_api, notifications, payments, reviews, devices, files,
     tourist_visa, travel, travel_costs, travel_packages, tour_packages,
-    applications, visa_risk, subscription, crawler, admin_traces, admin_review, chat_jobs
+    applications, visa_risk, subscription, crawler, admin_traces, admin_review, chat_jobs, account
 )
 
 # Setup logging
@@ -86,6 +86,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router, prefix=settings.API_V1_PREFIX)
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
+app.include_router(account.router, prefix=settings.API_V1_PREFIX)  # M6.6: export and delete your own account
 app.include_router(chat.router, prefix=settings.API_V1_PREFIX)
 app.include_router(ingest.router, prefix=settings.API_V1_PREFIX)
 app.include_router(profile.router, prefix=settings.API_V1_PREFIX)

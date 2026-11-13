@@ -72,6 +72,10 @@ export default function LandingPage() {
             <footer className="w-full py-6 border-t border-slate-100 dark:border-slate-800">
                 <div className="container px-4 md:px-6 mx-auto flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-slate-500">
                     <p>Pendu. Information only, not legal advice; for your case, consult a licensed RCIC or lawyer.</p>
+                    <div className="flex gap-4">
+                        <Link href="/privacy" className="hover:underline">Privacy</Link>
+                        <Link href="/terms" className="hover:underline">Terms</Link>
+                    </div>
                 </div>
             </footer>
         </div>

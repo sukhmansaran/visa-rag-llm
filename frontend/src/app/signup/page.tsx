@@ -126,6 +126,13 @@ function SignupPageForm() {
                     </button>
                 </form>
 
+                <p className="text-center text-[11px] text-slate-500">
+                    By signing up you agree to the{" "}
+                    <Link href="/terms" className="text-blue-400 hover:underline">terms of use</Link> and have read the{" "}
+                    <Link href="/privacy" className="text-blue-400 hover:underline">privacy page</Link>. Pendu gives
+                    information, not legal advice.
+                </p>
+
                 <div className="text-center text-xs text-slate-400">
                     Already have an account?{" "}
                     <Link
