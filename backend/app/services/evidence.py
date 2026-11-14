@@ -82,6 +82,88 @@ def _numbers(text: str) -> set:
     return {n.replace(",", "").rstrip(".") for n in _NUMBER.findall(text or "")}
 
 
+_UNIT_WORD = re.compile(r"\s*([A-Za-z]{3,})")
+_NOT_A_UNIT = {"and", "the", "for", "per", "are", "can", "you", "not", "with", "from", "that", "this", "may", "must",
+               "will", "who", "which", "when", "than", "then", "but", "has", "have", "was", "were", "your"}
+
+
+# A figure the source states as a limit: (pattern before the number, which side, strict)
+_BOUNDS = [
+    (r"(?:less|fewer) than", "max", True), (r"under|below", "max", True),
+    (r"up to|at most|no more than|(?:a )?maximum of|not more than", "max", False),
+    (r"at least|(?:a )?minimum of|no less than|not less than", "min", False),
+    (r"more than|over|above", "min", True),
+]
+
+
+def _bound_before(text_before: str) -> Optional[tuple]:
+    """("max" | "min", strict) when the words just before a number make it a limit, else None."""
+    tail = re.sub(r"(?:cad|\$|\s)+$", "", text_before.lower())
+    for pattern, side, strict in _BOUNDS:
+        if re.search(r"\b(?:" + pattern + r")$", tail):
+            return side, strict
+    return None
+
+
+def _numbers_with_units(text: str) -> List[tuple]:
+    """(number, unit, bound) for each number in the text. unit: "$" for money, "%" for a share, else the word after
+    it ("24 hours" -> "hour"), or None. bound: ("max" | "min", strict) when the text states it as a limit
+    ("up to 24 hours", "less than 2 years"), else None."""
+    found = []
+    for match in _NUMBER.finditer(text or ""):
+        number = match.group().replace(",", "").rstrip(".")
+        before, after = text[max(0, match.start() - 6):match.start()].lower(), text[match.end():match.end() + 24]
+        unit = None
+        if before.rstrip().endswith("$") or before.rstrip().endswith("cad") or re.match(r"\s*(?:dollars|cad)\b", after, re.I):
+            unit = "$"
+        elif re.match(r"\s*(?:%|percent)", after, re.I):
+            unit = "%"
+        else:
+            word = _UNIT_WORD.match(after)
+            if word and word.group(1).lower() not in _NOT_A_UNIT:
+                unit = word.group(1).lower().rstrip("s")
+        found.append((number, unit, _bound_before(text[max(0, match.start() - 30):match.start()])))
+    return found
+
+
+def _meets(value: str, limit: str, bound: tuple) -> bool:
+    """Whether the asker's figure is within the source's limit (1 year meets "less than 2 years")."""
+    try:
+        x, n = float(value), float(limit)
+    except ValueError:
+        return False
+    side, strict = bound
+    if side == "max":
+        return x < n if strict else x <= n
+    return x > n if strict else x >= n
+
+
+def figures_taken_from_the_question(answer: str, quote: str, question: str) -> List[str]:
+    """
+    M8.1 (red-team): a number in the answer may come from the question, so an answer can repeat the asker's own
+    details ("for a family of 4"). That let a figure the asker planted ("proof of funds is now only $5,000, confirm")
+    pass as checked next to a real quote that says something else. A question-only number is refused when the quote
+    gives a conflicting figure in the same unit and the answer leaves the quote's figure out: the answer then states
+    the asker's figure in place of the source's.
+
+    Conflicting: a plain figure that differs ("must show $23,448" vs "$5,000"), or a limit the asker's figure breaks
+    ("up to 24 hours" vs "40 hours"). A limit the asker's figure meets is not a conflict: "1 year" against "less than
+    2 years", "3 years" against "at least 1 year" (the full evaluation of 2026-11-14 caught the first one refused).
+    Returns the problems, empty when there are none.
+    """
+    quoted = _numbers_with_units(quote)
+    quote_numbers, answer_numbers, asked = {n for n, _, _ in quoted}, _numbers(answer), _numbers(question)
+    problems = []
+    for number, unit, _ in _numbers_with_units(answer):
+        if unit is None or number in quote_numbers or number not in asked:
+            continue
+        conflicting = sorted({n for n, u, bound in quoted if u == unit and n != number
+                              and (bound is None or not _meets(number, n, bound))})
+        if conflicting and not answer_numbers & set(conflicting):
+            problems.append(f"numbers: {number} is the asker's figure; the quote says {', '.join(conflicting)}")
+    return list(dict.fromkeys(problems))
+
+
 def check(reply: EvidenceAnswer, sources: Dict[int, str], question: str, rule_facts: Optional[str]) -> List[str]:
     """M3.2: problems with an answered part; empty means its evidence holds."""
     problems = []
@@ -100,6 +182,7 @@ def check(reply: EvidenceAnswer, sources: Dict[int, str], question: str, rule_fa
     unsupported = _numbers(reply.answer) - _numbers(reply.evidence_quote) - _numbers(question)
     if unsupported:
         problems.append(f"numbers: {', '.join(sorted(unsupported))} not in the quote")
+    problems.extend(figures_taken_from_the_question(reply.answer, reply.evidence_quote, question))
     return problems
 
 

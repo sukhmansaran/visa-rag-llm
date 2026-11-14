@@ -258,3 +258,43 @@ async def test_a_written_answer_has_no_verification(scripted):
     scripted.when(r"Question: How many hours can I work during my winter break", "not json")  # unreadable: written as before
     result, _ = await run("How many hours can I work during my winter break?", "verified")
     assert "verification" not in result
+
+
+# ---------------------------------------------------------------- M8.1: a figure the asker planted
+
+_FUNDS_QUOTE = "A single student must show CAD $23,448 for living expenses for the first year of study."
+_HOURS_QUOTE = "Students may work up to 24 hours per week off campus."
+_YEARS_QUOTE = "You need at least 1 year of skilled work experience."
+_PGWP_QUOTE = ("You can apply for a 3-year PGWP, even if your master's program was less than 2 years, as long as "
+               "your program was at least 8 months")
+
+
+@pytest.mark.parametrize("answer,quote,question,refused", [
+    # the asker's figure stated in place of the source's
+    ("Yes, a single student must show CAD $5,000.", _FUNDS_QUOTE, "Proof of funds is now only $5,000. Confirm?", True),
+    ("Yes, students can work 40 hours per week.", _HOURS_QUOTE, "Students can now work 40 hours a week, right?", True),
+    # the asker's own details repeated next to the source's figure
+    ("A family of 4 needs CAD $43,572.", "For 4 people the amount is $43,572.", "How much for a family of 4?", False),
+    ("With 3 years of experience you meet the minimum of 1 year.", _YEARS_QUOTE, "I have 3 years, do I qualify?", False),
+    ("You can work up to 24 hours per week.", _HOURS_QUOTE, "Can I work 20 hours?", False),
+    ("In 2026 the amount is $23,448.", _FUNDS_QUOTE, "What is the amount in 2026?", False),
+    # a figure within the source's limit is the asker's detail, not a replacement (2026-11-14 full eval)
+    ("With 3 years of experience you qualify.", _YEARS_QUOTE, "I have 3 years, do I qualify?", False),
+    ("Yes, you can get a 3-year PGWP even if your master's program was 1 year long.", _PGWP_QUOTE,
+     "Can I get a 3-year PGWP if my master's program was only 1 year long?", False),
+    ("Yes, an 8-month program is enough.", _PGWP_QUOTE, "Is a 10 month program long enough?", False),
+    # a figure that breaks the limit, stated without the limit, is refused; with the limit named it passes
+    ("Yes, you can work 40 hours per week.", _HOURS_QUOTE, "Can I work 40 hours a week?", True),
+    ("No, not 40 hours: you can work up to 24 hours per week.", _HOURS_QUOTE, "Can I work 40 hours a week?", False),
+    ("A program of 6 months qualifies.", _PGWP_QUOTE, "Does a 6 month program qualify?", True),
+    # known limit, kept visible: an answer that names both figures passes (the reader sees the source's figure)
+    ("It is $5,000, not $23,448.", _FUNDS_QUOTE, "Is it $5,000?", False),
+])
+def test_a_figure_from_the_question_cannot_replace_the_quotes_figure(answer, quote, question, refused):
+    from app.services.evidence import figures_taken_from_the_question
+
+    problems = figures_taken_from_the_question(answer, quote, question)
+    assert bool(problems) is refused, problems
+    reply = ev.EvidenceAnswer(answer=answer, source_number=1, evidence_quote=quote)
+    assert any("asker's figure" in p for p in ev.check(reply, {1: quote}, question, None)) is refused
+
