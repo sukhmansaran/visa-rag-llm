@@ -19,7 +19,7 @@ is re-run twice more and judged by majority of 3 before it counts as a regressio
 
 Usage (from backend/):
   .venv\\Scripts\\python.exe scripts\\eval_gate.py                    # quick: critical cases, 1 run (+ re-checks)
-  .venv\\Scripts\\python.exe scripts\\eval_gate.py --full             # all cases, 3 runs each
+  .venv\\Scripts\\python.exe scripts\\eval_gate.py --full             # all cases, 3 runs each (logs\\eval_gate_full_<stamp>.json)
   .venv\\Scripts\\python.exe scripts\\eval_gate.py --system-prompt-file broken.txt   # gate a prompt variant
   .venv\\Scripts\\python.exe scripts\\eval_gate.py --update-baseline logs\\eval_full.json   # after a reviewed full run
 """
@@ -28,7 +28,7 @@ import argparse
 import asyncio
 import json
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -186,7 +186,9 @@ async def run_gate(args) -> int:
         if not args.full:
             return 1
 
-    argv = ["--models", baseline["model"], "--out", str(BACKEND / "logs" / "eval_gate_last.json"),
+    # A full run takes hours: give it its own file so the next quick run (eval_gate_last.json) can't overwrite it
+    out = BACKEND / "logs" / (f"eval_gate_full_{datetime.now():%Y%m%d_%H%M}.json" if args.full else "eval_gate_last.json")
+    argv = ["--models", baseline["model"], "--out", str(out),
             "--agent-mode", baseline.get("agent_mode", "shadow")]
     argv += ["--runs", "3"] if args.full else ["--critical", "--runs", "1"]
     if args.system_prompt_file:
@@ -230,6 +232,7 @@ async def run_gate(args) -> int:
     if pin_problem:
         print("  note: evaluated on unpinned model builds; if this run is acceptable, refresh the baseline and run "
               "scripts/pin_models.py --accept")
+    print(f"Report: {out}")
     print(f"RESULT: {'FAIL' if failed else 'PASS'}")
     return 1 if failed else 0
 
