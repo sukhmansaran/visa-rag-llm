@@ -331,9 +331,9 @@
       "must_include": [
         [
           "\\bno\\b",
-          "can.?t work before",
-          "cannot work before",
-          "not (allowed|permitted|able) to work before",
+          "can.?t (start )?work(ing)?( off[- ]campus)? (before|until)",
+          "cannot (start )?work(ing)?( off[- ]campus)? (before|until)",
+          "not (allowed|permitted|able) to (start )?work(ing)?( off[- ]campus)? (before|until)",
           "only (after|once)"
         ]
       ],

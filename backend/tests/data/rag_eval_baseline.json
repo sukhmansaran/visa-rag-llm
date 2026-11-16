@@ -1,8 +1,8 @@
 {
-  "created": "2026-10-27",
+  "created": "2026-11-16",
   "model": "llama3.2:3b",
   "model_digest": "a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72",
-  "prompt_version": "grounded_answer@1:4485f8e2c0ac",
+  "prompt_version": "grounded_answer@3:9227d8e5157e",
   "rules_version": "9b78359a6fc4",
   "agent_mode": "on",
   "eval_set_version": 2,
@@ -10,21 +10,22 @@
   "summary": {
     "model": "llama3.2:3b",
     "mode": "current_agent",
+    "agent_mode": "on",
     "eval_set_version": 2,
     "cases": 68,
     "runs": 3,
     "prompts": {
-      "grounded_answer": "grounded_answer@1:4485f8e2c0ac"
+      "grounded_answer": "grounded_answer@3:9227d8e5157e"
     },
-    "passed": 60,
-    "pass_rate": 0.882,
+    "passed": 63,
+    "pass_rate": 0.926,
     "unstable_cases": [
-      "pgwp_short_masters"
+      "unanswerable_vac"
     ],
     "by_type": {
       "distractor": {
         "cases": 5,
-        "passed": 3
+        "passed": 4
       },
       "follow_up": {
         "cases": 7,
@@ -40,7 +41,7 @@
       },
       "multi_part": {
         "cases": 4,
-        "passed": 3
+        "passed": 4
       },
       "sensitive": {
         "cases": 5,
@@ -48,7 +49,7 @@
       },
       "single": {
         "cases": 34,
-        "passed": 31
+        "passed": 32
       },
       "tool_choice": {
         "cases": 1,
@@ -59,19 +60,19 @@
         "passed": 5
       }
     },
-    "coverage_avg": 0.9,
-    "multi_part_coverage": 0.88,
+    "coverage_avg": 0.95,
+    "multi_part_coverage": 1.0,
     "tool_choice_accuracy": 1.0,
     "evidence": {
-      "verified": 45,
+      "verified": 42,
       "not_covered": 21,
-      "unverified": 3,
+      "unverified": 6,
       "invalid": 0,
       "parts": 69,
-      "partially_verified": 10,
+      "partially_verified": 15,
       "schema_valid": 1.0,
-      "unanswerable_runs_with_not_covered": "6/6",
-      "answerable_parts_not_covered": 15
+      "unanswerable_runs_with_not_covered": "3/6",
+      "answerable_parts_not_covered": 18
     },
     "forbidden_hits": 0,
     "answers_with_ungrounded_numbers": 0,
@@ -79,13 +80,12 @@
     "placeholder_citations": 0,
     "evidence_quote_validity": "not applicable until the verifier (M2/M4)",
     "latency_by_path": {
-      "guardrail_refusal": 1.11,
-      "llm_rag": 25.12
+      "guardrail_refusal": 0.81,
+      "llm_rag": 23.54
     },
-    "avg_latency_s": 25.12,
-    "avg_prompt_tokens": 1268.76,
-    "avg_tokens_per_second": 5.28,
-    "agent_mode": "on"
+    "avg_latency_s": 23.54,
+    "avg_prompt_tokens": 1358.54,
+    "avg_tokens_per_second": 5.47
   },
   "cases": {
     "work_term_hours": {
@@ -249,8 +249,8 @@
     "pgwp_short_masters": {
       "type": "single",
       "critical": true,
-      "passed": true,
-      "passes": 2,
+      "passed": false,
+      "passes": 0,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {
@@ -379,8 +379,8 @@
     "work_refused_permit": {
       "type": "single",
       "critical": false,
-      "passed": false,
-      "passes": 0,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -430,8 +430,8 @@
     "pgwp_language_proof": {
       "type": "single",
       "critical": false,
-      "passed": false,
-      "passes": 0,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {
@@ -618,8 +618,8 @@
     "multi_pal_and_pgwp": {
       "type": "multi_part",
       "critical": false,
-      "passed": false,
-      "passes": 0,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {
@@ -648,8 +648,8 @@
     "distractor_40_hours": {
       "type": "distractor",
       "critical": true,
-      "passed": false,
-      "passes": 0,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {
@@ -783,8 +783,8 @@
     "unanswerable_startup_fee": {
       "type": "unanswerable",
       "critical": false,
-      "passed": false,
-      "passes": 0,
+      "passed": true,
+      "passes": 3,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -801,8 +801,8 @@
     "unanswerable_vac": {
       "type": "unanswerable",
       "critical": true,
-      "passed": true,
-      "passes": 3,
+      "passed": false,
+      "passes": 1,
       "runs": 3,
       "ungrounded": false,
       "rules_values": {}
@@ -1039,6 +1039,12 @@
         "distractor_ielts_academic"
       ],
       "correction": "pgwp_second_permit: the 2026-10-26 entry blamed the context budget; on the verified path the sentence is in the model's context (Source 4) and the model still answers 'not covered' (0/3, also with the apostrophe repaired): a model limit"
+    },
+    {
+      "date": "2026-11-16",
+      "baseline": "rebuilt",
+      "agent_mode": "on",
+      "passed": 63
     }
   ]
 }

@@ -173,3 +173,36 @@ def test_evaluation_data_is_well_formed(name):
             assert set(part["topics"]) <= set(TOPICS)
             assert all(fact == fact.lower() and fact in case["question"].lower() for fact in part["facts"])
         assert dec.max_parts(case["question"], detect_topics(case["question"])) == len(case["parts"])
+
+
+# --- M8.5: each part names who it is about -------------------------------------------------------------------
+
+@pytest.mark.parametrize("question, subs, expected", [
+    ("Does a master's student at a public university need a PAL, and how long can their post-graduation work permit be?",
+     ["Does a master's student at a public university need a PAL?", "How long can their post-graduation work permit be?"],
+     ["Does a master's student at a public university need a PAL?",
+      "For a master's student at a public university: How long can their post-graduation work permit be?"]),
+    ("Can my spouse work while I study, and do they need biometrics?",
+     ["Can my spouse work while I study?", "Do they need biometrics?"],
+     ["Can my spouse work while I study?", "For my spouse: Do they need biometrics?"]),
+    # no person named: "they" are the fees, nothing is added
+    ("What are the fees and how long do they take to process?", ["What are the fees?", "How long do they take?"],
+     ["What are the fees?", "How long do they take?"]),
+    # parts in the first person stand alone already
+    ("As a single student, how much money do I need and how many hours can I work?",
+     ["How much money do I need?", "How many hours can I work?"], ["How much money do I need?", "How many hours can I work?"]),
+])
+def test_a_part_that_only_says_their_gets_the_person_named(question, subs, expected):
+    assert dec.name_the_subject(question, subs) == expected
+
+
+@pytest.mark.asyncio
+async def test_the_model_split_is_given_the_person(fake_llm):
+    question = ("Does a master's student at a public university need a PAL, and how long can their "
+                "post-graduation work permit be?")
+    fake_llm.when(r"Topics detected in it", {"sub_questions": [
+        "Does a master's student at a public university need a PAL?",
+        "How long can their post-graduation work permit be?"]})
+    result = await dec.decompose(question)
+    assert result.method == dec.MODEL
+    assert result.sub_questions[1].startswith("For a master's student at a public university:")
