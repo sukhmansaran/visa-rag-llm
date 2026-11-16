@@ -64,8 +64,33 @@ class TestRetrievalService:
         # Verify filters were passed
         call_args = mock_search.call_args
         assert call_args[1]['filters'] == {'country': 'Canada'}
-        assert call_args[1]['top_k'] == 5
-    
+        # a deeper pool, so merged repeats can be refilled (repeated_chunks.py); the answer still gets top_k
+        assert call_args[1]['top_k'] == 5 * 3
+
+    @pytest.mark.asyncio
+    @patch('app.services.retrieval.embed_text')
+    @patch('app.services.retrieval.vector_store.search')
+    async def test_retrieve_returns_top_k_from_the_deeper_pool(self, mock_search, mock_embed):
+        mock_embed.return_value = [0.1] * 1536
+        mock_search.return_value = [
+            {'id': str(i), 'text': f'chunk {i}', 'metadata': {'url': 'https://canada.ca', 'document_id': i},
+             'score': 0.9 - i / 100}
+            for i in range(12)
+        ]
+        results = await retrieval_service.retrieve(query="q", country="Canada", top_k=4)
+        assert [r['id'] for r in results] == ['0', '1', '2', '3']
+
+    @pytest.mark.asyncio
+    @patch('app.services.retrieval.embed_text')
+    @patch('app.services.retrieval.vector_store.search')
+    async def test_merging_repeats_can_be_switched_off(self, mock_search, mock_embed, monkeypatch):
+        from app.core.config import settings
+        monkeypatch.setattr(settings, "RAG_COLLAPSE_REPEATS", False)
+        mock_embed.return_value = [0.1] * 1536
+        mock_search.return_value = []
+        await retrieval_service.retrieve(query="q", country="Canada", top_k=5)
+        assert mock_search.call_args[1]['top_k'] == 5
+
     @pytest.mark.asyncio
     @patch('app.services.retrieval.embed_text')
     @patch('app.services.retrieval.vector_store.search')

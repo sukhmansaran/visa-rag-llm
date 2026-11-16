@@ -9,7 +9,9 @@ import urllib.parse
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
+from app.core.config import settings
 from app.core.exceptions import AIServiceUnavailableError
+from app.services import repeated_chunks
 from app.services.vector_store import vector_store
 from app.services.embeddings import embed_text
 from app.services.source_status import inactive_source_ids
@@ -53,11 +55,14 @@ class RetrievalService:
         # Deactivated sources never reach an answer, even before their chunks are removed (M0.10b)
         excluded = await inactive_source_ids()
 
-        # Retrieve from vector store with strict top_k
+        # A deeper pool when repeated chunks may be merged, so the top_k can be refilled; cut back to top_k below
+        collapse_repeats = settings.RAG_COLLAPSE_REPEATS
+        pool = top_k * repeated_chunks.POOL_FACTOR if collapse_repeats else top_k
+
         results = await vector_store.search(
             query_embedding=query_embedding,
             filters=filters if filters else None,
-            top_k=top_k,
+            top_k=pool,
             exclude_source_ids=excluded,
         )
 
@@ -68,10 +73,14 @@ class RetrievalService:
             results = await vector_store.search(
                 query_embedding=query_embedding,
                 filters={'country': filters['country']},
-                top_k=top_k,
+                top_k=pool,
                 exclude_source_ids=excluded,
             )
-        
+
+        # Similarity order: identical chunks dropped, chunks that repeat each other merged (repeated_chunks.py)
+        if collapse_repeats:
+            results = await repeated_chunks.collapse(results, top_k)
+
         # Rerank results with authority tier, freshness, and intent/visa_type boost
         reranked = self._rerank(
             results=results,

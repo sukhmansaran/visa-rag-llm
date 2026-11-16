@@ -29,7 +29,7 @@ from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
 from app.services.tracing import current_trace, trace_step
-from app.services import verified_cache
+from app.services import amount_guard, verified_cache
 from app.services.decomposition import decompose, needs_split
 from app.services.evidence import PartResult, answer_part, compose, evidence_context, source_texts, verification
 from app.services.iteration import better, refine_query
@@ -577,6 +577,7 @@ class RAGPipeline:
                     answer = await llm_service.generate_answer(**generation_args)
                     answer = normalize_markdown_output(answer)
                     step["chars"] = len(answer)
+                answer = self._guard_amounts(answer, combined_context, query, metrics)
 
             # Output Guardrail & Leakage Shield Validation
             with trace_step("output_guardrail") as step:
@@ -617,11 +618,17 @@ class RAGPipeline:
             checked = verification(results, sources) if evidence_answer is not None and val_res.is_valid else None
             if checked and not any(r.status == "verified" for r in results) and guarantee_fact:
                 checked = None  # the answer is the rule engine's "approval can't be guaranteed", not these parts
-            complete = not (metrics.get("evidence") or {}).get("not_reached")  # M6.3: a partial answer isn't cached
+            evidence_counts = metrics.get("evidence") or {}
+            complete = not evidence_counts.get("not_reached")  # M6.3: a partial answer isn't cached
+            # A part whose quote failed its check is usually a one-off model slip: the next asker gets a fresh attempt
+            checks_held = not (evidence_counts.get("unverified") or evidence_counts.get("invalid"))
             if verified_cache_key and evidence_answer is not None and val_res.is_valid and monitor_ran and complete:
                 with trace_step("verified_cache_store") as step:
-                    step["stored"] = await verified_cache.put(verified_cache_key, answer, sources,
-                                                              metrics.get("evidence") or {}, checked)
+                    if checks_held:
+                        step["stored"] = await verified_cache.put(verified_cache_key, answer, sources,
+                                                                  evidence_counts, checked)
+                    else:
+                        step.update(stored=False, reason="a part failed its check")
 
             yield {"type": "chunk", "content": answer}
             yield {"type": "done", "full_response": answer, "sources": sources, "metrics": finished_metrics(),
@@ -657,6 +664,9 @@ class RAGPipeline:
                 metrics["output_violations"] = stream_violations
             else:
                 metrics["output_guardrail_remediated"] = False
+                # The text already streamed is replaced in the chat by the final answer (the done event's
+                # full_response), which is also what's saved and cached
+                full_response = self._guard_amounts(full_response, combined_context, query, metrics)
 
                 # Legal & High-Risk Disclaimer Evaluation (Milestone 3 - Task 3.3)
                 with trace_step("disclaimer") as step:
@@ -697,6 +707,18 @@ class RAGPipeline:
             "sources": sources,
             "metrics": finished_metrics(),
         }
+
+    @staticmethod
+    def _guard_amounts(answer: str, context: str, query: str, metrics: Dict[str, Any]) -> str:
+        """M8.4: a fast-path answer keeps no money amount the context and question don't state (amount_guard)."""
+        if not settings.AMOUNT_GUARD:
+            return answer
+        with trace_step("amount_guard") as step:
+            answer, removed = amount_guard.check(answer, context, query)
+            step["removed"] = removed
+        if removed:
+            metrics["amounts_removed"] = removed
+        return answer
 
     @staticmethod
     async def _evidence_answers(parts: List[str], rule_facts: Optional[str], chunks: List[Dict[str, Any]],

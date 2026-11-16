@@ -50,7 +50,7 @@ def _normal(question: str) -> str:
 def _settings_version() -> Dict[str, Any]:
     """Settings that change what a verified answer says."""
     return {name: getattr(settings, name) for name in (
-        "RAG_TOP_K", "RAG_CONTEXT_CHARS", "RAG_MULTI_PART_CONTEXT_CHARS", "RAG_TEMPERATURE", "VERIFY_CLAIMS_WITH_MODEL",
+        "RAG_TOP_K", "RAG_CONTEXT_CHARS", "RAG_MULTI_PART_CONTEXT_CHARS", "RAG_COLLAPSE_REPEATS", "RAG_TEMPERATURE", "VERIFY_CLAIMS_WITH_MODEL",
         "VERIFIED_MAX_ROUNDS", "MONITOR_ENABLED", "MONITOR_DENY_CONFIDENCE", "OLLAMA_MODEL", "LLM_MODEL_PLANNER",
         "LLM_MODEL_ANSWER", "LLM_MODEL_VERIFIER", "LLM_MODEL_MONITOR")}
 

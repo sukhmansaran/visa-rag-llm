@@ -237,9 +237,9 @@
       "question": "What minimum language level do I need for a TEER 0 or 1 job under the Federal Skilled Worker Program?",
       "must_include": [
         [
-          "CLB 7",
+          "CLB\\)? 7\\b",
           "CLB level 7",
-          "NCLC 7"
+          "NCLC\\)? 7\\b"
         ]
       ],
       "must_not": [],
@@ -1081,8 +1081,8 @@
       "question": "Do I need language test results for it?",
       "must_include": [
         [
-          "CLB 5",
-          "NCLC 5"
+          "CLB\\)? 5\\b",
+          "NCLC\\)? 5\\b"
         ]
       ],
       "must_not": [],

@@ -106,6 +106,34 @@ async def test_a_partial_answer_is_not_stored_in_the_verified_cache(scripted, mo
     assert len(stored) == 1  # a partial one is not
 
 
+@pytest.mark.asyncio
+async def test_an_answer_with_a_part_that_failed_its_check_is_not_stored(scripted, monkeypatch):
+    """A quote the model got wrong is a one-off failure: the next asker gets a fresh attempt, not the failure."""
+    stored = []
+
+    async def key_for(*_, **__):
+        return "k"
+
+    async def get(_):
+        return None
+
+    async def put(*args, **__):
+        stored.append(args)
+        return True
+
+    monkeypatch.setattr(settings, "VERIFIED_CACHE_ENABLED", True)
+    for name, fn in (("key_for", key_for), ("get", get), ("put", put)):
+        monkeypatch.setattr(verified_cache, name, fn)
+    scripted.when(r"Question: As a single student, how many hours", {
+        "answer": "Up to 24 hours per week.", "source_number": 2,
+        "evidence_quote": "Students may work as many hours as they like."})   # not in the source
+    scripted._rules.insert(0, scripted._rules.pop())   # first matching rule wins: put this one before the good one
+    result, trace = await run()
+    assert result["metrics"]["evidence"]["unverified"] >= 1
+    assert stored == []
+    assert next(s for s in trace.steps if s["name"] == "verified_cache_store")["stored"] is False
+
+
 def test_wording():
     results = [ev.PartResult("A?", "verified", "Yes.", "", 0), ev.PartResult("B?", "not_reached")]
     text = ev.compose(results)

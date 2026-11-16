@@ -63,7 +63,7 @@ async def test_pipeline_steps_and_model_calls_are_recorded(scripted_pipeline):
         result = await rp.rag_pipeline.process_query(QUESTION, db=object())
 
     names = [s["name"] for s in trace.steps]
-    assert names == PIPELINE_STEPS + ["generation", "output_guardrail", "disclaimer"]
+    assert names == PIPELINE_STEPS + ["generation", "amount_guard", "output_guardrail", "disclaimer"]
     assert all(isinstance(s["ms"], float) for s in trace.steps)
     retrieval = next(s for s in trace.steps if s["name"] == "retrieval")
     assert retrieval["chunks"] == [{"url": "https://www.canada.ca/work-off-campus.html", "score": 0.86, "tier": 1}]
@@ -79,7 +79,7 @@ async def test_streaming_pipeline_records_the_same_steps(scripted_pipeline):
     with activate_trace(trace):
         events = [e async for e in rp.rag_pipeline.process_query_stream(QUESTION, db=object())]
     assert events[-1]["type"] == "done"
-    assert [s["name"] for s in trace.steps] == PIPELINE_STEPS + ["generation", "disclaimer"]
+    assert [s["name"] for s in trace.steps] == PIPELINE_STEPS + ["generation", "amount_guard", "disclaimer"]
     assert next(s for s in trace.steps if s["name"] == "generation")["mode"] == "stream"
 
 
