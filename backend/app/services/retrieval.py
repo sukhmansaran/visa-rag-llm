@@ -9,7 +9,9 @@ import urllib.parse
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
+from app.core.config import settings
 from app.core.exceptions import AIServiceUnavailableError
+from app.services import lexical, repeated_chunks
 from app.services.vector_store import vector_store
 from app.services.embeddings import embed_text
 from app.services.source_status import inactive_source_ids
@@ -53,11 +55,15 @@ class RetrievalService:
         # Deactivated sources never reach an answer, even before their chunks are removed (M0.10b)
         excluded = await inactive_source_ids()
 
-        # Retrieve from vector store with strict top_k
+        # A deeper pool when repeated chunks may be merged, so the top_k can be refilled; cut back to top_k below
+        collapse_repeats = settings.RAG_COLLAPSE_REPEATS
+        use_lexical = settings.RAG_LEXICAL_WEIGHT > 0
+        pool = top_k * repeated_chunks.POOL_FACTOR if (collapse_repeats or use_lexical) else top_k
+
         results = await vector_store.search(
             query_embedding=query_embedding,
             filters=filters if filters else None,
-            top_k=top_k,
+            top_k=pool,
             exclude_source_ids=excluded,
         )
 
@@ -68,10 +74,24 @@ class RetrievalService:
             results = await vector_store.search(
                 query_embedding=query_embedding,
                 filters={'country': filters['country']},
-                top_k=top_k,
+                top_k=pool,
                 exclude_source_ids=excluded,
             )
-        
+
+        # M8.5: the question's rare words lift a chunk within the pool (lexical.py); the pool itself doesn't change
+        if use_lexical and results:
+            lexical_scores = lexical.score(query, [r.get("text", "") for r in results],
+                                           await lexical.corpus_frequencies())
+            for result, lex in zip(results, lexical_scores):
+                result["lexical"] = lex
+            results = sorted(results, key=lambda r: r.get("score", 0.0) + settings.RAG_LEXICAL_WEIGHT * r["lexical"],
+                             reverse=True)
+
+        # Similarity order: identical chunks dropped, chunks that repeat each other merged (repeated_chunks.py)
+        if collapse_repeats:
+            results = await repeated_chunks.collapse(results, top_k)
+        results = results[:top_k]
+
         # Rerank results with authority tier, freshness, and intent/visa_type boost
         reranked = self._rerank(
             results=results,

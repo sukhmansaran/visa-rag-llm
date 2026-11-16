@@ -29,7 +29,7 @@ from app.services.guardrails.output_guardrail import output_guardrail
 from app.services.guardrails.legal_disclaimer import legal_disclaimer_engine
 from app.services.tourist_service import get_tourist_context
 from app.services.tracing import current_trace, trace_step
-from app.services import verified_cache
+from app.services import amount_guard, answer_shape, verified_cache
 from app.services.decomposition import decompose, needs_split
 from app.services.evidence import PartResult, answer_part, compose, evidence_context, source_texts, verification
 from app.services.iteration import better, refine_query
@@ -577,6 +577,8 @@ class RAGPipeline:
                     answer = await llm_service.generate_answer(**generation_args)
                     answer = normalize_markdown_output(answer)
                     step["chars"] = len(answer)
+                answer = await self._guard_shape(answer, generation_args, metrics)
+                answer = self._guard_amounts(answer, combined_context, query, metrics)
 
             # Output Guardrail & Leakage Shield Validation
             with trace_step("output_guardrail") as step:
@@ -609,7 +611,8 @@ class RAGPipeline:
             self._record_usage(metrics, user_prompt, combined_context, answer)
 
             # Cache grounded result only if validation passed without leakage, and the monitor checked the question
-            if val_res.is_valid and routed_path() != VERIFIED and monitor_ran and reply is None:
+            if (val_res.is_valid and routed_path() != VERIFIED and monitor_ran and reply is None
+                    and metrics.get("hollow_answer") != "fallback"):  # the next asker gets a fresh attempt
                 intent_cache.set(country, visa_type, intent, answer, version=rules_version, query=query,
                                  sources=sources)
             # M6.2: what each part's check found, for the badges under the answer (only when the shown answer is
@@ -617,11 +620,17 @@ class RAGPipeline:
             checked = verification(results, sources) if evidence_answer is not None and val_res.is_valid else None
             if checked and not any(r.status == "verified" for r in results) and guarantee_fact:
                 checked = None  # the answer is the rule engine's "approval can't be guaranteed", not these parts
-            complete = not (metrics.get("evidence") or {}).get("not_reached")  # M6.3: a partial answer isn't cached
+            evidence_counts = metrics.get("evidence") or {}
+            complete = not evidence_counts.get("not_reached")  # M6.3: a partial answer isn't cached
+            # A part whose quote failed its check is usually a one-off model slip: the next asker gets a fresh attempt
+            checks_held = not (evidence_counts.get("unverified") or evidence_counts.get("invalid"))
             if verified_cache_key and evidence_answer is not None and val_res.is_valid and monitor_ran and complete:
                 with trace_step("verified_cache_store") as step:
-                    step["stored"] = await verified_cache.put(verified_cache_key, answer, sources,
-                                                              metrics.get("evidence") or {}, checked)
+                    if checks_held:
+                        step["stored"] = await verified_cache.put(verified_cache_key, answer, sources,
+                                                                  evidence_counts, checked)
+                    else:
+                        step.update(stored=False, reason="a part failed its check")
 
             yield {"type": "chunk", "content": answer}
             yield {"type": "done", "full_response": answer, "sources": sources, "metrics": finished_metrics(),
@@ -657,6 +666,10 @@ class RAGPipeline:
                 metrics["output_violations"] = stream_violations
             else:
                 metrics["output_guardrail_remediated"] = False
+                # The text already streamed is replaced in the chat by the final answer (the done event's
+                # full_response), which is also what's saved and cached
+                full_response = await self._guard_shape(full_response, generation_args, metrics)
+                full_response = self._guard_amounts(full_response, combined_context, query, metrics)
 
                 # Legal & High-Risk Disclaimer Evaluation (Milestone 3 - Task 3.3)
                 with trace_step("disclaimer") as step:
@@ -674,7 +687,7 @@ class RAGPipeline:
                 if _monitor_unavailable(metrics):
                     full_response += MONITOR_UNAVAILABLE_NOTE  # M4.7: checked by code only; not cached
                     yield {"type": "chunk", "content": MONITOR_UNAVAILABLE_NOTE}
-                elif reply is None:  # an answer after a reply depends on the reply: never cached
+                elif reply is None and metrics.get("hollow_answer") != "fallback":  # after a reply: never cached
                     normalized_full = normalize_markdown_output(full_response)
                     intent_cache.set(country, visa_type, intent, normalized_full, version=rules_version,
                                      query=query, sources=sources)
@@ -697,6 +710,46 @@ class RAGPipeline:
             "sources": sources,
             "metrics": finished_metrics(),
         }
+
+    @staticmethod
+    async def _guard_shape(answer: str, generation_args: Dict[str, Any], metrics: Dict[str, Any]) -> str:
+        """M8.5: no copied source headers, and never a bare "[Source 1]" as the answer (answer_shape). A hollow
+        answer gets one more model call with a nudge; if that is hollow too, or fails the output check (the stream
+        check never saw it), the user is told plainly that no answer could be written."""
+        if not settings.ANSWER_SHAPE_GUARD:
+            return answer
+        cleaned = answer_shape.strip_echoed_framing(answer)
+        if not answer_shape.is_hollow(cleaned):
+            if cleaned != answer.strip():
+                with trace_step("answer_shape") as step:
+                    step.update(stripped=True, hollow=False)
+            return cleaned
+        with trace_step("answer_shape") as step:
+            step.update(stripped=cleaned != answer.strip(), hollow=True, first=cleaned[:80])
+            result = "fallback"
+            try:
+                retry_args = dict(generation_args, user_prompt=generation_args["user_prompt"] + answer_shape.RETRY_NUDGE)
+                retried = answer_shape.strip_echoed_framing(
+                    normalize_markdown_output(await llm_service.generate_answer(**retry_args)))
+                if not answer_shape.is_hollow(retried) and output_guardrail.validate_output(retried).is_valid:
+                    cleaned, result = retried, "retry"
+            except AIServiceUnavailableError:
+                pass  # the fallback below says what happened; nothing is invented
+            step["result"] = result
+        metrics["hollow_answer"] = result
+        return cleaned if result == "retry" else answer_shape.HOLLOW_FALLBACK
+
+    @staticmethod
+    def _guard_amounts(answer: str, context: str, query: str, metrics: Dict[str, Any]) -> str:
+        """M8.4: a fast-path answer keeps no money amount the context and question don't state (amount_guard)."""
+        if not settings.AMOUNT_GUARD:
+            return answer
+        with trace_step("amount_guard") as step:
+            answer, removed = amount_guard.check(answer, context, query)
+            step["removed"] = removed
+        if removed:
+            metrics["amounts_removed"] = removed
+        return answer
 
     @staticmethod
     async def _evidence_answers(parts: List[str], rule_facts: Optional[str], chunks: List[Dict[str, Any]],

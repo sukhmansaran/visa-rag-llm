@@ -143,6 +143,18 @@ class Settings(BaseSettings):
     # RAG generation budget
     RAG_TOP_K: int = 4                    # chunks retrieved per question
     RAG_CONTEXT_CHARS: int = 4000         # max source text given to the model (~1,000 tokens)
+    # Sections of one page that end with the same sentence leave chunks that start alike and crowd out the one
+    # with the figure; merge them with the chunks before them (app/services/repeated_chunks.py)
+    RAG_COLLAPSE_REPEATS: bool = True
+    # How much the question's rare words lift a chunk within the search pool (app/services/lexical.py); 0 = off.
+    # 0.04: the smallest weight that brought "stop working and leave Canada" into the refused-permit answer, with no
+    # eval case losing a phrase it needs (scripts: retrieval coverage over the eval set, 2026-11-15)
+    RAG_LEXICAL_WEIGHT: float = 0.04
+    # A fast-path answer loses any sentence with a money amount its sources don't state (app/services/amount_guard.py)
+    AMOUNT_GUARD: bool = True
+    # A fast-path answer loses copied source-header lines; one that is then empty ("[Source 1]") is asked for once
+    # more, then replaced by an honest "couldn't write an answer" (app/services/answer_shape.py)
+    ANSWER_SHAPE_GUARD: bool = True
     RAG_MULTI_PART_CONTEXT_CHARS: int = 6000  # verified questions with several parts (M2.3): shared between parts
     RAG_MAX_ANSWER_TOKENS: int = 450      # answer length cap (~7 tok/s on CPU -> ~1 min)
     RAG_TEMPERATURE: float = 0.0          # deterministic answers; >0 only adds run-to-run variation

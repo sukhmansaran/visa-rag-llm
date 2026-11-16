@@ -64,8 +64,61 @@ class TestRetrievalService:
         # Verify filters were passed
         call_args = mock_search.call_args
         assert call_args[1]['filters'] == {'country': 'Canada'}
-        assert call_args[1]['top_k'] == 5
-    
+        # a deeper pool, so merged repeats can be refilled (repeated_chunks.py); the answer still gets top_k
+        assert call_args[1]['top_k'] == 5 * 3
+
+    @pytest.mark.asyncio
+    @patch('app.services.retrieval.embed_text')
+    @patch('app.services.retrieval.vector_store.search')
+    async def test_retrieve_returns_top_k_from_the_deeper_pool(self, mock_search, mock_embed):
+        mock_embed.return_value = [0.1] * 1536
+        mock_search.return_value = [
+            {'id': str(i), 'text': f'chunk {i}', 'metadata': {'url': 'https://canada.ca', 'document_id': i},
+             'score': 0.9 - i / 100}
+            for i in range(12)
+        ]
+        results = await retrieval_service.retrieve(query="q", country="Canada", top_k=4)
+        assert [r['id'] for r in results] == ['0', '1', '2', '3']
+
+    @pytest.mark.asyncio
+    @patch('app.services.retrieval.embed_text')
+    @patch('app.services.retrieval.vector_store.search')
+    async def test_merging_repeats_can_be_switched_off(self, mock_search, mock_embed, monkeypatch):
+        from app.core.config import settings
+        monkeypatch.setattr(settings, "RAG_COLLAPSE_REPEATS", False)
+        monkeypatch.setattr(settings, "RAG_LEXICAL_WEIGHT", 0.0)
+        mock_embed.return_value = [0.1] * 1536
+        mock_search.return_value = []
+        await retrieval_service.retrieve(query="q", country="Canada", top_k=5)
+        assert mock_search.call_args[1]['top_k'] == 5
+
+    @pytest.mark.asyncio
+    @patch('app.services.retrieval.embed_text')
+    @patch('app.services.retrieval.vector_store.search')
+    async def test_a_rare_word_of_the_question_lifts_its_chunk_into_the_top_k(self, mock_search, mock_embed,
+                                                                             monkeypatch):
+        """M8.5: "refused" decides the answer; the chunk with it ranked 5th by similarity alone."""
+        from app.core.config import settings
+        from app.services import lexical
+        monkeypatch.setattr(settings, "RAG_COLLAPSE_REPEATS", False)
+
+        async def corpus():
+            return 400, {"refus": 12, "campu": 120, "permit": 300, "applic": 250, "job": 90, "happen": 3}
+
+        monkeypatch.setattr(lexical, "corpus_frequencies", corpus)
+        mock_embed.return_value = [0.1] * 1536
+        common = "Students may work off campus with a study permit while the application is processed."
+        mock_search.return_value = [
+            {'id': str(i), 'text': f'{common} Section {i}.', 'metadata': {'url': 'https://canada.ca'},
+             'score': 0.77 - i / 100} for i in range(4)
+        ] + [{'id': 'refused', 'text': 'If we refuse your study permit application, you must stop working and leave.',
+              'metadata': {'url': 'https://canada.ca'}, 'score': 0.735}]
+        query = "What happens to my off-campus job if my study permit application is refused?"
+        monkeypatch.setattr(settings, "RAG_LEXICAL_WEIGHT", 0.0)
+        assert 'refused' not in [r['id'] for r in await retrieval_service.retrieve(query=query, top_k=4)]
+        monkeypatch.setattr(settings, "RAG_LEXICAL_WEIGHT", 0.04)
+        assert 'refused' in [r['id'] for r in await retrieval_service.retrieve(query=query, top_k=4)]
+
     @pytest.mark.asyncio
     @patch('app.services.retrieval.embed_text')
     @patch('app.services.retrieval.vector_store.search')

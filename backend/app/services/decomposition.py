@@ -121,14 +121,45 @@ async def decompose(question: str) -> Decomposition:
         subs, problems = [], [f"model: {type(e).__name__}"]
 
     if not problems:
-        return Decomposition(question, tuple(subs), MODEL, detected.topics, proposed=tuple(subs))
+        return Decomposition(question, tuple(name_the_subject(question, subs)), MODEL, detected.topics,
+                             proposed=tuple(subs))
     if all(p.startswith("acronyms:") and " expands " in p for p in problems):
         repaired = [strip_expansions(s) for s in subs]
         if not validate(question, detected, repaired):
-            return Decomposition(question, tuple(repaired), MODEL, detected.topics, tuple(problems),
-                                 proposed=tuple(subs), repaired=True)
-    return Decomposition(question, tuple(fallback_split(question, detected)), FALLBACK, detected.topics,
-                         tuple(problems), proposed=tuple(subs))
+            return Decomposition(question, tuple(name_the_subject(question, repaired)), MODEL, detected.topics,
+                                 tuple(problems), proposed=tuple(subs), repaired=True)
+    return Decomposition(question, tuple(name_the_subject(question, fallback_split(question, detected))), FALLBACK,
+                         detected.topics, tuple(problems), proposed=tuple(subs))
+
+
+# ---------------------------------------------------------------- each part names who it is about (M8.5)
+
+# "a master's student at a public university", "my 10-year-old son", "an international graduate from a college"
+_PERSON = (r"students?|graduates?|applicants?|workers?|child|children|kids?|sons?|daughters?|spouses?|wife|husband|"
+           r"partners?|parents?|visitors?|travell?ers?|people|persons?")
+_SUBJECT = re.compile(
+    rf"\b(?:a|an|the|my|our|his|her)\s+(?:[\w'-]+\s+){{0,3}}?(?:{_PERSON})\b"
+    r"(?:\s+(?:at|in|from)\s+(?:a|an|the|my|our)?\s*(?:[\w'-]+\s+){0,2}?"
+    r"(?:university|college|school|institution|dli|program|programme|polytechnic|cegep|quebec|ontario|canada))?",
+    re.IGNORECASE)
+_THIRD_PERSON = re.compile(r"\b(they|their|theirs|them|he|she|his|her|hers|him)\b", re.IGNORECASE)
+
+
+def name_the_subject(question: str, subs: List[str]) -> List[str]:
+    """A part that says "their" / "they" / "he"... about someone only another part names ("Does a master's student
+    at a public university need a PAL, and how long can their PGWP be?") is answered for nobody in particular:
+    the 3-year PGWP for master's graduates never came up. Such a part gets "For <who>: " in front."""
+    subject = _SUBJECT.search(question or "")
+    if not subject or len(subs) < 2:
+        return list(subs)
+    who = subject.group(0).strip()
+    who = who[:1].lower() + who[1:]  # "My son" at the start of the question -> "For my son: ..."
+    named = []
+    for sub in subs:
+        if _THIRD_PERSON.search(sub) and who.lower() not in sub.lower():
+            sub = f"For {who}: {sub}"
+        named.append(sub)
+    return named
 
 
 # ---------------------------------------------------------------- validators

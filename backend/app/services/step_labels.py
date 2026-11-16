@@ -16,7 +16,8 @@ STEP_NAMES = {
     "triage": True, "intent": False, "decomposition": True, "rules": True, "route": False, "cache": True,
     "tourist_db": False, "retrieval": True, "evidence_gate": True, "agent": True, "agent_step": True, "tool": False,
     "evidence": True, "reflect": True, "retry": True, "generation": True, "output_guardrail": True,
-    "disclaimer": True, "verified_cache_store": False, "degraded": True, "diagnostic": True,
+    "disclaimer": True, "verified_cache_store": False, "degraded": True, "diagnostic": True, "amount_guard": True,
+    "answer_shape": True,
 }
 
 _TRIAGE_REASONS = {"multi_part": "it has several parts", "legal_risk": "it touches a legal risk",
@@ -110,6 +111,15 @@ def describe(step: Dict[str, Any]) -> Optional[str]:
         return "Wrote the answer from the sources"
     if name == "output_guardrail":
         return "Checked the answer before showing it" if step.get("valid", True) else "Corrected the answer before showing it"
+    if name == "amount_guard":
+        removed = step.get("removed") or 0
+        return f"Left out {_plural(removed, 'amount')} the official sources don't state" if removed else None
+    if name == "answer_shape":
+        if not step.get("hollow"):
+            return None  # only copied source headers were removed: nothing the user needs to know
+        if step.get("result") == "retry":
+            return "The first draft had no answer in it, so it wrote the answer again"
+        return "Couldn't write an answer from the sources, so it said so"
     if name == "disclaimer":
         return "Added a legal notice for this topic" if step.get("high_risk") else None
     if name == "degraded":
